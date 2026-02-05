@@ -1,0 +1,33 @@
+{
+  "name": "pi-provider-kimi-code",
+  "version": "0.1.0",
+  "description": "pi custom provider extension for Kimi Code models with OAuth device-code login",
+  "type": "module",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Leechael/pi-provider-kimi-code"
+  },
+  "keywords": [
+    "pi",
+    "pi-extension",
+    "kimi",
+    "kimi-code",
+    "llm",
+    "coding-agent"
+  ],
+  "files": [
+    "index.ts",
+    "package.json"
+  ],
+  "scripts": {
+    "clean": "echo 'nothing to clean'",
+    "build": "echo 'nothing to build'",
+    "check": "echo 'nothing to check'"
+  },
+  "pi": {
+    "extensions": [
+      "./index.ts"
+    ]
+  }
+}

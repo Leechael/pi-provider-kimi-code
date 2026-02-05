@@ -1,0 +1,69 @@
+name: Publish to npm with OIDC
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "npm tag (latest, beta, etc.)"
+        required: false
+        default: "latest"
+  release:
+    types: [published]
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          registry-url: "https://registry.npmjs.org"
+
+      - name: Upgrade npm for OIDC support
+        run: |
+          npm install -g npm@latest
+          echo "npm version: $(npm --version)"
+
+      - name: Verify OIDC token availability
+        run: |
+          if [ -n "${ACTIONS_ID_TOKEN_REQUEST_URL}" ] && [ -n "${ACTIONS_ID_TOKEN_REQUEST_TOKEN}" ]; then
+            echo "OIDC token available"
+          else
+            echo "OIDC token NOT available"
+            echo "Check workflow permissions include 'id-token: write'"
+            exit 1
+          fi
+
+      - name: Verify repository configuration
+        run: |
+          GIT_REPO=$(git remote get-url origin | sed 's/.*github.com[/:]//; s/.git$//')
+          PKG_REPO=$(node -e "console.log(require('./package.json').repository?.url || '')" | sed 's|https://github.com/||; s|git+||; s|.git$||')
+          echo "Git remote:   $GIT_REPO"
+          echo "package.json: $PKG_REPO"
+          if [ "$GIT_REPO" != "$PKG_REPO" ]; then
+            echo "Repository mismatch! This will cause 422 error during publish."
+            exit 1
+          fi
+          echo "Repositories match"
+
+      - name: Publish to npm
+        run: |
+          NPM_TAG="${{ github.event.inputs.tag || 'latest' }}"
+          echo "Publishing with tag: $NPM_TAG"
+          npm publish --access public --tag "$NPM_TAG" --provenance
+
+      - name: Publish summary
+        if: success()
+        run: |
+          PKG_NAME=$(node -e "console.log(require('./package.json').name)")
+          PKG_VERSION=$(node -e "console.log(require('./package.json').version)")
+          echo "Published: $PKG_NAME@$PKG_VERSION"
+          echo "https://www.npmjs.com/package/$PKG_NAME"
