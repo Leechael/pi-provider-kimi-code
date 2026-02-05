@@ -18,7 +18,8 @@
   ],
   "files": [
     "index.ts",
-    "package.json"
+    "package.json",
+    "README.md"
   ],
   "scripts": {
     "clean": "echo 'nothing to clean'",
