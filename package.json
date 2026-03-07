@@ -1,6 +1,6 @@
 {
   "name": "pi-provider-kimi-code",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "description": "pi custom provider extension for Kimi Code models with OAuth device-code login",
   "type": "module",
   "license": "MIT",
