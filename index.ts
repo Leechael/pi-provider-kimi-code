@@ -10,6 +10,7 @@
  */
 
 import { randomBytes } from "node:crypto";
+import os from "node:os";
 import type { OAuthCredentials, OAuthLoginCallbacks } from "@mariozechner/pi-ai";
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
 
@@ -19,8 +20,9 @@ import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
 
 const CLIENT_ID = "17e5f671-d194-4dfb-9706-5516cb48c098";
 const OAUTH_HOST = "https://auth.kimi.com";
-const KIMI_CLI_USER_AGENT = "kimi-cli/1.0.0 (external, cli)";
+const KIMI_CLI_USER_AGENT = "KimiCLI/1.0.0";
 const KIMI_PLATFORM = "kimi_cli";
+const KIMI_CLI_VERSION = "1.0.0";
 
 // =============================================================================
 // Device identification
@@ -32,14 +34,15 @@ function createDeviceId(): string {
 
 function getDeviceModel(): string {
 	const platform = process.platform;
-	const arch = process.arch;
+	const arch = os.machine() || process.arch;
+	const release = os.release();
 	if (platform === "darwin") {
-		return `macOS ${arch}`;
+		return release && arch ? `macOS ${release} ${arch}` : `macOS ${arch}`;
 	}
 	if (platform === "win32") {
-		return `Windows ${arch}`;
+		return release && arch ? `Windows ${release} ${arch}` : `Windows ${arch}`;
 	}
-	return `${platform} ${arch}`;
+	return release && arch ? `${platform} ${release} ${arch}` : `${platform} ${arch}`;
 }
 
 const DEVICE_MODEL = getDeviceModel();
@@ -56,7 +59,10 @@ function getCommonHeaders(): Record<string, string> {
 	return {
 		"User-Agent": KIMI_CLI_USER_AGENT,
 		"X-Msh-Platform": KIMI_PLATFORM,
+		"X-Msh-Version": KIMI_CLI_VERSION,
+		"X-Msh-Device-Name": os.hostname(),
 		"X-Msh-Device-Model": DEVICE_MODEL,
+		"X-Msh-Os-Version": os.release(),
 		"X-Msh-Device-Id": getStableDeviceId(),
 	};
 }
@@ -270,10 +276,7 @@ export default function (pi: ExtensionAPI) {
 		apiKey: "KIMI_API_KEY",
 		api: "anthropic-messages",
 
-		headers: {
-			"User-Agent": KIMI_CLI_USER_AGENT,
-			"X-Msh-Platform": KIMI_PLATFORM,
-		},
+		headers: getCommonHeaders(),
 
 		models: [
 			{
