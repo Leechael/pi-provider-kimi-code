@@ -277,19 +277,28 @@ export default function (pi: ExtensionAPI) {
 
 		models: [
 			{
-				id: "kimi-k2-thinking",
-				name: "Kimi K2 Thinking",
+				id: "kimi-code",
+				name: "Kimi Code (powered by kimi-k2.5)",
 				reasoning: true,
-				input: ["text"],
+				input: ["text", "image"],
 				cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
 				contextWindow: 262144,
 				maxTokens: 32768,
 			},
 			{
-				id: "k2p5",
+				id: "kimi-k2.5",
 				name: "Kimi K2.5",
 				reasoning: true,
 				input: ["text", "image"],
+				cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+				contextWindow: 262144,
+				maxTokens: 32768,
+			},
+			{
+				id: "kimi-k2-thinking-turbo",
+				name: "Kimi K2 Thinking Turbo",
+				reasoning: true,
+				input: ["text"],
 				cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
 				contextWindow: 262144,
 				maxTokens: 32768,
