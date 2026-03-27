@@ -11,7 +11,8 @@
 
 import { randomBytes } from "node:crypto";
 import os from "node:os";
-import type { OAuthCredentials, OAuthLoginCallbacks } from "@mariozechner/pi-ai";
+import type { OAuthCredentials, OAuthLoginCallbacks, AssistantMessageEvent, Context, Model, SimpleStreamOptions } from "@mariozechner/pi-ai";
+import { streamSimpleAnthropic, AssistantMessageEventStream } from "@mariozechner/pi-ai";
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
 
 // =============================================================================
@@ -267,6 +268,90 @@ async function refreshKimiCodeToken(credentials: OAuthCredentials): Promise<OAut
 }
 
 // =============================================================================
+// Stream wrapper: strip "(Empty response: ...)" text blocks from Kimi API
+// =============================================================================
+// The Kimi API wraps thinking-only responses (no text content) into a text
+// block like: (Empty response: {'content': [{'type': 'thinking', ...}]})
+// This leaks internal state to the user. We detect and suppress such blocks.
+
+const EMPTY_RESPONSE_PREFIX = "(Empty response:";
+
+function streamSimpleKimi(
+	model: Model<"anthropic-messages">,
+	context: Context,
+	options?: SimpleStreamOptions,
+): AssistantMessageEventStream {
+	const upstream = streamSimpleAnthropic(model, context, options);
+	const filtered = new AssistantMessageEventStream();
+
+	// Buffer text block events so we can suppress the entire block if it
+	// turns out to be a Kimi "(Empty response: ...)" wrapper.
+	const suppressedIndices = new Set<number>();
+	let textBuffer: AssistantMessageEvent[] = [];
+	let bufferingIndex: number | null = null;
+
+	void (async () => {
+		try {
+			for await (const event of upstream) {
+				// Start buffering when a new text block begins
+				if (event.type === "text_start") {
+					bufferingIndex = event.contentIndex;
+					textBuffer = [event];
+					continue;
+				}
+
+				// Accumulate text deltas while buffering
+				if (bufferingIndex !== null && "contentIndex" in event && event.contentIndex === bufferingIndex) {
+					if (event.type === "text_delta") {
+						textBuffer.push(event);
+						continue;
+					}
+					if (event.type === "text_end") {
+						if (event.content.startsWith(EMPTY_RESPONSE_PREFIX)) {
+							// Suppress entire text block — discard buffered events
+							suppressedIndices.add(bufferingIndex);
+							const content = event.partial.content;
+							if (content[bufferingIndex]?.type === "text") {
+								content.splice(bufferingIndex, 1);
+							}
+						} else {
+							// Legitimate text block — flush buffer + end event
+							for (const buffered of textBuffer) filtered.push(buffered);
+							filtered.push(event);
+						}
+						textBuffer = [];
+						bufferingIndex = null;
+						continue;
+					}
+				}
+
+				// Skip events for already-suppressed indices
+				if ("contentIndex" in event && suppressedIndices.has(event.contentIndex)) {
+					continue;
+				}
+
+				// Clean suppressed blocks from the final message
+				if (event.type === "done" && suppressedIndices.size > 0) {
+					event.message.content = event.message.content.filter(
+						(block) => !(block.type === "text" && typeof block.text === "string" && block.text.startsWith(EMPTY_RESPONSE_PREFIX)),
+					);
+				}
+
+				filtered.push(event);
+			}
+		} catch (err) {
+			filtered.push({
+				type: "error",
+				reason: "error",
+				error: { content: [], stopReason: "error", usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0 } },
+			} as AssistantMessageEvent & { type: "error" });
+		}
+	})();
+
+	return filtered;
+}
+
+// =============================================================================
 // Extension Entry Point
 // =============================================================================
 
@@ -275,6 +360,7 @@ export default function (pi: ExtensionAPI) {
 		baseUrl: "https://api.kimi.com/coding",
 		apiKey: "KIMI_API_KEY",
 		api: "anthropic-messages",
+		streamSimple: streamSimpleKimi,
 
 		headers: getCommonHeaders(),
 
