@@ -308,12 +308,11 @@ function streamSimpleKimi(
 					}
 					if (event.type === "text_end") {
 						if (event.content.startsWith(EMPTY_RESPONSE_PREFIX)) {
-							// Suppress entire text block — discard buffered events
+							// Suppress entire text block — discard buffered events.
+							// Do NOT splice content array: it is a shared reference
+							// into session state, and mutating it shifts subsequent
+							// contentIndex values, corrupting the stream.
 							suppressedIndices.add(bufferingIndex);
-							const content = event.partial.content;
-							if (content[bufferingIndex]?.type === "text") {
-								content.splice(bufferingIndex, 1);
-							}
 						} else {
 							// Legitimate text block — flush buffer + end event
 							for (const buffered of textBuffer) filtered.push(buffered);
