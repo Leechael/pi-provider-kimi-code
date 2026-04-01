@@ -38,21 +38,31 @@ KIMI_API_KEY=sk-... pi
 
 ## Models
 
-| ID                 | Name             | Reasoning | Input       | Context  | Max Output |
-|--------------------|------------------|-----------|-------------|----------|------------|
-| `kimi-k2-thinking` | Kimi K2 Thinking | yes       | text        | 262 144  | 32 768     |
-| `k2p5`             | Kimi K2.5        | yes       | text, image | 262 144  | 32 768     |
+| ID                        | Name                           | Reasoning | Input       | Context  | Max Output |
+|---------------------------|--------------------------------|-----------|-------------|----------|------------|
+| `kimi-code`               | Kimi Code (powered by kimi-k2.5) | yes     | text, image | 262 144  | 32 768     |
+| `kimi-k2.5`               | Kimi K2.5                      | yes       | text, image | 262 144  | 32 768     |
+| `kimi-k2-thinking-turbo`  | Kimi K2 Thinking Turbo         | yes       | text        | 262 144  | 32 768     |
 
 Select a model inside pi:
 
 ```
-/model kimi-coding/kimi-k2-thinking
+/model kimi-coding/kimi-code
 ```
+
+## Environment Overrides
+
+- `KIMI_CODE_BASE_URL` — override the default API base URL (`https://api.kimi.com/coding`)
+- `KIMI_CODE_OAUTH_HOST` — override the OAuth host
+- `KIMI_OAUTH_HOST` — fallback OAuth host override for compatibility
 
 ## How It Works
 
 - Registers provider `kimi-coding` with base URL `https://api.kimi.com/coding`
-- Uses `api: "anthropic-messages"` — Kimi's API is wire-compatible with the Anthropic Messages format, so no custom streaming logic is needed
+- Uses `api: "anthropic-messages"` — Kimi's API is wire-compatible with the Anthropic Messages format
+- Adds a small `streamSimple` wrapper to suppress Kimi's leaked `(Empty response: ...)` placeholder blocks
+- Sends the same `KimiCLI/1.28.0` + `X-Msh-*` headers as current `kimi-cli`
+- Persists a stable device ID at `~/.pi/providers/kimi-coding/device_id`
 - OAuth uses [RFC 8628](https://datatracker.ietf.org/doc/html/rfc8628) device authorization grant against `https://auth.kimi.com`
 - Zero dependencies — types from `@mariozechner/pi-ai` and `@mariozechner/pi-coding-agent` are provided by the pi runtime
 - Zero build step — pi loads TypeScript directly via jiti

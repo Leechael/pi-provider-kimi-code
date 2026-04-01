@@ -10,7 +10,9 @@
  */
 
 import { randomBytes } from "node:crypto";
+import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import os from "node:os";
+import { dirname, join } from "node:path";
 import type { OAuthCredentials, OAuthLoginCallbacks, AssistantMessageEvent, Context, Model, SimpleStreamOptions } from "@mariozechner/pi-ai";
 import { streamSimpleAnthropic, AssistantMessageEventStream } from "@mariozechner/pi-ai";
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
@@ -20,17 +22,57 @@ import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
 // =============================================================================
 
 const CLIENT_ID = "17e5f671-d194-4dfb-9706-5516cb48c098";
-const OAUTH_HOST = "https://auth.kimi.com";
-const KIMI_CLI_USER_AGENT = "KimiCLI/1.0.0";
+const DEFAULT_OAUTH_HOST = "https://auth.kimi.com";
+const DEFAULT_BASE_URL = "https://api.kimi.com/coding";
+const KIMI_CLI_VERSION = "1.28.0";
+const KIMI_CLI_USER_AGENT = `KimiCLI/${KIMI_CLI_VERSION}`;
 const KIMI_PLATFORM = "kimi_cli";
-const KIMI_CLI_VERSION = "1.0.0";
+const DEVICE_ID_PATH = join(os.homedir(), ".pi", "providers", "kimi-coding", "device_id");
 
 // =============================================================================
 // Device identification
 // =============================================================================
 
+function getOAuthHost(): string {
+	const value = process.env.KIMI_CODE_OAUTH_HOST || process.env.KIMI_OAUTH_HOST || DEFAULT_OAUTH_HOST;
+	return value.trim() || DEFAULT_OAUTH_HOST;
+}
+
+function getBaseUrl(): string {
+	const value = process.env.KIMI_CODE_BASE_URL || DEFAULT_BASE_URL;
+	return value.trim() || DEFAULT_BASE_URL;
+}
+
 function createDeviceId(): string {
 	return randomBytes(16).toString("hex");
+}
+
+function ensurePrivateFile(path: string): void {
+	try {
+		chmodSync(path, 0o600);
+	} catch {
+		// Ignore chmod failures on platforms/filesystems that do not support it.
+	}
+}
+
+function readPersistedDeviceId(): string | null {
+	try {
+		if (!existsSync(DEVICE_ID_PATH)) return null;
+		const deviceId = readFileSync(DEVICE_ID_PATH, "utf8").trim();
+		return deviceId || null;
+	} catch {
+		return null;
+	}
+}
+
+function persistDeviceId(deviceId: string): void {
+	try {
+		mkdirSync(dirname(DEVICE_ID_PATH), { recursive: true });
+		writeFileSync(DEVICE_ID_PATH, deviceId, "utf8");
+		ensurePrivateFile(DEVICE_ID_PATH);
+	} catch {
+		// Ignore persistence failures and fall back to the in-memory device id.
+	}
 }
 
 function getDeviceModel(): string {
@@ -46,18 +88,36 @@ function getDeviceModel(): string {
 	return release && arch ? `${platform} ${release} ${arch}` : `${platform} ${arch}`;
 }
 
+function asciiHeaderValue(value: string, fallback = "unknown"): string {
+	const trimmed = value.trim();
+	if (/^[\x00-\x7F]*$/.test(trimmed)) {
+		return trimmed;
+	}
+	const sanitized = trimmed.replace(/[^\x00-\x7F]/g, "").trim();
+	return sanitized || fallback;
+}
+
 const DEVICE_MODEL = getDeviceModel();
 let DEVICE_ID: string | null = null;
 
 function getStableDeviceId(): string {
-	if (!DEVICE_ID) {
-		DEVICE_ID = createDeviceId();
+	if (DEVICE_ID) {
+		return DEVICE_ID;
 	}
+
+	const persisted = readPersistedDeviceId();
+	if (persisted) {
+		DEVICE_ID = persisted;
+		return DEVICE_ID;
+	}
+
+	DEVICE_ID = createDeviceId();
+	persistDeviceId(DEVICE_ID);
 	return DEVICE_ID;
 }
 
 function getCommonHeaders(): Record<string, string> {
-	return {
+	const headers = {
 		"User-Agent": KIMI_CLI_USER_AGENT,
 		"X-Msh-Platform": KIMI_PLATFORM,
 		"X-Msh-Version": KIMI_CLI_VERSION,
@@ -66,6 +126,7 @@ function getCommonHeaders(): Record<string, string> {
 		"X-Msh-Os-Version": os.release(),
 		"X-Msh-Device-Id": getStableDeviceId(),
 	};
+	return Object.fromEntries(Object.entries(headers).map(([key, value]) => [key, asciiHeaderValue(value)])) as Record<string, string>;
 }
 
 // =============================================================================
@@ -90,7 +151,7 @@ interface TokenResponse {
 }
 
 async function requestDeviceAuthorization(): Promise<DeviceAuthorization> {
-	const response = await fetch(`${OAUTH_HOST}/api/oauth/device_authorization`, {
+	const response = await fetch(`${getOAuthHost()}/api/oauth/device_authorization`, {
 		method: "POST",
 		headers: {
 			"Content-Type": "application/x-www-form-urlencoded",
@@ -130,7 +191,7 @@ async function requestDeviceAuthorization(): Promise<DeviceAuthorization> {
 }
 
 async function requestDeviceToken(auth: DeviceAuthorization): Promise<TokenResponse | null> {
-	const response = await fetch(`${OAUTH_HOST}/api/oauth/token`, {
+	const response = await fetch(`${getOAuthHost()}/api/oauth/token`, {
 		method: "POST",
 		headers: {
 			"Content-Type": "application/x-www-form-urlencoded",
@@ -154,7 +215,7 @@ async function requestDeviceToken(auth: DeviceAuthorization): Promise<TokenRespo
 	if (response.status === 400) {
 		const data = (await response.json()) as { error?: string; error_description?: string };
 		if (data.error === "authorization_pending") {
-			return null; // Still waiting for user
+			return null;
 		}
 		if (data.error === "expired_token") {
 			throw new Error("expired_token");
@@ -167,7 +228,7 @@ async function requestDeviceToken(auth: DeviceAuthorization): Promise<TokenRespo
 }
 
 async function refreshAccessToken(refreshToken: string): Promise<TokenResponse> {
-	const response = await fetch(`${OAUTH_HOST}/api/oauth/token`, {
+	const response = await fetch(`${getOAuthHost()}/api/oauth/token`, {
 		method: "POST",
 		headers: {
 			"Content-Type": "application/x-www-form-urlencoded",
@@ -356,7 +417,7 @@ function streamSimpleKimi(
 
 export default function (pi: ExtensionAPI) {
 	pi.registerProvider("kimi-coding", {
-		baseUrl: "https://api.kimi.com/coding",
+		baseUrl: getBaseUrl(),
 		apiKey: "KIMI_API_KEY",
 		api: "anthropic-messages",
 		streamSimple: streamSimpleKimi,
