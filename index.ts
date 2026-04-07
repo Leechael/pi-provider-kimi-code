@@ -23,7 +23,7 @@ import type {
 } from "@mariozechner/pi-ai";
 import {
   streamSimpleAnthropic,
-  streamSimpleOpenAIResponses,
+  streamSimpleOpenAICompletions,
   AssistantMessageEventStream,
 } from "@mariozechner/pi-ai";
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
@@ -35,9 +35,9 @@ import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
 const CLIENT_ID = "17e5f671-d194-4dfb-9706-5516cb48c098";
 const DEFAULT_OAUTH_HOST = "https://auth.kimi.com";
 const PROTOCOL =
-  process.env.KIMI_CODE_PROTOCOL === "openai" ? "openai-responses" : "anthropic-messages";
+  process.env.KIMI_CODE_PROTOCOL === "openai" ? "openai-completions" : "anthropic-messages";
 const DEFAULT_BASE_URL =
-  PROTOCOL === "openai" ? "https://api.kimi.com/v1" : "https://api.kimi.com/coding";
+  PROTOCOL === "openai" ? "https://api.kimi.com/coding/v1" : "https://api.kimi.com/coding";
 const KIMI_CLI_VERSION = "1.28.0";
 const KIMI_CLI_USER_AGENT = `KimiCLI/${KIMI_CLI_VERSION}`;
 const KIMI_PLATFORM = "kimi_cli";
@@ -364,70 +364,154 @@ function mapThinkingLevel(level?: string): string | undefined {
   return undefined;
 }
 
+async function transformContextFiles(context: Context, apiKey: string): Promise<Context> {
+  const transformedMessages = [];
+  for (const message of context.messages) {
+    if (message.role === "user" && Array.isArray(message.content)) {
+      const newContent = [];
+      for (const block of message.content) {
+        if (block.type === "image") {
+          // If the image is extremely large or if it's actually a video masquerading as an image,
+          // upload it to Kimi's /v1/files endpoint.
+          // For Kimi, images > 5MB or videos should be uploaded. We'll use 5MB threshold.
+          const buffer = Buffer.from(block.data, "base64");
+          if (buffer.length > 5 * 1024 * 1024 || block.mimeType.startsWith("video/")) {
+            const formData = new FormData();
+            const filename = block.mimeType.startsWith("video/") ? "upload.mp4" : "upload.png";
+            formData.append("file", new Blob([buffer], { type: block.mimeType }), filename);
+            formData.append(
+              "purpose",
+              block.mimeType.startsWith("video/") ? "video" : "file-extract",
+            );
+
+            const uploadUrl =
+              PROTOCOL === "openai-completions"
+                ? "https://api.kimi.com/coding/v1/files"
+                : "https://api.kimi.com/coding/v1/files";
+            console.log(
+              `\n[kimi-coding] Uploading ${filename} to ${uploadUrl} (size: ${(buffer.length / 1024 / 1024).toFixed(2)} MB)...`,
+            );
+            const response = await fetch(uploadUrl, {
+              method: "POST",
+              headers: {
+                Authorization: `Bearer ${apiKey}`,
+                "x-api-key": apiKey,
+                ...getCommonHeaders(),
+              },
+              body: formData,
+            });
+
+            if (response.ok) {
+              const fileObj = (await response.json()) as any;
+              console.log(
+                `[kimi-coding] Upload success. File ID/URL: ${fileObj.url || fileObj.id}`,
+              );
+              // Replace the block with Kimi's specific reference
+              if (block.mimeType.startsWith("video/")) {
+                newContent.push({
+                  type: "video_url" as any,
+                  video_url: { url: fileObj.url || fileObj.id },
+                });
+              } else {
+                newContent.push({
+                  type: "file_url" as any,
+                  file_url: { url: fileObj.url || fileObj.id },
+                });
+              }
+              continue;
+            } else {
+              console.error("Failed to upload file to Kimi API", await response.text());
+            }
+          }
+        }
+        newContent.push(block);
+      }
+      transformedMessages.push({ ...message, content: newContent });
+    } else {
+      transformedMessages.push(message);
+    }
+  }
+  return { ...context, messages: transformedMessages };
+}
+
 function streamSimpleKimi(
-  model: Model<"anthropic-messages" | "openai-responses">,
+  model: Model<"anthropic-messages" | "openai-completions">,
   context: Context,
   options?: SimpleStreamOptions,
 ): AssistantMessageEventStream {
-  // Intercept the payload to inject Kimi's proprietary prompt_cache_key
-  // because Kimi's Anthropic compatibility endpoint requires it alongside cache_control.
-  const originalOnPayload = options?.onPayload;
-  const patchedOptions: SimpleStreamOptions = {
-    ...options,
-    onPayload: async (payload: any, modelData) => {
-      let nextPayload = payload;
-      if (originalOnPayload) {
-        const res = await originalOnPayload(payload, modelData);
-        if (res !== undefined) nextPayload = res;
-      }
-
-      // Inject prompt_cache_key to fulfill Kimi's dual-lock cache requirement.
-      // Allow explicit override via payload or options. Fallback to stable sessionId.
-      if (nextPayload && typeof nextPayload === "object") {
-        const cacheKey =
-          nextPayload.prompt_cache_key || (options as any)?.prompt_cache_key || options?.sessionId;
-        if (cacheKey) {
-          nextPayload = { ...nextPayload, prompt_cache_key: cacheKey };
-        }
-
-        // Environment overrides
-        const envTemp = process.env.KIMI_MODEL_TEMPERATURE;
-        if (envTemp) nextPayload.temperature = parseFloat(envTemp);
-
-        const envTopP = process.env.KIMI_MODEL_TOP_P;
-        if (envTopP) nextPayload.top_p = parseFloat(envTopP);
-
-        const envMaxTokens = process.env.KIMI_MODEL_MAX_TOKENS;
-        if (envMaxTokens) nextPayload.max_tokens = parseInt(envMaxTokens, 10);
-
-        // Reasoning effort mapping
-        const reasoningLevel = (options as any)?.reasoning;
-        if (reasoningLevel) {
-          const mappedEffort = mapThinkingLevel(reasoningLevel);
-          if (mappedEffort) {
-            nextPayload.reasoning_effort = mappedEffort;
-            nextPayload.extra_body = nextPayload.extra_body || {};
-            nextPayload.extra_body.thinking = { type: "enabled" };
-          }
-        }
-      }
-      return nextPayload;
-    },
-  };
-
-  const upstream =
-    model.api === "openai-responses"
-      ? streamSimpleOpenAIResponses(model as any, context, patchedOptions)
-      : streamSimpleAnthropic(model as any, context, patchedOptions);
+  // Pre-process context files: upload large images/videos to Kimi API
   const filtered = new AssistantMessageEventStream();
-
-  // Buffer text block events so we can suppress the entire block if it
-  // turns out to be a Kimi "(Empty response: ...)" wrapper.
-  const suppressedIndices = new Set<number>();
-  let textBuffer: AssistantMessageEvent[] = [];
-  let bufferingIndex: number | null = null;
+  const apiKey = options?.apiKey || process.env.KIMI_API_KEY || "";
 
   void (async () => {
+    let finalContext = context;
+    try {
+      if (apiKey) {
+        finalContext = await transformContextFiles(context, apiKey);
+      }
+    } catch (e) {
+      console.error("Error transforming context files", e);
+    }
+
+    // Intercept the payload to inject Kimi's proprietary prompt_cache_key
+    // because Kimi's Anthropic compatibility endpoint requires it alongside cache_control.
+    const originalOnPayload = options?.onPayload;
+    const patchedOptions: SimpleStreamOptions = {
+      ...options,
+      onPayload: async (payload: any, modelData) => {
+        let nextPayload = payload;
+        if (originalOnPayload) {
+          const res = await originalOnPayload(payload, modelData);
+          if (res !== undefined) nextPayload = res;
+        }
+
+        // Inject prompt_cache_key to fulfill Kimi's dual-lock cache requirement.
+        // Allow explicit override via payload or options. Fallback to stable sessionId.
+        if (nextPayload && typeof nextPayload === "object") {
+          const cacheKey =
+            nextPayload.prompt_cache_key ||
+            (options as any)?.prompt_cache_key ||
+            options?.sessionId;
+          if (cacheKey) {
+            nextPayload = { ...nextPayload, prompt_cache_key: cacheKey };
+          }
+
+          // Environment overrides
+          const envTemp = process.env.KIMI_MODEL_TEMPERATURE;
+          if (envTemp) nextPayload.temperature = parseFloat(envTemp);
+
+          const envTopP = process.env.KIMI_MODEL_TOP_P;
+          if (envTopP) nextPayload.top_p = parseFloat(envTopP);
+
+          const envMaxTokens = process.env.KIMI_MODEL_MAX_TOKENS;
+          if (envMaxTokens) nextPayload.max_tokens = parseInt(envMaxTokens, 10);
+
+          // Reasoning effort mapping
+          const reasoningLevel = (options as any)?.reasoning;
+          if (reasoningLevel) {
+            const mappedEffort = mapThinkingLevel(reasoningLevel);
+            if (mappedEffort) {
+              nextPayload.reasoning_effort = mappedEffort;
+              nextPayload.extra_body = nextPayload.extra_body || {};
+              nextPayload.extra_body.thinking = { type: "enabled" };
+            }
+          }
+        }
+        return nextPayload;
+      },
+    };
+
+    const upstream =
+      model.api === "openai-completions"
+        ? streamSimpleOpenAICompletions(model as any, finalContext, patchedOptions)
+        : streamSimpleAnthropic(model as any, finalContext, patchedOptions);
+
+    // Buffer text block events so we can suppress the entire block if it
+    // turns out to be a Kimi "(Empty response: ...)" wrapper.
+    const suppressedIndices = new Set<number>();
+    let textBuffer: AssistantMessageEvent[] = [];
+    let bufferingIndex: number | null = null;
+
     try {
       for await (const event of upstream) {
         // Start buffering when a new text block begins
