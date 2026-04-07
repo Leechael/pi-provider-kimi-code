@@ -374,6 +374,16 @@ function streamSimpleKimi(
         if (cacheKey) {
           nextPayload = { ...nextPayload, prompt_cache_key: cacheKey };
         }
+
+        // Environment overrides
+        const envTemp = process.env.KIMI_MODEL_TEMPERATURE;
+        if (envTemp) nextPayload.temperature = parseFloat(envTemp);
+
+        const envTopP = process.env.KIMI_MODEL_TOP_P;
+        if (envTopP) nextPayload.top_p = parseFloat(envTopP);
+
+        const envMaxTokens = process.env.KIMI_MODEL_MAX_TOKENS;
+        if (envMaxTokens) nextPayload.max_tokens = parseInt(envMaxTokens, 10);
       }
       return nextPayload;
     },
