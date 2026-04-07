@@ -2,29 +2,38 @@
   "name": "pi-provider-kimi-code",
   "version": "0.1.8",
   "description": "pi custom provider extension for Kimi Code models with OAuth device-code login",
-  "type": "module",
+  "keywords": [
+    "coding-agent",
+    "kimi",
+    "kimi-code",
+    "llm",
+    "pi",
+    "pi-extension"
+  ],
   "license": "MIT",
   "repository": {
     "type": "git",
     "url": "https://github.com/Leechael/pi-provider-kimi-code"
   },
-  "keywords": [
-    "pi",
-    "pi-extension",
-    "kimi",
-    "kimi-code",
-    "llm",
-    "coding-agent"
-  ],
   "files": [
     "index.ts",
     "package.json",
     "README.md"
   ],
+  "type": "module",
   "scripts": {
     "clean": "echo 'nothing to clean'",
     "build": "echo 'nothing to build'",
-    "check": "echo 'nothing to check'"
+    "check": "echo 'nothing to check'",
+    "lint": "oxlint .",
+    "format": "oxfmt . --write",
+    "format:check": "oxfmt . --check",
+    "pre-commit": "prek run"
+  },
+  "devDependencies": {
+    "@j178/prek": "^0.3.8",
+    "oxfmt": "^0.44.0",
+    "oxlint": "^1.59.0"
   },
   "pi": {
     "extensions": [

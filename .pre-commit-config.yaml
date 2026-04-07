@@ -1,0 +1,13 @@
+repos:
+  - repo: local
+    hooks:
+      - id: oxlint
+        name: oxlint
+        entry: npx oxlint
+        language: system
+        types_or: [javascript, jsx, ts, tsx]
+      - id: oxfmt
+        name: oxfmt
+        entry: npx oxfmt
+        language: system
+        types_or: [javascript, jsx, ts, tsx]
