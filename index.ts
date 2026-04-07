@@ -349,6 +349,14 @@ async function refreshKimiCodeToken(credentials: OAuthCredentials): Promise<OAut
 
 const EMPTY_RESPONSE_PREFIX = "(Empty response:";
 
+function mapThinkingLevel(level?: string): string | undefined {
+  if (!level) return undefined;
+  if (level === "minimal" || level === "low") return "low";
+  if (level === "medium") return "medium";
+  if (level === "high" || level === "xhigh") return "high";
+  return undefined;
+}
+
 function streamSimpleKimi(
   model: Model<"anthropic-messages">,
   context: Context,
@@ -384,6 +392,17 @@ function streamSimpleKimi(
 
         const envMaxTokens = process.env.KIMI_MODEL_MAX_TOKENS;
         if (envMaxTokens) nextPayload.max_tokens = parseInt(envMaxTokens, 10);
+
+        // Reasoning effort mapping
+        const reasoningLevel = (options as any)?.reasoning;
+        if (reasoningLevel) {
+          const mappedEffort = mapThinkingLevel(reasoningLevel);
+          if (mappedEffort) {
+            nextPayload.reasoning_effort = mappedEffort;
+            nextPayload.extra_body = nextPayload.extra_body || {};
+            nextPayload.extra_body.thinking = { type: "enabled" };
+          }
+        }
       }
       return nextPayload;
     },
