@@ -21,7 +21,11 @@ import type {
   Model,
   SimpleStreamOptions,
 } from "@mariozechner/pi-ai";
-import { streamSimpleAnthropic, AssistantMessageEventStream } from "@mariozechner/pi-ai";
+import {
+  streamSimpleAnthropic,
+  streamSimpleOpenAIResponses,
+  AssistantMessageEventStream,
+} from "@mariozechner/pi-ai";
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
 
 // =============================================================================
@@ -30,7 +34,10 @@ import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
 
 const CLIENT_ID = "17e5f671-d194-4dfb-9706-5516cb48c098";
 const DEFAULT_OAUTH_HOST = "https://auth.kimi.com";
-const DEFAULT_BASE_URL = "https://api.kimi.com/coding";
+const PROTOCOL =
+  process.env.KIMI_CODE_PROTOCOL === "openai" ? "openai-responses" : "anthropic-messages";
+const DEFAULT_BASE_URL =
+  PROTOCOL === "openai" ? "https://api.kimi.com/v1" : "https://api.kimi.com/coding";
 const KIMI_CLI_VERSION = "1.28.0";
 const KIMI_CLI_USER_AGENT = `KimiCLI/${KIMI_CLI_VERSION}`;
 const KIMI_PLATFORM = "kimi_cli";
@@ -358,7 +365,7 @@ function mapThinkingLevel(level?: string): string | undefined {
 }
 
 function streamSimpleKimi(
-  model: Model<"anthropic-messages">,
+  model: Model<"anthropic-messages" | "openai-responses">,
   context: Context,
   options?: SimpleStreamOptions,
 ): AssistantMessageEventStream {
@@ -408,7 +415,10 @@ function streamSimpleKimi(
     },
   };
 
-  const upstream = streamSimpleAnthropic(model, context, patchedOptions);
+  const upstream =
+    model.api === "openai-responses"
+      ? streamSimpleOpenAIResponses(model as any, context, patchedOptions)
+      : streamSimpleAnthropic(model as any, context, patchedOptions);
   const filtered = new AssistantMessageEventStream();
 
   // Buffer text block events so we can suppress the entire block if it
@@ -498,7 +508,7 @@ export default function (pi: ExtensionAPI) {
   pi.registerProvider("kimi-coding", {
     baseUrl: getBaseUrl(),
     apiKey: "KIMI_API_KEY",
-    api: "anthropic-messages",
+    api: PROTOCOL,
     streamSimple: streamSimpleKimi,
 
     headers: getCommonHeaders(),
