@@ -38,11 +38,11 @@ KIMI_API_KEY=sk-... pi
 
 ## Models
 
-| ID                        | Name                           | Reasoning | Input       | Context  | Max Output |
-|---------------------------|--------------------------------|-----------|-------------|----------|------------|
-| `kimi-code`               | Kimi Code (powered by kimi-k2.5) | yes     | text, image | 262 144  | 32 768     |
-| `kimi-k2.5`               | Kimi K2.5                      | yes       | text, image | 262 144  | 32 768     |
-| `kimi-k2-thinking-turbo`  | Kimi K2 Thinking Turbo         | yes       | text        | 262 144  | 32 768     |
+| ID                       | Name                             | Reasoning | Input       | Context | Max Output |
+| ------------------------ | -------------------------------- | --------- | ----------- | ------- | ---------- |
+| `kimi-code`              | Kimi Code (powered by kimi-k2.5) | yes       | text, image | 262 144 | 32 768     |
+| `kimi-k2.5`              | Kimi K2.5                        | yes       | text, image | 262 144 | 32 768     |
+| `kimi-k2-thinking-turbo` | Kimi K2 Thinking Turbo           | yes       | text        | 262 144 | 32 768     |
 
 Select a model inside pi:
 

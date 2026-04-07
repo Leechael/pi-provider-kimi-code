@@ -50,26 +50,26 @@ The base URL can also be overridden with `KIMI_CODE_BASE_URL`.
 
 Every OAuth request and model API request includes Kimi CLI-style headers:
 
-| Header                | Value |
-|-----------------------|-------|
-| `User-Agent`          | `KimiCLI/1.28.0` |
-| `X-Msh-Platform`      | `kimi_cli` |
-| `X-Msh-Version`       | `1.28.0` |
-| `X-Msh-Device-Name`   | Hostname |
-| `X-Msh-Device-Model`  | OS + kernel release + architecture |
-| `X-Msh-Os-Version`    | `os.release()` |
-| `X-Msh-Device-Id`     | Stable random hex persisted on disk |
+| Header               | Value                               |
+| -------------------- | ----------------------------------- |
+| `User-Agent`         | `KimiCLI/1.28.0`                    |
+| `X-Msh-Platform`     | `kimi_cli`                          |
+| `X-Msh-Version`      | `1.28.0`                            |
+| `X-Msh-Device-Name`  | Hostname                            |
+| `X-Msh-Device-Model` | OS + kernel release + architecture  |
+| `X-Msh-Os-Version`   | `os.release()`                      |
+| `X-Msh-Device-Id`    | Stable random hex persisted on disk |
 
 Header values are ASCII-sanitized and trimmed before sending, matching the upstream
 fix for Linux / non-ASCII hostnames.
 
 ### Models
 
-| ID                        | Name                             | Reasoning | Input       | Context  | Max Output |
-|---------------------------|----------------------------------|-----------|-------------|----------|------------|
-| `kimi-code`               | Kimi Code (powered by kimi-k2.5) | yes       | text, image | 262 144  | 32 768     |
-| `kimi-k2.5`               | Kimi K2.5                        | yes       | text, image | 262 144  | 32 768     |
-| `kimi-k2-thinking-turbo`  | Kimi K2 Thinking Turbo           | yes       | text        | 262 144  | 32 768     |
+| ID                       | Name                             | Reasoning | Input       | Context | Max Output |
+| ------------------------ | -------------------------------- | --------- | ----------- | ------- | ---------- |
+| `kimi-code`              | Kimi Code (powered by kimi-k2.5) | yes       | text, image | 262 144 | 32 768     |
+| `kimi-k2.5`              | Kimi K2.5                        | yes       | text, image | 262 144 | 32 768     |
+| `kimi-k2-thinking-turbo` | Kimi K2 Thinking Turbo           | yes       | text        | 262 144 | 32 768     |
 
 All costs are set to zero (free tier / OAuth-authenticated usage).
 
@@ -80,10 +80,10 @@ The login flow follows [RFC 8628](https://datatracker.ietf.org/doc/html/rfc8628)
 
 ### Endpoints
 
-| Purpose              | URL |
-|----------------------|-----|
+| Purpose              | URL                                                    |
+| -------------------- | ------------------------------------------------------ |
 | Device authorization | `https://auth.kimi.com/api/oauth/device_authorization` |
-| Token exchange       | `https://auth.kimi.com/api/oauth/token` |
+| Token exchange       | `https://auth.kimi.com/api/oauth/token`                |
 
 The OAuth host can be overridden with `KIMI_CODE_OAUTH_HOST` or `KIMI_OAUTH_HOST`.
 
@@ -145,7 +145,7 @@ The `oauth.getApiKey` callback extracts the `access` field from stored credentia
 uses it as the `Authorization: Bearer <token>` value for API requests.
 
 ```typescript
-getApiKey: (cred) => cred.access
+getApiKey: (cred) => cred.access;
 ```
 
 ## Design Decisions
