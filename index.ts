@@ -354,7 +354,32 @@ function streamSimpleKimi(
   context: Context,
   options?: SimpleStreamOptions,
 ): AssistantMessageEventStream {
-  const upstream = streamSimpleAnthropic(model, context, options);
+  // Intercept the payload to inject Kimi's proprietary prompt_cache_key
+  // because Kimi's Anthropic compatibility endpoint requires it alongside cache_control.
+  const originalOnPayload = options?.onPayload;
+  const patchedOptions: SimpleStreamOptions = {
+    ...options,
+    onPayload: async (payload: any, modelData) => {
+      let nextPayload = payload;
+      if (originalOnPayload) {
+        const res = await originalOnPayload(payload, modelData);
+        if (res !== undefined) nextPayload = res;
+      }
+
+      // Inject prompt_cache_key to fulfill Kimi's dual-lock cache requirement.
+      // Allow explicit override via payload or options. Fallback to stable sessionId.
+      if (nextPayload && typeof nextPayload === "object") {
+        const cacheKey =
+          nextPayload.prompt_cache_key || (options as any)?.prompt_cache_key || options?.sessionId;
+        if (cacheKey) {
+          nextPayload = { ...nextPayload, prompt_cache_key: cacheKey };
+        }
+      }
+      return nextPayload;
+    },
+  };
+
+  const upstream = streamSimpleAnthropic(model, context, patchedOptions);
   const filtered = new AssistantMessageEventStream();
 
   // Buffer text block events so we can suppress the entire block if it
