@@ -65,23 +65,22 @@ Select a model inside pi:
 
 ## Prompt Caching
 
-Kimi Code API supports prompt caching via a "dual-lock" mechanism that combines Anthropic's `cache_control` blocks with a proprietary `prompt_cache_key` at the payload root. This provider automatically bridges the gap:
+Kimi Code API requires a `prompt_cache_key` field at the payload root for prompt caching. The pi framework separately injects Anthropic-style `cache_control: { type: "ephemeral" }` markers. This extension bridges both:
 
-1. **Automatic Context Caching**: The underlying `@mariozechner/pi-ai` framework injects standard `cache_control: { type: "ephemeral" }` markers into your prompt.
-2. **Session Persistence**: This extension automatically extracts your current pi `sessionId` and injects it as the `prompt_cache_key`.
-3. **TTL (Time-To-Live)**: Cache consistently hits at 300s (5 min), is borderline at 600s (sometimes hit, sometimes miss), and consistently misses at 900s. Effective TTL is approximately **5-10 minutes**. `KIMI_E2E_CACHE_INTERVALS` are absolute seconds from warmup (e.g. `60,300,600,900`); each interval runs as an isolated concurrent probe. Use `KIMI_E2E_ONLY_CACHE=1` to measure TTL in your environment.
-4. **Manual Override**: You can override the cache key explicitly with `payload.prompt_cache_key` or `options.prompt_cache_key`; otherwise the provider falls back to pi's stable `sessionId`.
+1. **Session key injection**: Extracts your current pi `sessionId` and injects it as `prompt_cache_key` on every request.
+2. **TTL**: Approximately **5-10 minutes**. Consistently hits at 300s, borderline at 600s, misses at 900s. Measure in your environment with `KIMI_E2E_ONLY_CACHE=1` (see [E2E test script](#end-to-end-test-script)).
+3. **Manual override**: Set `prompt_cache_key` explicitly in the payload or options to override the automatic session-based key.
 
-Note: cache usage is easiest to verify on the Anthropic-compatible endpoint because it returns explicit `cache_read_input_tokens` / `cache_creation_input_tokens` fields.
+Cache usage is easiest to verify on the Anthropic-compatible endpoint, which returns `cache_read_input_tokens` / `cache_creation_input_tokens` fields.
 
 ## OpenAI Compatibility Mode
 
 Set `KIMI_CODE_PROTOCOL=openai` to switch the provider to Kimi Coding's OpenAI-compatible chat completions endpoint. Internally this extension uses `openai-completions` (not `openai-responses`) and applies Kimi-specific compatibility overrides:
 
-- maps `developer` role to `system` (Kimi does not support the OpenAI `developer` role)
-- disables `store`
-- uses `max_tokens`
-- still sends Kimi CLI style `X-Msh-*` agent headers required by the Coding endpoint
+- Maps `developer` role to `system` (Kimi does not recognize the OpenAI `developer` role)
+- Disables `store`
+- Uses `max_tokens`
+- Sends `KimiCLI/*` + `X-Msh-*` agent headers required by the Coding endpoint
 
 ## End-to-End Test Script
 
@@ -110,7 +109,7 @@ Useful environment variables for the test script:
 | `KIMI_CODE_DEBUG`          | `1`                     | Provider debug logs                     |
 | `KIMI_E2E_VERBOSE`         | `1`                     | Command and environment diagnostics     |
 | `KIMI_E2E_MODEL`           | `kimi-coding/kimi-code` | Model for `pi` smoke tests              |
-| `KIMI_E2E_CACHE_INTERVALS` | `60,300`                | Cache probe sleeps in seconds           |
+| `KIMI_E2E_CACHE_INTERVALS` | `60,300`                | Absolute seconds from warmup per probe  |
 | `KIMI_E2E_CACHE_KEY`       | auto                    | Override cache key for TTL probe        |
 | `KIMI_E2E_CACHE_REPEAT`    | `2000`                  | Long-text repeat count for cache warmup |
 | `KIMI_E2E_SKIP_CACHE`      | `0`                     | Set `1` to skip the cache TTL phase     |
@@ -122,7 +121,7 @@ If `curl` can reach Kimi but `pi` reports `fetch failed`, check your `http_proxy
 
 ## How It Works
 
-- Registers provider `kimi-coding` with base URL `https://api.kimi.com/coding`
+- Registers provider `kimi-coding` with Kimi's API endpoint
 - Supports two protocol modes:
   - `anthropic-messages` (default)
   - `openai-completions` when `KIMI_CODE_PROTOCOL=openai`
