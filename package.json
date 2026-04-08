@@ -1,6 +1,6 @@
 {
   "name": "pi-provider-kimi-code",
-  "version": "0.1.8",
+  "version": "0.1.9",
   "description": "pi custom provider extension for Kimi Code models with OAuth device-code login",
   "keywords": [
     "coding-agent",
