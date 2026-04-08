@@ -151,23 +151,26 @@ def send(label: str):
         raise
 
 first_cache_read, _ = send("warmup")
+cumulative = 0
+probe_results = []  # (cumulative_seconds, hit)
 for idx, wait in enumerate(intervals):
     print(f"sleeping {wait}s before next cache probe...")
     time.sleep(wait)
-    cache_read, _ = send(f"probe_after_{wait}s")
+    cumulative += wait
+    cache_read, _ = send(f"probe_after_{cumulative}s")
+    probe_results.append((cumulative, cache_read > 0))
 
 # --- Conclusion ---
 print()
-any_hit = any(r["cache_read"] > 0 for r in results)
-if any_hit:
-    first_hit = next(r for r in results if r["cache_read"] > 0)
-    last_hit = [r for r in results if r["cache_read"] > 0][-1]
-    last_miss = [r for r in results if r["cache_read"] == 0]
-    if last_miss and last_miss[-1] != results[0]:
-        miss_label = last_miss[-1]["label"]
-        print(f"Conclusion: cache hit observed (first at {first_hit['label']}), expired by {miss_label}.")
+hits = [t for t, hit in probe_results if hit]
+misses = [t for t, hit in probe_results if not hit]
+if hits:
+    last_hit = max(hits)
+    first_miss_after_hit = next((t for t, hit in probe_results if not hit and t > min(hits)), None)
+    if first_miss_after_hit:
+        print(f"Conclusion: TTL is between {last_hit}s and {first_miss_after_hit}s (last hit at {last_hit}s, first miss at {first_miss_after_hit}s).")
     else:
-        print(f"Conclusion: cache hit observed at {first_hit['label']}. TTL >= {intervals[-1]}s (all probes hit).")
+        print(f"Conclusion: TTL >= {last_hit}s (all probes after warmup were hits).")
 else:
     print("Conclusion: NO cache hit observed at any interval. Possible causes:")
     print("  - prompt_cache_key + cache_control may not be effective on this endpoint")
