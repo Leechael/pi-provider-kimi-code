@@ -37,7 +37,9 @@ const DEFAULT_OAUTH_HOST = "https://auth.kimi.com";
 const PROTOCOL =
   process.env.KIMI_CODE_PROTOCOL === "openai" ? "openai-completions" : "anthropic-messages";
 const DEFAULT_BASE_URL =
-  PROTOCOL === "openai" ? "https://api.kimi.com/coding/v1" : "https://api.kimi.com/coding";
+  PROTOCOL === "openai-completions"
+    ? "https://api.kimi.com/coding/v1"
+    : "https://api.kimi.com/coding";
 const KIMI_CLI_VERSION = "1.28.0";
 const KIMI_CLI_USER_AGENT = `KimiCLI/${KIMI_CLI_VERSION}`;
 const KIMI_PLATFORM = "kimi_cli";
@@ -384,13 +386,12 @@ async function transformContextFiles(context: Context, apiKey: string): Promise<
               block.mimeType.startsWith("video/") ? "video" : "file-extract",
             );
 
-            const uploadUrl =
-              PROTOCOL === "openai-completions"
-                ? "https://api.kimi.com/coding/v1/files"
-                : "https://api.kimi.com/coding/v1/files";
-            console.log(
-              `\n[kimi-coding] Uploading ${filename} to ${uploadUrl} (size: ${(buffer.length / 1024 / 1024).toFixed(2)} MB)...`,
-            );
+            const uploadUrl = "https://api.kimi.com/coding/v1/files";
+            if (process.env.KIMI_CODE_DEBUG === "1") {
+              console.log(
+                `\n[kimi-coding] Uploading ${filename} to ${uploadUrl} (size: ${(buffer.length / 1024 / 1024).toFixed(2)} MB)...`,
+              );
+            }
             const response = await fetch(uploadUrl, {
               method: "POST",
               headers: {
@@ -403,9 +404,11 @@ async function transformContextFiles(context: Context, apiKey: string): Promise<
 
             if (response.ok) {
               const fileObj = (await response.json()) as any;
-              console.log(
-                `[kimi-coding] Upload success. File ID/URL: ${fileObj.url || fileObj.id}`,
-              );
+              if (process.env.KIMI_CODE_DEBUG === "1") {
+                console.log(
+                  `[kimi-coding] Upload success. File ID/URL: ${fileObj.url || fileObj.id}`,
+                );
+              }
               // Replace the block with Kimi's specific reference
               if (block.mimeType.startsWith("video/")) {
                 newContent.push({
