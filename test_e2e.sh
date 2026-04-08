@@ -114,15 +114,22 @@ headers = {
     "X-Msh-Version": "1.30.0",
 }
 
-results = []
+def make_payload(round_key):
+    text = long_text.replace(f"cache-key:{cache_key}", f"cache-key:{round_key}")
+    return {
+        "model": "kimi-code",
+        "max_tokens": 100,
+        "prompt_cache_key": round_key,
+        "messages": [{"role": "user", "content": [
+            {"type": "text", "text": text, "cache_control": {"type": "ephemeral"}},
+        ]}],
+    }
 
-def send(label: str):
-    body = json.dumps(payload).encode("utf-8")
+def send(label, body_payload):
+    body = json.dumps(body_payload).encode("utf-8")
     req = urllib.request.Request(
         "https://api.kimi.com/coding/v1/messages",
-        data=body,
-        headers=headers,
-        method="POST",
+        data=body, headers=headers, method="POST",
     )
     start = time.time()
     try:
@@ -137,41 +144,48 @@ def send(label: str):
             )
             cache_create = int(usage.get("cache_creation_input_tokens", 0) or 0)
             input_tokens = int(usage.get("input_tokens", 0) or 0)
-            print(f"[{time.strftime('%X')}] {label}: status=200 elapsed={elapsed:.2f}s input={input_tokens} cache_read={cache_read} cache_create={cache_create}")
+            print(f"[{time.strftime('%X')}] {label}: status=200 elapsed={elapsed:.2f}s input={input_tokens} cache_read={cache_read} cache_create={cache_create}", flush=True)
             if verbose:
-                print(f"usage={json.dumps(usage, ensure_ascii=False)}")
-            results.append({"label": label, "cache_read": cache_read, "cache_create": cache_create, "input": input_tokens})
-            return cache_read, usage
+                print(f"usage={json.dumps(usage, ensure_ascii=False)}", flush=True)
+            return cache_read
     except urllib.error.HTTPError as e:
-        body = e.read().decode("utf-8", errors="replace")
-        print(f"[{time.strftime('%X')}] {label}: status={e.code} body={body}")
-        raise
+        err_body = e.read().decode("utf-8", errors="replace")
+        print(f"[{time.strftime('%X')}] {label}: status={e.code} body={err_body}", flush=True)
+        return -1
     except Exception as e:
-        print(f"[{time.strftime('%X')}] {label}: request failed: {e}")
-        raise
+        print(f"[{time.strftime('%X')}] {label}: request failed: {e}", flush=True)
+        return -1
 
-# Each interval is tested independently: warmup -> sleep -> single probe.
-# This avoids intermediate probes keeping the cache alive.
-probe_results = []  # (seconds, hit)
-for target in intervals:
-    # Fresh cache key per round to avoid cross-contamination
+import concurrent.futures, copy
+
+def run_probe(target):
+    """Independent round: warmup -> sleep -> single probe. Returns (target, hit)."""
     round_key = f"{cache_key}-{target}s"
-    payload["prompt_cache_key"] = round_key
-    long_text_base = long_text.replace(f"cache-key:{cache_key}", f"cache-key:{round_key}")
-    payload["messages"][0]["content"][0]["text"] = long_text_base
-
-    print(f"--- Round {target}s: warmup with key={round_key} ---")
-    send(f"warmup_{target}s")
-    print(f"sleeping {target}s...")
+    p = make_payload(round_key)
+    print(f"--- Round {target}s: warmup (key={round_key}) ---", flush=True)
+    send(f"warmup_{target}s", p)
+    print(f"[round {target}s] sleeping {target}s...", flush=True)
     time.sleep(target)
-    cache_read, _ = send(f"probe_at_{target}s")
-    probe_results.append((target, cache_read > 0))
-    print()
+    cache_read = send(f"probe_at_{target}s", p)
+    hit = cache_read > 0
+    print(f"[round {target}s] result: {'HIT' if hit else 'MISS'}\n", flush=True)
+    return (target, hit)
+
+# Run all intervals concurrently
+with concurrent.futures.ThreadPoolExecutor(max_workers=len(intervals)) as pool:
+    futures = {pool.submit(run_probe, t): t for t in intervals}
+    probe_results = []
+    for f in concurrent.futures.as_completed(futures):
+        probe_results.append(f.result())
+
+probe_results.sort()
 
 # --- Conclusion ---
 print()
 hits = [t for t, hit in probe_results if hit]
 misses = [t for t, hit in probe_results if not hit]
+summary = " | ".join(f"{t}s={'HIT' if hit else 'MISS'}" for t, hit in probe_results)
+print(f"Summary: {summary}")
 if hits and misses:
     last_hit = max(hits)
     first_miss = min(misses)
