@@ -151,14 +151,16 @@ def send(label: str):
         raise
 
 first_cache_read, _ = send("warmup")
-cumulative = 0
-probe_results = []  # (cumulative_seconds, hit)
-for idx, wait in enumerate(intervals):
-    print(f"sleeping {wait}s before next cache probe...")
-    time.sleep(wait)
-    cumulative += wait
-    cache_read, _ = send(f"probe_after_{cumulative}s")
-    probe_results.append((cumulative, cache_read > 0))
+elapsed_since_warmup = 0
+probe_results = []  # (absolute_seconds, hit)
+for target in intervals:
+    sleep_needed = target - elapsed_since_warmup
+    if sleep_needed > 0:
+        print(f"sleeping {sleep_needed}s to reach {target}s mark...")
+        time.sleep(sleep_needed)
+        elapsed_since_warmup = target
+    cache_read, _ = send(f"probe_at_{target}s")
+    probe_results.append((target, cache_read > 0))
 
 # --- Conclusion ---
 print()

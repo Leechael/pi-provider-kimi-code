@@ -69,7 +69,7 @@ Kimi Code API supports prompt caching via a "dual-lock" mechanism that combines 
 
 1. **Automatic Context Caching**: The underlying `@mariozechner/pi-ai` framework injects standard `cache_control: { type: "ephemeral" }` markers into your prompt.
 2. **Session Persistence**: This extension automatically extracts your current pi `sessionId` and injects it as the `prompt_cache_key`.
-3. **TTL (Time-To-Live)**: In manual probes, cache hits were observed up to ~600s (10 min) after warmup and expired by ~900s. Note that `KIMI_E2E_CACHE_INTERVALS` are cumulative sleep durations between probes, not absolute offsets from warmup. Use `KIMI_E2E_ONLY_CACHE=1` with custom intervals to measure TTL in your environment.
+3. **TTL (Time-To-Live)**: In manual probes, cache hits were observed up to ~600s (10 min) after warmup and expired by ~900s. `KIMI_E2E_CACHE_INTERVALS` are absolute seconds from warmup (e.g. `60,300,600,900` probes at those marks). Use `KIMI_E2E_ONLY_CACHE=1` to measure TTL in your environment.
 4. **Manual Override**: You can override the cache key explicitly with `payload.prompt_cache_key` or `options.prompt_cache_key`; otherwise the provider falls back to pi's stable `sessionId`.
 
 Note: cache usage is easiest to verify on the Anthropic-compatible endpoint because it returns explicit `cache_read_input_tokens` / `cache_creation_input_tokens` fields.
