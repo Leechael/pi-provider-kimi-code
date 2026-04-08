@@ -150,34 +150,41 @@ def send(label: str):
         print(f"[{time.strftime('%X')}] {label}: request failed: {e}")
         raise
 
-first_cache_read, _ = send("warmup")
-elapsed_since_warmup = 0
-probe_results = []  # (absolute_seconds, hit)
+# Each interval is tested independently: warmup -> sleep -> single probe.
+# This avoids intermediate probes keeping the cache alive.
+probe_results = []  # (seconds, hit)
 for target in intervals:
-    sleep_needed = target - elapsed_since_warmup
-    if sleep_needed > 0:
-        print(f"sleeping {sleep_needed}s to reach {target}s mark...")
-        time.sleep(sleep_needed)
-        elapsed_since_warmup = target
+    # Fresh cache key per round to avoid cross-contamination
+    round_key = f"{cache_key}-{target}s"
+    payload["prompt_cache_key"] = round_key
+    long_text_base = long_text.replace(f"cache-key:{cache_key}", f"cache-key:{round_key}")
+    payload["messages"][0]["content"][0]["text"] = long_text_base
+
+    print(f"--- Round {target}s: warmup with key={round_key} ---")
+    send(f"warmup_{target}s")
+    print(f"sleeping {target}s...")
+    time.sleep(target)
     cache_read, _ = send(f"probe_at_{target}s")
     probe_results.append((target, cache_read > 0))
+    print()
 
 # --- Conclusion ---
 print()
 hits = [t for t, hit in probe_results if hit]
 misses = [t for t, hit in probe_results if not hit]
-if hits:
+if hits and misses:
     last_hit = max(hits)
-    first_miss_after_hit = next((t for t, hit in probe_results if not hit and t > min(hits)), None)
-    if first_miss_after_hit:
-        print(f"Conclusion: TTL is between {last_hit}s and {first_miss_after_hit}s (last hit at {last_hit}s, first miss at {first_miss_after_hit}s).")
+    first_miss = min(misses)
+    if first_miss > last_hit:
+        print(f"Conclusion: TTL is between {last_hit}s and {first_miss}s.")
     else:
-        print(f"Conclusion: TTL >= {last_hit}s (all probes after warmup were hits).")
+        print(f"Conclusion: mixed results (hits: {hits}, misses: {misses}). Cache behavior may be non-deterministic.")
+elif hits:
+    print(f"Conclusion: TTL >= {max(hits)}s (all probes hit).")
+elif misses:
+    print(f"Conclusion: TTL < {min(misses)}s (all probes missed).")
 else:
-    print("Conclusion: NO cache hit observed at any interval. Possible causes:")
-    print("  - prompt_cache_key + cache_control may not be effective on this endpoint")
-    print("  - cache TTL < shortest probe interval")
-    print("  - server-side caching disabled for this model/key")
+    print("Conclusion: no probes ran.")
 PY
   printf '\n'
 }
