@@ -479,6 +479,13 @@ function streamSimpleKimi(
         }
 
         if (nextPayload && typeof nextPayload === "object") {
+          // Map unsupported roles: Kimi does not recognize "developer" (OpenAI-specific).
+          if (Array.isArray(nextPayload.messages)) {
+            nextPayload.messages = nextPayload.messages.map((msg: any) =>
+              msg.role === "developer" ? { ...msg, role: "system" } : msg,
+            );
+          }
+
           // Inject prompt_cache_key: allow explicit override, fallback to stable sessionId.
           const cacheKey =
             nextPayload.prompt_cache_key ||
