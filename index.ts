@@ -9,6 +9,7 @@
  *   # Then /login kimi-coding, or set KIMI_API_KEY=...
  */
 
+import { execSync } from "node:child_process";
 import { randomBytes } from "node:crypto";
 import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import os from "node:os";
@@ -40,7 +41,7 @@ const DEFAULT_BASE_URL =
   PROTOCOL === "openai-completions"
     ? "https://api.kimi.com/coding/v1"
     : "https://api.kimi.com/coding";
-const KIMI_CLI_VERSION = "1.28.0";
+const KIMI_CLI_VERSION = "1.30.0";
 const KIMI_CLI_USER_AGENT = `KimiCLI/${KIMI_CLI_VERSION}`;
 const KIMI_PLATFORM = "kimi_cli";
 const DEVICE_ID_PATH = join(os.homedir(), ".pi", "providers", "kimi-coding", "device_id");
@@ -92,16 +93,26 @@ function persistDeviceId(deviceId: string): void {
   }
 }
 
+function getMacOSVersion(): string {
+  try {
+    return execSync("sw_vers -productVersion", { encoding: "utf8" }).trim();
+  } catch {
+    return os.release();
+  }
+}
+
 function getDeviceModel(): string {
   const platform = process.platform;
   const arch = os.machine() || process.arch;
-  const release = os.release();
   if (platform === "darwin") {
-    return release && arch ? `macOS ${release} ${arch}` : `macOS ${arch}`;
+    const version = getMacOSVersion();
+    return version && arch ? `macOS ${version} ${arch}` : `macOS ${arch}`;
   }
   if (platform === "win32") {
+    const release = os.release();
     return release && arch ? `Windows ${release} ${arch}` : `Windows ${arch}`;
   }
+  const release = os.release();
   return release && arch ? `${platform} ${release} ${arch}` : `${platform} ${arch}`;
 }
 
@@ -358,11 +369,12 @@ async function refreshKimiCodeToken(credentials: OAuthCredentials): Promise<OAut
 
 const EMPTY_RESPONSE_PREFIX = "(Empty response:";
 
-function mapThinkingLevel(level?: string): string | undefined {
+function mapThinkingLevel(level?: string): { effort: string | null; enabled: boolean } | undefined {
   if (!level) return undefined;
-  if (level === "minimal" || level === "low") return "low";
-  if (level === "medium") return "medium";
-  if (level === "high" || level === "xhigh") return "high";
+  if (level === "none" || level === "off") return { effort: null, enabled: false };
+  if (level === "minimal" || level === "low") return { effort: "low", enabled: true };
+  if (level === "medium") return { effort: "medium", enabled: true };
+  if (level === "high" || level === "xhigh") return { effort: "high", enabled: true };
   return undefined;
 }
 
@@ -381,12 +393,12 @@ async function transformContextFiles(context: Context, apiKey: string): Promise<
             const formData = new FormData();
             const filename = block.mimeType.startsWith("video/") ? "upload.mp4" : "upload.png";
             formData.append("file", new Blob([buffer], { type: block.mimeType }), filename);
-            formData.append(
-              "purpose",
-              block.mimeType.startsWith("video/") ? "video" : "file-extract",
-            );
+            formData.append("purpose", block.mimeType.startsWith("video/") ? "video" : "image");
 
-            const uploadUrl = "https://api.kimi.com/coding/v1/files";
+            const filesBaseUrl = (
+              process.env.KIMI_CODE_BASE_URL || "https://api.kimi.com/coding/v1"
+            ).replace(/\/$/, "");
+            const uploadUrl = `${filesBaseUrl}/files`;
             if (process.env.KIMI_CODE_DEBUG === "1") {
               console.log(
                 `\n[kimi-coding] Uploading ${filename} to ${uploadUrl} (size: ${(buffer.length / 1024 / 1024).toFixed(2)} MB)...`,
@@ -396,29 +408,27 @@ async function transformContextFiles(context: Context, apiKey: string): Promise<
               method: "POST",
               headers: {
                 Authorization: `Bearer ${apiKey}`,
-                "x-api-key": apiKey,
                 ...getCommonHeaders(),
               },
               body: formData,
             });
 
             if (response.ok) {
-              const fileObj = (await response.json()) as any;
+              const fileObj = (await response.json()) as { id?: string; url?: string };
+              const fileUrl = `ms://${fileObj.id}`;
               if (process.env.KIMI_CODE_DEBUG === "1") {
-                console.log(
-                  `[kimi-coding] Upload success. File ID/URL: ${fileObj.url || fileObj.id}`,
-                );
+                console.log(`[kimi-coding] Upload success. File URL: ${fileUrl}`);
               }
               // Replace the block with Kimi's specific reference
               if (block.mimeType.startsWith("video/")) {
                 newContent.push({
                   type: "video_url" as any,
-                  video_url: { url: fileObj.url || fileObj.id },
+                  video_url: { url: fileUrl },
                 });
               } else {
                 newContent.push({
-                  type: "file_url" as any,
-                  file_url: { url: fileObj.url || fileObj.id },
+                  type: "image_url" as any,
+                  image_url: { url: fileUrl },
                 });
               }
               continue;
@@ -468,9 +478,8 @@ function streamSimpleKimi(
           if (res !== undefined) nextPayload = res;
         }
 
-        // Inject prompt_cache_key to fulfill Kimi's dual-lock cache requirement.
-        // Allow explicit override via payload or options. Fallback to stable sessionId.
         if (nextPayload && typeof nextPayload === "object") {
+          // Inject prompt_cache_key: allow explicit override, fallback to stable sessionId.
           const cacheKey =
             nextPayload.prompt_cache_key ||
             (options as any)?.prompt_cache_key ||
@@ -492,11 +501,13 @@ function streamSimpleKimi(
           // Reasoning effort mapping
           const reasoningLevel = (options as any)?.reasoning;
           if (reasoningLevel) {
-            const mappedEffort = mapThinkingLevel(reasoningLevel);
-            if (mappedEffort) {
-              nextPayload.reasoning_effort = mappedEffort;
+            const mapped = mapThinkingLevel(reasoningLevel);
+            if (mapped) {
+              nextPayload.reasoning_effort = mapped.effort;
               nextPayload.extra_body = nextPayload.extra_body || {};
-              nextPayload.extra_body.thinking = { type: "enabled" };
+              nextPayload.extra_body.thinking = {
+                type: mapped.enabled ? "enabled" : "disabled",
+              };
             }
           }
         }
@@ -571,7 +582,8 @@ function streamSimpleKimi(
 
         filtered.push(event);
       }
-    } catch {
+    } catch (err) {
+      console.error("[kimi-coding] stream error:", err);
       filtered.push({
         type: "error",
         reason: "error",
@@ -608,7 +620,7 @@ export default function (pi: ExtensionAPI) {
         input: ["text", "image"],
         cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
         contextWindow: 262144,
-        maxTokens: 32768,
+        maxTokens: 32000,
       },
       {
         id: "kimi-k2.5",
@@ -617,7 +629,7 @@ export default function (pi: ExtensionAPI) {
         input: ["text", "image"],
         cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
         contextWindow: 262144,
-        maxTokens: 32768,
+        maxTokens: 32000,
       },
       {
         id: "kimi-k2-thinking-turbo",
@@ -626,7 +638,7 @@ export default function (pi: ExtensionAPI) {
         input: ["text"],
         cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
         contextWindow: 262144,
-        maxTokens: 32768,
+        maxTokens: 32000,
       },
     ],
 
