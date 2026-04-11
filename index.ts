@@ -18,6 +18,7 @@ import type {
   OAuthCredentials,
   OAuthLoginCallbacks,
   AssistantMessageEvent,
+  CacheRetention,
   Context,
   Model,
   SimpleStreamOptions,
@@ -366,7 +367,7 @@ async function refreshKimiCodeToken(credentials: OAuthCredentials): Promise<OAut
 // =============================================================================
 
 const EMPTY_RESPONSE_PREFIX = "(Empty response:";
-const DEFAULT_KIMI_INLINE_UPLOAD_THRESHOLD_BYTES = 5 * 1024 * 1024;
+const DEFAULT_KIMI_INLINE_UPLOAD_THRESHOLD_BYTES = 1 * 1024 * 1024;
 
 type JsonRecord = Record<string, unknown>;
 type Uploader = (mimeType: string, data: string) => Promise<string | null>;
@@ -377,10 +378,17 @@ interface KimiEnvOverrides {
   maxTokens?: number;
 }
 
+function resolveCacheRetention(value?: CacheRetention): CacheRetention {
+  if (value === "none" || value === "short" || value === "long") return value;
+  if (process.env.PI_CACHE_RETENTION === "long") return "long";
+  return "short";
+}
+
 interface KimiPayloadContext {
   api: "anthropic-messages" | "openai-completions";
   upload?: Uploader;
   cacheKey?: string;
+  cacheRetention: CacheRetention;
   reasoning?: ThinkingLevel;
   envOverrides: KimiEnvOverrides;
 }
@@ -598,10 +606,16 @@ async function applyKimiPayloadMutations(
 
   // 3. prompt_cache_key injection. Respect any key already on the payload,
   //    otherwise fall back to the caller-provided cacheKey (sessionId or
-  //    explicit options.prompt_cache_key override).
-  const existing = payload.prompt_cache_key;
-  const resolved = (typeof existing === "string" && existing) || ctx.cacheKey;
-  if (resolved) payload.prompt_cache_key = resolved;
+  //    explicit options.prompt_cache_key override). Skipped entirely when
+  //    cacheRetention is "none" (via options.cacheRetention or
+  //    PI_CACHE_RETENTION) so callers can truly disable caching — otherwise
+  //    Kimi's native session cache would still fire even if pi-ai's
+  //    Anthropic-style cache_control markers are omitted.
+  if (ctx.cacheRetention !== "none") {
+    const existing = payload.prompt_cache_key;
+    const resolved = (typeof existing === "string" && existing) || ctx.cacheKey;
+    if (resolved) payload.prompt_cache_key = resolved;
+  }
 
   // 4. Env-level hyperparameter overrides (pre-parsed into numbers by caller).
   const { temperature, topP, maxTokens } = ctx.envOverrides;
@@ -715,6 +729,7 @@ function streamSimpleKimi(
     options as (SimpleStreamOptions & { prompt_cache_key?: unknown }) | undefined
   )?.prompt_cache_key;
   const cacheKey = (typeof cacheKeyOverride === "string" && cacheKeyOverride) || options?.sessionId;
+  const cacheRetention = resolveCacheRetention(options?.cacheRetention);
   const envOverrides = readEnvOverrides();
   const upload: Uploader | undefined = apiKey
     ? (mimeType, data) => uploadKimiFile(apiKey, mimeType, data)
@@ -731,6 +746,7 @@ function streamSimpleKimi(
           api: model.api,
           upload,
           cacheKey,
+          cacheRetention,
           reasoning: options?.reasoning,
           envOverrides,
         });
