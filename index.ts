@@ -21,6 +21,7 @@ import type {
   Context,
   Model,
   SimpleStreamOptions,
+  ThinkingLevel,
 } from "@mariozechner/pi-ai";
 import {
   streamSimpleAnthropic,
@@ -361,13 +362,32 @@ async function refreshKimiCodeToken(credentials: OAuthCredentials): Promise<OAut
 }
 
 // =============================================================================
-// Stream wrapper: strip "(Empty response: ...)" text blocks from Kimi API
+// Payload / stream helpers: types + pure utilities
 // =============================================================================
-// The Kimi API wraps thinking-only responses (no text content) into a text
-// block like: (Empty response: {'content': [{'type': 'thinking', ...}]})
-// This leaks internal state to the user. We detect and suppress such blocks.
 
 const EMPTY_RESPONSE_PREFIX = "(Empty response:";
+const DEFAULT_KIMI_INLINE_UPLOAD_THRESHOLD_BYTES = 5 * 1024 * 1024;
+
+type JsonRecord = Record<string, unknown>;
+type Uploader = (mimeType: string, data: string) => Promise<string | null>;
+
+interface KimiEnvOverrides {
+  temperature?: number;
+  topP?: number;
+  maxTokens?: number;
+}
+
+interface KimiPayloadContext {
+  api: "anthropic-messages" | "openai-completions";
+  upload?: Uploader;
+  cacheKey?: string;
+  reasoning?: ThinkingLevel;
+  envOverrides: KimiEnvOverrides;
+}
+
+function isRecord(value: unknown): value is JsonRecord {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
 
 function mapThinkingLevel(level?: string): { effort: string | null; enabled: boolean } | undefined {
   if (!level) return undefined;
@@ -378,24 +398,16 @@ function mapThinkingLevel(level?: string): { effort: string | null; enabled: boo
   return undefined;
 }
 
-const DEFAULT_KIMI_INLINE_UPLOAD_THRESHOLD_BYTES = 5 * 1024 * 1024;
-
-type JsonRecord = Record<string, unknown>;
-
-function isRecord(value: unknown): value is JsonRecord {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-function getInlineUploadThresholdBytes(): number {
-  const parsed = Number.parseInt(process.env.KIMI_CODE_UPLOAD_THRESHOLD_BYTES ?? "", 10);
+function parseInlineUploadThreshold(raw: string | undefined): number {
+  const parsed = Number.parseInt(raw ?? "", 10);
   return Number.isFinite(parsed) && parsed >= 0
     ? parsed
     : DEFAULT_KIMI_INLINE_UPLOAD_THRESHOLD_BYTES;
 }
 
-function getFilesBaseUrl(): string {
-  const base = (process.env.KIMI_CODE_BASE_URL || DEFAULT_BASE_URL).replace(/\/$/, "");
-  return base.endsWith("/v1") ? base : `${base}/v1`;
+function deriveFilesBaseUrl(baseUrl: string): string {
+  const trimmed = baseUrl.replace(/\/$/, "");
+  return trimmed.endsWith("/v1") ? trimmed : `${trimmed}/v1`;
 }
 
 function parseDataUrl(url: string): { mimeType: string; data: string } | null {
@@ -415,6 +427,21 @@ function getUploadFilename(mimeType: string): string {
   return map[mimeType] ?? (mimeType.startsWith("video/") ? "upload.mp4" : "upload.bin");
 }
 
+function readEnvOverrides(): KimiEnvOverrides {
+  const out: KimiEnvOverrides = {};
+  const temp = process.env.KIMI_MODEL_TEMPERATURE;
+  if (temp) out.temperature = parseFloat(temp);
+  const topP = process.env.KIMI_MODEL_TOP_P;
+  if (topP) out.topP = parseFloat(topP);
+  const maxTokens = process.env.KIMI_MODEL_MAX_TOKENS;
+  if (maxTokens) out.maxTokens = parseInt(maxTokens, 10);
+  return out;
+}
+
+// =============================================================================
+// File upload (I/O edge)
+// =============================================================================
+
 async function uploadKimiFile(
   apiKey: string,
   mimeType: string,
@@ -422,14 +449,16 @@ async function uploadKimiFile(
 ): Promise<string | null> {
   const buffer = Buffer.from(data, "base64");
   const isVideo = mimeType.startsWith("video/");
-  if (!isVideo && buffer.length <= getInlineUploadThresholdBytes()) return null;
+  const threshold = parseInlineUploadThreshold(process.env.KIMI_CODE_UPLOAD_THRESHOLD_BYTES);
+  if (!isVideo && buffer.length <= threshold) return null;
 
   const filename = getUploadFilename(mimeType);
   const formData = new FormData();
   formData.append("file", new Blob([buffer], { type: mimeType }), filename);
   formData.append("purpose", isVideo ? "video" : "image");
 
-  const uploadUrl = `${getFilesBaseUrl()}/files`;
+  const baseUrl = process.env.KIMI_CODE_BASE_URL || DEFAULT_BASE_URL;
+  const uploadUrl = `${deriveFilesBaseUrl(baseUrl)}/files`;
   const debug = process.env.KIMI_CODE_DEBUG === "1";
   if (debug) {
     console.log(
@@ -455,7 +484,15 @@ async function uploadKimiFile(
   }
 }
 
-async function transformOpenAIPayloadFiles(payload: JsonRecord, apiKey: string): Promise<void> {
+// =============================================================================
+// Payload file transformers (pure given an Uploader)
+// =============================================================================
+// These walk the provider-specific payload shape and replace inline base64
+// image/video blocks with ms:// references returned by the injected uploader.
+// They take an Uploader rather than an apiKey so they can be unit-tested with
+// a fake uploader; all network I/O stays behind that boundary.
+
+async function transformOpenAIPayloadFiles(payload: JsonRecord, upload: Uploader): Promise<void> {
   if (!Array.isArray(payload.messages)) return;
   const cache = new Map<string, string>();
 
@@ -480,8 +517,7 @@ async function transformOpenAIPayloadFiles(payload: JsonRecord, apiKey: string):
       const parsed = parseDataUrl(urlValue);
       if (!parsed) continue;
 
-      const uploaded =
-        cache.get(urlValue) ?? (await uploadKimiFile(apiKey, parsed.mimeType, parsed.data));
+      const uploaded = cache.get(urlValue) ?? (await upload(parsed.mimeType, parsed.data));
       if (!uploaded) continue;
       cache.set(urlValue, uploaded);
 
@@ -491,7 +527,10 @@ async function transformOpenAIPayloadFiles(payload: JsonRecord, apiKey: string):
   }
 }
 
-async function transformAnthropicPayloadFiles(payload: JsonRecord, apiKey: string): Promise<void> {
+async function transformAnthropicPayloadFiles(
+  payload: JsonRecord,
+  upload: Uploader,
+): Promise<void> {
   if (!Array.isArray(payload.messages)) return;
   const cache = new Map<string, string>();
 
@@ -504,7 +543,7 @@ async function transformAnthropicPayloadFiles(payload: JsonRecord, apiKey: strin
     if (typeof mediaType !== "string" || typeof data !== "string") return block;
 
     const cacheKey = `${mediaType}:${data}`;
-    const uploaded = cache.get(cacheKey) ?? (await uploadKimiFile(apiKey, mediaType, data));
+    const uploaded = cache.get(cacheKey) ?? (await upload(mediaType, data));
     if (!uploaded) return block;
     cache.set(cacheKey, uploaded);
 
@@ -529,6 +568,141 @@ async function transformAnthropicPayloadFiles(payload: JsonRecord, apiKey: strin
   }
 }
 
+// =============================================================================
+// Payload mutation pipeline
+// =============================================================================
+// Applies all Kimi-specific mutations to a provider payload in place.
+// Pure given its context: no process.env / fs / network access of its own —
+// every side effect enters via ctx.upload or pre-read values in ctx.
+// This makes the five steps below testable with fixture payloads.
+
+async function applyKimiPayloadMutations(
+  payload: JsonRecord,
+  ctx: KimiPayloadContext,
+): Promise<void> {
+  // 1. Map unsupported roles: Kimi does not recognize "developer" (OpenAI-specific).
+  if (Array.isArray(payload.messages)) {
+    payload.messages = payload.messages.map((msg) =>
+      isRecord(msg) && msg.role === "developer" ? { ...msg, role: "system" } : msg,
+    );
+  }
+
+  // 2. File upload dispatch (protocol-specific).
+  if (ctx.upload) {
+    if (ctx.api === "openai-completions") {
+      await transformOpenAIPayloadFiles(payload, ctx.upload);
+    } else if (ctx.api === "anthropic-messages") {
+      await transformAnthropicPayloadFiles(payload, ctx.upload);
+    }
+  }
+
+  // 3. prompt_cache_key injection. Respect any key already on the payload,
+  //    otherwise fall back to the caller-provided cacheKey (sessionId or
+  //    explicit options.prompt_cache_key override).
+  const existing = payload.prompt_cache_key;
+  const resolved = (typeof existing === "string" && existing) || ctx.cacheKey;
+  if (resolved) payload.prompt_cache_key = resolved;
+
+  // 4. Env-level hyperparameter overrides (pre-parsed into numbers by caller).
+  const { temperature, topP, maxTokens } = ctx.envOverrides;
+  if (temperature !== undefined) payload.temperature = temperature;
+  if (topP !== undefined) payload.top_p = topP;
+  if (maxTokens !== undefined) payload.max_tokens = maxTokens;
+
+  // 5. Reasoning effort mapping.
+  if (ctx.reasoning) {
+    const mapped = mapThinkingLevel(ctx.reasoning);
+    if (mapped) {
+      payload.reasoning_effort = mapped.effort;
+      const extraBody = isRecord(payload.extra_body) ? payload.extra_body : {};
+      extraBody.thinking = { type: mapped.enabled ? "enabled" : "disabled" };
+      payload.extra_body = extraBody;
+    }
+  }
+}
+
+// =============================================================================
+// Event stream filter: suppress Kimi "(Empty response: ...)" text blocks
+// =============================================================================
+// The Kimi API wraps thinking-only responses (no text content) into a text
+// block like: (Empty response: {'content': [{'type': 'thinking', ...}]}).
+// This leaks internal state to the user. We buffer text_start/text_delta
+// events and drop the whole block if text_end starts with the marker.
+// Pure async generator — no closure dependencies, testable with synthetic
+// event arrays.
+
+async function* filterEmptyResponseStream(
+  upstream: AsyncIterable<AssistantMessageEvent>,
+): AsyncIterable<AssistantMessageEvent> {
+  const suppressedIndices = new Set<number>();
+  let textBuffer: AssistantMessageEvent[] = [];
+  let bufferingIndex: number | null = null;
+
+  for await (const event of upstream) {
+    // Start buffering when a new text block begins.
+    if (event.type === "text_start") {
+      bufferingIndex = event.contentIndex;
+      textBuffer = [event];
+      continue;
+    }
+
+    // Accumulate text deltas + detect the empty-response marker on text_end.
+    if (
+      bufferingIndex !== null &&
+      "contentIndex" in event &&
+      event.contentIndex === bufferingIndex
+    ) {
+      if (event.type === "text_delta") {
+        textBuffer.push(event);
+        continue;
+      }
+      if (event.type === "text_end") {
+        if (event.content.startsWith(EMPTY_RESPONSE_PREFIX)) {
+          // Suppress entire text block. Do NOT splice the message content
+          // array: it is a shared reference into session state, and mutating
+          // it would shift subsequent contentIndex values, corrupting the
+          // stream.
+          suppressedIndices.add(bufferingIndex);
+        } else {
+          // Legitimate text block — flush buffered events + end event.
+          for (const buffered of textBuffer) yield buffered;
+          yield event;
+        }
+        textBuffer = [];
+        bufferingIndex = null;
+        continue;
+      }
+    }
+
+    // Skip any event targeting an already-suppressed content index.
+    if ("contentIndex" in event && suppressedIndices.has(event.contentIndex)) {
+      continue;
+    }
+
+    // Clean suppressed blocks out of the final message.
+    if (event.type === "done" && suppressedIndices.size > 0) {
+      event.message.content = event.message.content.filter(
+        (block) =>
+          !(
+            block.type === "text" &&
+            typeof block.text === "string" &&
+            block.text.startsWith(EMPTY_RESPONSE_PREFIX)
+          ),
+      );
+    }
+
+    yield event;
+  }
+}
+
+// =============================================================================
+// Stream wrapper: orchestrates payload mutation + event filter
+// =============================================================================
+// Reads every side-effect source (process.env, options, apiKey) at the top
+// and hands a plain KimiPayloadContext to applyKimiPayloadMutations. The only
+// thing this function itself "does" is wire SDK streaming + filter + error
+// fallback; the actual logic lives in the pure units above.
+
 function streamSimpleKimi(
   model: Model<"anthropic-messages" | "openai-completions">,
   context: Context,
@@ -537,73 +711,41 @@ function streamSimpleKimi(
   const filtered = new AssistantMessageEventStream();
   const apiKey = options?.apiKey || process.env.KIMI_API_KEY || "";
 
+  const cacheKeyOverride = (
+    options as (SimpleStreamOptions & { prompt_cache_key?: unknown }) | undefined
+  )?.prompt_cache_key;
+  const cacheKey = (typeof cacheKeyOverride === "string" && cacheKeyOverride) || options?.sessionId;
+  const envOverrides = readEnvOverrides();
+  const upload: Uploader | undefined = apiKey
+    ? (mimeType, data) => uploadKimiFile(apiKey, mimeType, data)
+    : undefined;
+
+  const originalOnPayload = options?.onPayload;
+  const patchedOptions: SimpleStreamOptions = {
+    ...options,
+    onPayload: async (payload, modelData) => {
+      let nextPayload: unknown = payload;
+
+      if (isRecord(nextPayload)) {
+        await applyKimiPayloadMutations(nextPayload, {
+          api: model.api,
+          upload,
+          cacheKey,
+          reasoning: options?.reasoning,
+          envOverrides,
+        });
+      }
+
+      if (originalOnPayload) {
+        const res = await originalOnPayload(nextPayload, modelData);
+        if (res !== undefined) nextPayload = res;
+      }
+
+      return nextPayload;
+    },
+  };
+
   void (async () => {
-    // Intercept the payload to inject Kimi's proprietary prompt_cache_key
-    // because Kimi's Anthropic compatibility endpoint requires it alongside cache_control.
-    const originalOnPayload = options?.onPayload;
-    const cacheKeyOverride = (
-      options as (SimpleStreamOptions & { prompt_cache_key?: unknown }) | undefined
-    )?.prompt_cache_key;
-    const patchedOptions: SimpleStreamOptions = {
-      ...options,
-      onPayload: async (payload, modelData) => {
-        let nextPayload: unknown = payload;
-
-        if (isRecord(nextPayload)) {
-          // Map unsupported roles: Kimi does not recognize "developer" (OpenAI-specific).
-          if (Array.isArray(nextPayload.messages)) {
-            nextPayload.messages = nextPayload.messages.map((msg) =>
-              isRecord(msg) && msg.role === "developer" ? { ...msg, role: "system" } : msg,
-            );
-          }
-
-          if (apiKey) {
-            if (model.api === "openai-completions") {
-              await transformOpenAIPayloadFiles(nextPayload, apiKey);
-            } else if (model.api === "anthropic-messages") {
-              await transformAnthropicPayloadFiles(nextPayload, apiKey);
-            }
-          }
-
-          // Inject prompt_cache_key: allow explicit override, fallback to stable sessionId.
-          const existing = nextPayload.prompt_cache_key;
-          const cacheKey =
-            (typeof existing === "string" && existing) ||
-            (typeof cacheKeyOverride === "string" && cacheKeyOverride) ||
-            options?.sessionId;
-          if (cacheKey) nextPayload.prompt_cache_key = cacheKey;
-
-          // Environment overrides
-          const envTemp = process.env.KIMI_MODEL_TEMPERATURE;
-          if (envTemp) nextPayload.temperature = parseFloat(envTemp);
-
-          const envTopP = process.env.KIMI_MODEL_TOP_P;
-          if (envTopP) nextPayload.top_p = parseFloat(envTopP);
-
-          const envMaxTokens = process.env.KIMI_MODEL_MAX_TOKENS;
-          if (envMaxTokens) nextPayload.max_tokens = parseInt(envMaxTokens, 10);
-
-          // Reasoning effort mapping
-          if (options?.reasoning) {
-            const mapped = mapThinkingLevel(options.reasoning);
-            if (mapped) {
-              nextPayload.reasoning_effort = mapped.effort;
-              const extraBody = isRecord(nextPayload.extra_body) ? nextPayload.extra_body : {};
-              extraBody.thinking = { type: mapped.enabled ? "enabled" : "disabled" };
-              nextPayload.extra_body = extraBody;
-            }
-          }
-        }
-
-        if (originalOnPayload) {
-          const res = await originalOnPayload(nextPayload, modelData);
-          if (res !== undefined) nextPayload = res;
-        }
-
-        return nextPayload;
-      },
-    };
-
     const upstream =
       model.api === "openai-completions"
         ? streamSimpleOpenAICompletions(
@@ -613,66 +755,8 @@ function streamSimpleKimi(
           )
         : streamSimpleAnthropic(model as Model<"anthropic-messages">, context, patchedOptions);
 
-    // Buffer text block events so we can suppress the entire block if it
-    // turns out to be a Kimi "(Empty response: ...)" wrapper.
-    const suppressedIndices = new Set<number>();
-    let textBuffer: AssistantMessageEvent[] = [];
-    let bufferingIndex: number | null = null;
-
     try {
-      for await (const event of upstream) {
-        // Start buffering when a new text block begins
-        if (event.type === "text_start") {
-          bufferingIndex = event.contentIndex;
-          textBuffer = [event];
-          continue;
-        }
-
-        // Accumulate text deltas while buffering
-        if (
-          bufferingIndex !== null &&
-          "contentIndex" in event &&
-          event.contentIndex === bufferingIndex
-        ) {
-          if (event.type === "text_delta") {
-            textBuffer.push(event);
-            continue;
-          }
-          if (event.type === "text_end") {
-            if (event.content.startsWith(EMPTY_RESPONSE_PREFIX)) {
-              // Suppress entire text block — discard buffered events.
-              // Do NOT splice content array: it is a shared reference
-              // into session state, and mutating it shifts subsequent
-              // contentIndex values, corrupting the stream.
-              suppressedIndices.add(bufferingIndex);
-            } else {
-              // Legitimate text block — flush buffer + end event
-              for (const buffered of textBuffer) filtered.push(buffered);
-              filtered.push(event);
-            }
-            textBuffer = [];
-            bufferingIndex = null;
-            continue;
-          }
-        }
-
-        // Skip events for already-suppressed indices
-        if ("contentIndex" in event && suppressedIndices.has(event.contentIndex)) {
-          continue;
-        }
-
-        // Clean suppressed blocks from the final message
-        if (event.type === "done" && suppressedIndices.size > 0) {
-          event.message.content = event.message.content.filter(
-            (block) =>
-              !(
-                block.type === "text" &&
-                typeof block.text === "string" &&
-                block.text.startsWith(EMPTY_RESPONSE_PREFIX)
-              ),
-          );
-        }
-
+      for await (const event of filterEmptyResponseStream(upstream)) {
         filtered.push(event);
       }
     } catch (err) {
