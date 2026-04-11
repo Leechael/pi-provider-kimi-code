@@ -1,20 +1,40 @@
 {
   "name": "pi-provider-kimi-code",
   "version": "0.1.9",
-  "description": "pi custom provider extension for Kimi Code models with OAuth device-code login",
+  "description": "Pi extension for Kimi Code — reuse your kimi.com Membership in pi-coding-agent (K2.5, K2 Thinking Turbo)",
   "keywords": [
+    "pi-package",
+    "pi-extension",
+    "pi-provider",
+    "pi",
+    "pi-coding-agent",
+    "pi-mono",
     "coding-agent",
+    "ai-provider",
+    "llm",
+    "llm-provider",
     "kimi",
     "kimi-code",
-    "llm",
-    "pi",
-    "pi-extension"
+    "kimi-for-coding",
+    "kimi-coder",
+    "kimi-k2",
+    "kimi-k2.5",
+    "kimi-k2-thinking",
+    "moonshot",
+    "moonshotai",
+    "oauth",
+    "device-code",
+    "subscription"
   ],
   "license": "MIT",
   "repository": {
     "type": "git",
     "url": "https://github.com/Leechael/pi-provider-kimi-code"
   },
+  "bugs": {
+    "url": "https://github.com/Leechael/pi-provider-kimi-code/issues"
+  },
+  "author": "Leechael",
   "files": [
     "index.ts",
     "package.json",
@@ -29,6 +49,10 @@
     "format": "oxfmt . --write",
     "format:check": "oxfmt . --check",
     "pre-commit": "prek run"
+  },
+  "peerDependencies": {
+    "@mariozechner/pi-coding-agent": "*",
+    "@mariozechner/pi-ai": "*"
   },
   "devDependencies": {
     "@j178/prek": "^0.3.8",

@@ -1,16 +1,38 @@
-# pi-provider-kimi-code
-
+# Pi extension for Kimi Code
 [![npm](https://img.shields.io/npm/v/pi-provider-kimi-code)](https://www.npmjs.com/package/pi-provider-kimi-code)
+[![license](https://img.shields.io/npm/l/pi-provider-kimi-code)](./LICENSE)
 
-A [pi-coding-agent](https://github.com/badlogic/pi-mono/tree/main/packages/coding-agent) custom provider extension that adds [Kimi Code](https://kimi.com) models with OAuth device-code login.
+**Reuse your [Kimi Code Membership](https://www.kimi.com/code/docs/en/) inside [pi-coding-agent](https://github.com/badlogic/pi-mono/tree/main/packages/coding-agent)** — no separate API credits, no second billing dashboard. Every request draws from your Kimi Code membership quota (the 5-hour token bucket) instead of billing per-token on the Moonshot Open Platform.
+
+It's **"Claude Code for Kimi"** — log in with your Kimi account, with `KIMI_API_KEY` still supported as a fallback for CI. You get Kimi K2.5, Kimi K2 Thinking Turbo, and the umbrella `kimi-code` model with a 262K-token context window, automatic prompt caching, automatic large-image and video upload, and compatibility with both Anthropic-style and OpenAI-style clients.
+
+## Who is this for?
+
+- You already pay for a **[Kimi Code Membership](https://www.kimi.com/code/docs/en/)** and want to use it inside `pi-coding-agent` instead of the official `kimi-cli` — see [MoonshotAI/kimi-cli#757](https://github.com/MoonshotAI/kimi-cli/issues/757) for the canonical feature request this extension answers.
+- You want **"Claude Code for Kimi"**: log in with your Kimi account instead of buying separate API credits. (`KIMI_API_KEY` is also supported as a fallback for CI.)
+- You're in the [pi / pi-mono](https://github.com/badlogic/pi-mono) ecosystem and want **Kimi K2.5** or **Kimi K2 Thinking Turbo** as a pi provider.
+
+Pay-per-token via `KIMI_API_KEY` also works if you just want to try Kimi in CI or without a subscription.
+
+## Features
+
+- **Browser login with your Kimi account** — reuse your Kimi Code Membership without buying separate API credits. Credentials are stored locally and refreshed automatically. `KIMI_API_KEY` is also accepted for pay-per-token or CI use.
+- **262K-token context window** on all three registered models.
+- **Automatic prompt caching** — binds Kimi's prompt cache to your pi session so repeated calls hit the cache cheaply (observed TTL ~5-10 minutes). Honors pi's `PI_CACHE_RETENTION=none` if you want to disable caching entirely.
+- **Automatic large-image and video upload** — images over 1 MB and all videos are uploaded to Kimi ahead of time, so you don't hit inline payload limits.
+- **Works with both Anthropic- and OpenAI-compatible modes** — use whichever one your pi setup expects.
+- **Stream cleaning** — Kimi occasionally leaks placeholder blocks into the stream during thinking phases; this extension catches and hides them so your pi UI stays clean.
+- **Zero dependencies, zero build step** — the extension loads directly as TypeScript, nothing to compile.
 
 ## Install
+
+From npm:
 
 ```bash
 pi install npm:pi-provider-kimi-code
 ```
 
-Or load without installing:
+Or load a local checkout without installing:
 
 ```bash
 pi -e /path/to/pi-provider-kimi-code
@@ -18,19 +40,19 @@ pi -e /path/to/pi-provider-kimi-code
 
 ## Authentication
 
-### OAuth (recommended)
+### Browser login (recommended)
 
-Inside pi, run:
+Inside `pi`, run:
 
 ```
 /login kimi-coding
 ```
 
-This starts the device-code flow — a browser window opens, you authorize, and credentials are stored automatically.
+A browser tab opens, you sign into your Kimi account, and credentials are stored at `~/.pi/agent/auth.json`. Tokens refresh automatically.
 
-### API Key
+### API key
 
-Set the `KIMI_API_KEY` environment variable:
+For CI or pay-per-token use, set `KIMI_API_KEY`:
 
 ```bash
 KIMI_API_KEY=sk-... pi
@@ -44,101 +66,88 @@ KIMI_API_KEY=sk-... pi
 | `kimi-k2.5`              | Kimi K2.5                        | yes       | text, image | 262 144 | 32 000     |
 | `kimi-k2-thinking-turbo` | Kimi K2 Thinking Turbo           | yes       | text        | 262 144 | 32 000     |
 
-Select a model inside pi:
+Select a model inside `pi`:
 
 ```
 /model kimi-coding/kimi-code
 ```
 
-## Environment Overrides
+## Environment variables
 
-- `KIMI_CODE_BASE_URL` — override the default API base URL (default depends on protocol; see below)
-- `KIMI_CODE_OAUTH_HOST` — override the OAuth host
-- `KIMI_OAUTH_HOST` — fallback OAuth host override for compatibility
-- `KIMI_CODE_PROTOCOL` — choose protocol mode:
-  - unset / `anthropic` → `anthropic-messages` via `/coding/v1/messages`
-  - `openai` → `openai-completions` via `/coding/v1/chat/completions`
-- `KIMI_MODEL_TEMPERATURE` — force temperature on outbound requests
-- `KIMI_MODEL_TOP_P` — force top-p on outbound requests
-- `KIMI_MODEL_MAX_TOKENS` — force max tokens on outbound requests
-- `KIMI_CODE_DEBUG=1` — print provider-side debug logs (request metadata, file upload logs)
+| Variable                           | Description                                            |
+| ---------------------------------- | ------------------------------------------------------ |
+| `KIMI_API_KEY`                     | Static API key (alternative to browser login)          |
+| `KIMI_CODE_BASE_URL`               | Override the API base URL                              |
+| `KIMI_CODE_OAUTH_HOST`             | Override the OAuth host                                |
+| `KIMI_CODE_PROTOCOL`               | `anthropic` (default) or `openai`                      |
+| `KIMI_CODE_UPLOAD_THRESHOLD_BYTES` | Image auto-upload threshold, default `1048576` (1 MB)  |
+| `KIMI_CODE_DEBUG`                  | Set to `1` to print provider-side debug logs           |
 
-## Prompt Caching
+Full list with defaults and the test-script variables: [docs/ENV.md](docs/ENV.md).
 
-Kimi Code API requires a `prompt_cache_key` field at the payload root for prompt caching. The pi framework separately injects Anthropic-style `cache_control: { type: "ephemeral" }` markers. This extension bridges both:
+## FAQ
 
-1. **Session key injection**: Extracts your current pi `sessionId` and injects it as `prompt_cache_key` on every request.
-2. **TTL**: Approximately **5-10 minutes**. Consistently hits at 300s, borderline at 600s, misses at 900s. Measure in your environment with `KIMI_E2E_ONLY_CACHE=1` (see [E2E test script](#end-to-end-test-script)).
-3. **Manual override**: Set `prompt_cache_key` explicitly in the payload or options to override the automatic session-based key.
+### How is this different from the official `kimi-cli`?
 
-Cache usage is easiest to verify on the Anthropic-compatible endpoint, which returns `cache_read_input_tokens` / `cache_creation_input_tokens` fields.
+`kimi-cli` is Moonshot's own terminal agent. It's a full CLI — it replaces pi, you can't use it as a pi provider. This extension is the bridge: it lets you keep pi as your harness and point it at your Kimi Code Membership for inference, reusing the same login flow `kimi-cli` v1.3+ ships.
 
-## OpenAI Compatibility Mode
+### Do I need a paid Kimi subscription?
 
-Set `KIMI_CODE_PROTOCOL=openai` to switch the provider to Kimi Coding's OpenAI-compatible chat completions endpoint. Internally this extension uses `openai-completions` (not `openai-responses`) and applies Kimi-specific compatibility overrides:
+For browser login, yes — whatever your Moonshot account is entitled to is what the provider can access. Without a plan you'll hit rate limits quickly. For pay-per-token usage, set `KIMI_API_KEY` instead.
 
-- Maps `developer` role to `system` (Kimi does not recognize the OpenAI `developer` role)
-- Disables `store`
-- Uses `max_tokens`
-- Sends `KimiCLI/*` + `X-Msh-*` agent headers required by the Coding endpoint
+### Where does my data go?
 
-## End-to-End Test Script
+Requests go only to `api.kimi.com` (Moonshot's servers). Login credentials are stored locally at `~/.pi/agent/auth.json`, readable only by your user. Nothing is uploaded to any third party.
 
-This repo includes a tracked smoke-test script:
+### Is this affiliated with Moonshot AI?
 
-```bash
-KIMI_API_KEY=sk-... ./test_e2e.sh
-```
+No. This is an independent extension. The login flow is derived from the public implementation in the open-source [`kimi-cli`](https://github.com/MoonshotAI/kimi-cli) repository.
 
-By default it explicitly targets `--model kimi-coding/kimi-code`, disables extension discovery with `-ne`, and turns on provider debug logging.
+### Which pi version does this work with?
 
-What it does:
+Any recent [pi-coding-agent](https://github.com/badlogic/pi-mono/tree/main/packages/coding-agent).
 
-1. Runs a `pi -ne -e <extension-dir>` smoke test in Anthropic mode.
-2. Runs the same smoke test in OpenAI mode.
-3. Runs a high-thinking smoke test (saves full JSONL, extracts thinking + answer + usage).
-4. Runs a prompt-cache TTL probe and prints a conclusion on observed cache lifetime.
-5. Uploads a watermarked image to `/files`, then asks the model to read back the watermark via `ms://` reference.
-6. Sends a `prompt_cache_key` request directly to verify cache key injection.
+### Why are there two protocol modes?
 
-Useful environment variables for the test script:
+Kimi's coding endpoint speaks both Anthropic and OpenAI dialects. Anthropic mode has better visibility into cache hits, so it's the default. Switch via `KIMI_CODE_PROTOCOL=openai` if something in your pi setup prefers the OpenAI path.
 
-| Variable                   | Default                 | Description                             |
-| -------------------------- | ----------------------- | --------------------------------------- |
-| `KIMI_API_KEY`             | (required)              | API key (or pass as positional arg)     |
-| `KIMI_CODE_DEBUG`          | `1`                     | Provider debug logs                     |
-| `KIMI_E2E_VERBOSE`         | `1`                     | Command and environment diagnostics     |
-| `KIMI_E2E_MODEL`           | `kimi-coding/kimi-code` | Model for `pi` smoke tests              |
-| `KIMI_E2E_CACHE_INTERVALS` | `60,300`                | Absolute seconds from warmup per probe  |
-| `KIMI_E2E_CACHE_KEY`       | auto                    | Override cache key for TTL probe        |
-| `KIMI_E2E_CACHE_REPEAT`    | `2000`                  | Long-text repeat count for cache warmup |
-| `KIMI_E2E_SKIP_CACHE`      | `0`                     | Set `1` to skip the cache TTL phase     |
-| `KIMI_E2E_ONLY_CACHE`      | `0`                     | Set `1` to run only the cache TTL test  |
+## Troubleshooting
 
-### Proxy / networking note
+### `pi` reports `fetch failed` even though `curl` works
 
-If `curl` can reach Kimi but `pi` reports `fetch failed`, check your `http_proxy` / `https_proxy` / `all_proxy` environment. `pi` runs on Node's `fetch` / undici stack, which may behave differently from `curl`; the test script prints the effective proxy-related environment for easier debugging.
+pi runs on Node's `fetch` / undici stack, which handles `http_proxy` / `https_proxy` / `all_proxy` differently from `curl`. Verify those variables in the pi process's environment. The bundled smoke-test script `scripts/test_e2e.sh` prints the effective proxy-related environment for easier debugging.
 
-## How It Works
+### `/login kimi-coding` prints a device code but the browser never opens
 
-- Registers provider `kimi-coding` with Kimi's API endpoint
-- Supports two protocol modes:
-  - `anthropic-messages` (default)
-  - `openai-completions` when `KIMI_CODE_PROTOCOL=openai`
-- Adds a small `streamSimple` wrapper to suppress Kimi's leaked `(Empty response: ...)` placeholder blocks
-- Injects `prompt_cache_key` automatically so Kimi's cache works with pi sessions
-- Maps pi thinking levels to Kimi-native `reasoning_effort` + `extra_body.thinking`
-- Pre-uploads large image / video attachments to Kimi Files API (returns `ms://` references)
-- Maps `developer` role to `system` for OpenAI protocol compatibility
-- Sends the same `KimiCLI/1.30.0` + `X-Msh-*` headers as current `kimi-cli`
-- Persists a stable device ID at `~/.pi/providers/kimi-coding/device_id`
-- OAuth uses [RFC 8628](https://datatracker.ietf.org/doc/html/rfc8628) device authorization grant against `https://auth.kimi.com`
-- Zero dependencies — types from `@mariozechner/pi-ai` and `@mariozechner/pi-coding-agent` are provided by the pi runtime
-- Zero build step — pi loads TypeScript directly via jiti
+The login flow always prints a verification URL — opening it is the terminal's job. If your terminal or OS blocks auto-open, copy the URL and paste it into a browser manually.
+
+### "Access denied" or subscription errors after a successful login
+
+Your Moonshot account needs an active Kimi Code subscription for the provider to do anything useful. If the same account works in `kimi-cli`, re-run `/login kimi-coding` to refresh credentials.
+
+### Large images fail with a payload error
+
+This extension uploads images over `KIMI_CODE_UPLOAD_THRESHOLD_BYTES` (default 1 MB) to Kimi's Files API and references them as `ms://`. Videos always upload. Set `KIMI_CODE_DEBUG=1` to see upload decisions in the provider logs.
+
+### Prompt cache never seems to hit
+
+The cache is keyed off your pi session, which changes between sessions. Long-lived sessions get cache hits within a few minutes; cold sessions won't. Also check `PI_CACHE_RETENTION` — if it's set to `none`, this extension intentionally skips cache-key injection. For deterministic measurement, run the cache-TTL probe with a fixed key — see [docs/TESTING.md](docs/TESTING.md).
+
+### OpenAI-compatible tools complain about a `developer` role
+
+In OpenAI mode this extension maps the `developer` role to `system` (Kimi's Coding endpoint does not recognize `developer`). If something in your toolchain expects `developer` to round-trip, use Anthropic mode instead.
+
+## References
+
+- Upstream harness: [badlogic/pi-mono](https://github.com/badlogic/pi-mono) · [pi-coding-agent](https://github.com/badlogic/pi-mono/tree/main/packages/coding-agent)
+- Upstream login implementation and feature request: [MoonshotAI/kimi-cli](https://github.com/MoonshotAI/kimi-cli) · [kimi-cli#757](https://github.com/MoonshotAI/kimi-cli/issues/757)
+- Environment variables: [docs/ENV.md](docs/ENV.md)
+- Testing guide: [docs/TESTING.md](docs/TESTING.md)
+- Architecture notes: [docs/architecture.md](docs/architecture.md)
 
 ## Credits
 
-This extension is based on the OAuth implementation from [kimi-cli](https://github.com/MoonshotAI/kimi-cli) by Moonshot AI.
+Based on the login implementation from [`kimi-cli`](https://github.com/MoonshotAI/kimi-cli) by Moonshot AI. Built as an extension for [`pi-coding-agent`](https://github.com/badlogic/pi-mono/tree/main/packages/coding-agent) by [@badlogic](https://github.com/badlogic).
 
 ## License
 
