@@ -2,6 +2,7 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd -- "$(dirname -- "$0")" && pwd)"
+EXT_DIR="$(cd -- "$SCRIPT_DIR/.." && pwd)"
 PI_BIN="$(command -v pi)"
 API_KEY="${KIMI_API_KEY:-${1:-}}"
 
@@ -33,7 +34,7 @@ log() {
 }
 
 if [ "$KIMI_E2E_VERBOSE" = "1" ]; then
-  log "Using extension: $SCRIPT_DIR"
+  log "Using extension: $EXT_DIR"
   log "Using pi binary: $PI_BIN"
   "$PI_BIN" --version
   log "Relevant env:"
@@ -49,9 +50,9 @@ run_pi_test() {
 
   log "=== $title ==="
   if [ "$KIMI_E2E_VERBOSE" = "1" ]; then
-    log "+ KIMI_CODE_PROTOCOL=$protocol $PI_BIN -ne -e $SCRIPT_DIR --model $KIMI_E2E_MODEL -p $prompt $*"
+    log "+ KIMI_CODE_PROTOCOL=$protocol $PI_BIN -ne -e $EXT_DIR --model $KIMI_E2E_MODEL -p $prompt $*"
   fi
-  KIMI_CODE_PROTOCOL="$protocol" "$PI_BIN" -ne -e "$SCRIPT_DIR" --model "$KIMI_E2E_MODEL" -p "$prompt" "$@"
+  KIMI_CODE_PROTOCOL="$protocol" "$PI_BIN" -ne -e "$EXT_DIR" --model "$KIMI_E2E_MODEL" -p "$prompt" "$@"
   printf '\n'
 }
 
@@ -387,7 +388,7 @@ KIMI_E2E_T3_JSONL="/tmp/kimi_e2e_test3_$(date +%s).jsonl"
 if [ "$KIMI_E2E_VERBOSE" = "1" ]; then
   log "+ output -> $KIMI_E2E_T3_JSONL"
 fi
-KIMI_CODE_PROTOCOL=anthropic "$PI_BIN" -ne -e "$SCRIPT_DIR" --model "$KIMI_E2E_MODEL" \
+KIMI_CODE_PROTOCOL=anthropic "$PI_BIN" -ne -e "$EXT_DIR" --model "$KIMI_E2E_MODEL" \
   -p "Solve this: 25 * 4 + 10" --mode json --thinking high > "$KIMI_E2E_T3_JSONL" 2>&1
 python3 -c "
 import json
