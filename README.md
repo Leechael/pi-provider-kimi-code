@@ -38,6 +38,18 @@ Or load a local checkout without installing:
 pi -e /path/to/pi-provider-kimi-code
 ```
 
+### Install from GitHub Release tarball
+
+If you prefer not to use npm, download the tarball from the [latest release](https://github.com/Leechael/pi-provider-kimi-code/releases/latest), extract it, and install from the local path:
+
+```bash
+# Download and extract
+curl -L https://github.com/Leechael/pi-provider-kimi-code/releases/latest/download/pi-provider-kimi-code.tar.gz | tar -xz -C /tmp
+
+# Install from the extracted directory
+pi install /tmp/package
+```
+
 ## Authentication
 
 ### Browser login (recommended)

@@ -85,11 +85,17 @@ jobs:
             fi
           } > /tmp/changelog.md
 
+      - name: Create release tarball
+        run: |
+          npm pack
+          mv pi-provider-kimi-code-*.tgz pi-provider-kimi-code.tar.gz
+
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ env.RELEASE_TAG }}
           body_path: /tmp/changelog.md
+          files: pi-provider-kimi-code.tar.gz
 
       - name: Publish summary
         if: success()
