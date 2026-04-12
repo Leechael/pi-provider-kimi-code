@@ -1,6 +1,6 @@
 {
   "name": "pi-provider-kimi-code",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Pi extension for Kimi Code — reuse your kimi.com Membership in pi-coding-agent (K2.5, K2 Thinking Turbo)",
   "keywords": [
     "pi-package",
