@@ -47,7 +47,7 @@ If you prefer not to use npm, download the tarball from the [latest release](htt
 curl -L https://github.com/Leechael/pi-provider-kimi-code/releases/latest/download/pi-provider-kimi-code.tar.gz | tar -xz -C /tmp
 
 # Install from the extracted directory
-pi install /tmp/package
+pi install /tmp/pi-provider-kimi-code
 ```
 
 ## Authentication

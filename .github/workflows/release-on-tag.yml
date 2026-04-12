@@ -88,7 +88,13 @@ jobs:
       - name: Create release tarball
         run: |
           npm pack
-          mv pi-provider-kimi-code-*.tgz pi-provider-kimi-code.tar.gz
+          # Extract and rename to semantic directory
+          mkdir -p extract-tmp && tar -xzf pi-provider-kimi-code-*.tgz -C extract-tmp
+          mv extract-tmp/package pi-provider-kimi-code
+          # Re-pack with semantic directory name
+          tar -czf pi-provider-kimi-code.tar.gz pi-provider-kimi-code
+          # Cleanup
+          rm -rf extract-tmp pi-provider-kimi-code pi-provider-kimi-code-*.tgz
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
