@@ -2,22 +2,22 @@
 [![npm](https://img.shields.io/npm/v/pi-provider-kimi-code)](https://www.npmjs.com/package/pi-provider-kimi-code)
 [![license](https://img.shields.io/npm/l/pi-provider-kimi-code)](./LICENSE)
 
-**Reuse your [Kimi Code Membership](https://www.kimi.com/code/docs/en/) inside [pi-coding-agent](https://github.com/badlogic/pi-mono/tree/main/packages/coding-agent)** — no separate API credits, no second billing dashboard. Every request draws from your Kimi Code membership quota (the 5-hour token bucket) instead of billing per-token on the Moonshot Open Platform.
+**Reuse your [Kimi Code Plan](https://www.kimi.com/code/docs/en/) inside [pi-coding-agent](https://pi.dev/)** — no separate API credits, no second billing dashboard. Every request draws from your Kimi Code membership quota (the 5-hour token bucket) instead of billing per-token on the Moonshot Open Platform.
 
-It's **"Claude Code for Kimi"** — log in with your Kimi account, with `KIMI_API_KEY` still supported as a fallback for CI. You get Kimi K2.5, Kimi K2 Thinking Turbo, and the umbrella `kimi-code` model with a 262K-token context window, automatic prompt caching, automatic large-image and video upload, and compatibility with both Anthropic-style and OpenAI-style clients.
+It's **"Claude Code for Kimi"** — log in with your Kimi account, with `KIMI_API_KEY` still supported as a fallback for CI. You get Kimi for Coding, **Kimi K2.6 Code Preview**, Kimi K2.5, Kimi K2 Thinking Turbo, and the umbrella `kimi-code` model with a 262K-token context window, automatic prompt caching, automatic large-image and video upload, and compatibility with both Anthropic-style and OpenAI-style clients.
 
 ## Who is this for?
 
-- You already pay for a **[Kimi Code Membership](https://www.kimi.com/code/docs/en/)** and want to use it inside `pi-coding-agent` instead of the official `kimi-cli` — see [MoonshotAI/kimi-cli#757](https://github.com/MoonshotAI/kimi-cli/issues/757) for the canonical feature request this extension answers.
+- You already pay for a **[Kimi Code Plan](https://www.kimi.com/code/docs/en/)** and want to use it inside `pi-coding-agent` instead of the official `kimi-cli` — see [MoonshotAI/kimi-cli#757](https://github.com/MoonshotAI/kimi-cli/issues/757) for the canonical feature request this extension answers.
 - You want **"Claude Code for Kimi"**: log in with your Kimi account instead of buying separate API credits. (`KIMI_API_KEY` is also supported as a fallback for CI.)
-- You're in the [pi / pi-mono](https://github.com/badlogic/pi-mono) ecosystem and want **Kimi K2.5** or **Kimi K2 Thinking Turbo** as a pi provider.
+- You're in the [pi / pi-mono](https://github.com/badlogic/pi-mono) ecosystem and want **Kimi K2.6 Code Preview**, **Kimi K2.5**, or **Kimi K2 Thinking Turbo** as a pi provider.
 
 Pay-per-token via `KIMI_API_KEY` also works if you just want to try Kimi in CI or without a subscription.
 
 ## Features
 
 - **Browser login with your Kimi account** — reuse your Kimi Code Membership without buying separate API credits. Credentials are stored locally and refreshed automatically. `KIMI_API_KEY` is also accepted for pay-per-token or CI use.
-- **262K-token context window** on all three registered models.
+- **262K-token context window** on all registered models.
 - **Automatic prompt caching** — binds Kimi's prompt cache to your pi session so repeated calls hit the cache cheaply (observed TTL ~5-10 minutes). Honors pi's `PI_CACHE_RETENTION=none` if you want to disable caching entirely.
 - **Automatic large-image and video upload** — images over 1 MB and all videos are uploaded to Kimi ahead of time, so you don't hit inline payload limits.
 - **Works with both Anthropic- and OpenAI-compatible modes** — use whichever one your pi setup expects.
@@ -72,11 +72,13 @@ KIMI_API_KEY=sk-... pi
 
 ## Models
 
-| ID                       | Name                             | Reasoning | Input       | Context | Max Output |
-| ------------------------ | -------------------------------- | --------- | ----------- | ------- | ---------- |
-| `kimi-code`              | Kimi Code (powered by kimi-k2.5) | yes       | text, image | 262 144 | 32 000     |
-| `kimi-k2.5`              | Kimi K2.5                        | yes       | text, image | 262 144 | 32 000     |
-| `kimi-k2-thinking-turbo` | Kimi K2 Thinking Turbo           | yes       | text        | 262 144 | 32 000     |
+| ID                         | Name                   | Reasoning | Input              | Context | Max Output |
+| -------------------------- | ---------------------- | --------- | ------------------ | ------- | ---------- |
+| `kimi-for-coding`          | Kimi for Coding        | yes       | text, image, video | 262 144 | 32 000     |
+| `kimi-k2.6-code-preview`   | Kimi K2.6 Code Preview | yes       | text, image, video | 262 144 | 32 000     |
+| `kimi-code`                | Kimi Code (kimi-k2.5)  | yes       | text, image        | 262 144 | 32 000     |
+| `kimi-k2.5`                | Kimi K2.5              | yes       | text, image        | 262 144 | 32 000     |
+| `kimi-k2-thinking-turbo`   | Kimi K2 Thinking Turbo | yes       | text               | 262 144 | 32 000     |
 
 Select a model inside `pi`:
 

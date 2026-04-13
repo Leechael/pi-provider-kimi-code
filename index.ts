@@ -807,8 +807,26 @@ export default function (pi: ExtensionAPI) {
 
     models: [
       {
+        id: "kimi-for-coding",
+        name: "Kimi for Coding",
+        reasoning: true,
+        input: ["text", "image", "video"],
+        cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+        contextWindow: 262144,
+        maxTokens: 32000,
+      },
+      {
+        id: "kimi-k2.6-code-preview",
+        name: "Kimi K2.6 Code Preview",
+        reasoning: true,
+        input: ["text", "image", "video"],
+        cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+        contextWindow: 262144,
+        maxTokens: 32000,
+      },
+      {
         id: "kimi-code",
-        name: "Kimi Code (powered by kimi-k2.5)",
+        name: "Kimi Code (kimi-k2.5)",
         reasoning: true,
         input: ["text", "image"],
         cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
