@@ -1,6 +1,6 @@
 {
   "name": "pi-provider-kimi-code",
-  "version": "0.2.2",
+  "version": "0.3.0",
   "description": "Pi extension for Kimi Code — reuse your Kimi Code Plan in pi-coding-agent (K2.6, K2.5)",
   "keywords": [
     "pi-package",
