@@ -79,11 +79,9 @@ fix for Linux / non-ASCII hostnames.
 
 ### Models
 
-| ID                       | Name                             | Reasoning | Input       | Context | Max Output |
-| ------------------------ | -------------------------------- | --------- | ----------- | ------- | ---------- |
-| `kimi-code`              | Kimi Code (powered by kimi-k2.5) | yes       | text, image | 262 144 | 32 000     |
-| `kimi-k2.5`              | Kimi K2.5                        | yes       | text, image | 262 144 | 32 000     |
-| `kimi-k2-thinking-turbo` | Kimi K2 Thinking Turbo           | yes       | text        | 262 144 | 32 000     |
+| ID                | Name            | Reasoning | Input              | Context | Max Output |
+| ----------------- | --------------- | --------- | ------------------ | ------- | ---------- |
+| `kimi-for-coding` | Kimi for Coding | yes       | text, image, video | 262 144 | 32 000     |
 
 All costs are set to zero (free tier / OAuth-authenticated usage).
 
@@ -409,7 +407,7 @@ pi install ~/workshop/pi-provider-kimi-code
 pi install npm:pi-provider-kimi-code
 
 # Inside pi:
-#   /model kimi-coding/kimi-code
+#   /model kimi-coding/kimi-for-coding
 #   /login kimi-coding
 
 # Or use a static API key:

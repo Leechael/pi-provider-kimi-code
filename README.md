@@ -4,13 +4,13 @@
 
 **Reuse your [Kimi Code Plan](https://www.kimi.com/code/docs/en/) inside [pi-coding-agent](https://pi.dev/)** — no separate API credits, no second billing dashboard. Every request draws from your Kimi Code membership quota (the 5-hour token bucket) instead of billing per-token on the Moonshot Open Platform.
 
-It's **"Claude Code for Kimi"** — log in with your Kimi account, with `KIMI_API_KEY` still supported as a fallback for CI. You get Kimi for Coding, **Kimi K2.6 Code Preview**, Kimi K2.5, Kimi K2 Thinking Turbo, and the umbrella `kimi-code` model with a 262K-token context window, automatic prompt caching, automatic large-image and video upload, and compatibility with both Anthropic-style and OpenAI-style clients.
+It's **"Claude Code for Kimi"** — log in with your Kimi account, with `KIMI_API_KEY` still supported as a fallback for CI. You get `kimi-for-coding` (the Kimi-k2.6 latest alias, backed by the same Kimi Code Plan that covers K2.6 and K2.5) with a 262K-token context window, automatic prompt caching, automatic large-image and video upload, and compatibility with both Anthropic-style and OpenAI-style clients.
 
 ## Who is this for?
 
 - You already pay for a **[Kimi Code Plan](https://www.kimi.com/code/docs/en/)** and want to use it inside `pi-coding-agent` instead of the official `kimi-cli` — see [MoonshotAI/kimi-cli#757](https://github.com/MoonshotAI/kimi-cli/issues/757) for the canonical feature request this extension answers.
 - You want **"Claude Code for Kimi"**: log in with your Kimi account instead of buying separate API credits. (`KIMI_API_KEY` is also supported as a fallback for CI.)
-- You're in the [pi / pi-mono](https://github.com/badlogic/pi-mono) ecosystem and want **Kimi K2.6 Code Preview**, **Kimi K2.5**, or **Kimi K2 Thinking Turbo** as a pi provider.
+- You're in the [pi / pi-mono](https://github.com/badlogic/pi-mono) ecosystem and want **Kimi K2.6** (and the K2.5 coverage that comes with the Code Plan) as a pi provider.
 
 Pay-per-token via `KIMI_API_KEY` also works if you just want to try Kimi in CI or without a subscription.
 
@@ -72,18 +72,16 @@ KIMI_API_KEY=sk-... pi
 
 ## Models
 
-| ID                         | Name                   | Reasoning | Input              | Context | Max Output |
-| -------------------------- | ---------------------- | --------- | ------------------ | ------- | ---------- |
-| `kimi-for-coding`          | Kimi for Coding        | yes       | text, image, video | 262 144 | 32 000     |
-| `kimi-k2.6-code-preview`   | Kimi K2.6 Code Preview | yes       | text, image, video | 262 144 | 32 000     |
-| `kimi-code`                | Kimi Code (kimi-k2.5)  | yes       | text, image        | 262 144 | 32 000     |
-| `kimi-k2.5`                | Kimi K2.5              | yes       | text, image        | 262 144 | 32 000     |
-| `kimi-k2-thinking-turbo`   | Kimi K2 Thinking Turbo | yes       | text               | 262 144 | 32 000     |
+| ID                | Name            | Reasoning | Input              | Context | Max Output |
+| ----------------- | --------------- | --------- | ------------------ | ------- | ---------- |
+| `kimi-for-coding` | Kimi for Coding | yes       | text, image, video | 262 144 | 32 000     |
 
-Select a model inside `pi`:
+`kimi-for-coding` is the latest alias on the Kimi Code Plan — today it points at Kimi-k2.6. The Plan itself still covers K2.5; the upstream routes older model IDs to the current alias, but this provider only publishes the canonical `kimi-for-coding` entry.
+
+Select it inside `pi`:
 
 ```
-/model kimi-coding/kimi-code
+/model kimi-coding/kimi-for-coding
 ```
 
 ## Environment variables

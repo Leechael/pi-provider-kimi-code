@@ -22,7 +22,7 @@ KIMI_API_KEY=sk-... ./scripts/test_e2e.sh
 | `KIMI_API_KEY` | (required) | API key |
 | `KIMI_CODE_DEBUG` | `1` | Provider debug logs |
 | `KIMI_E2E_VERBOSE` | `1` | Command and environment diagnostics |
-| `KIMI_E2E_MODEL` | `kimi-coding/kimi-code` | Model for smoke tests |
+| `KIMI_E2E_MODEL` | `kimi-coding/kimi-for-coding` | Model for smoke tests |
 | `KIMI_E2E_CACHE_INTERVALS` | `60,300` | Absolute seconds from warmup per probe |
 | `KIMI_E2E_CACHE_KEY` | `pi-provider-kimi-code-e2e-<pid>-<unix_ts>` | Override cache key for TTL probe |
 | `KIMI_E2E_CACHE_REPEAT` | `2000` | Long-text repeat count for cache warmup |

@@ -15,7 +15,7 @@ fi
 export KIMI_API_KEY="$API_KEY"
 export KIMI_CODE_DEBUG="${KIMI_CODE_DEBUG:-1}"
 export KIMI_E2E_VERBOSE="${KIMI_E2E_VERBOSE:-1}"
-export KIMI_E2E_MODEL="${KIMI_E2E_MODEL:-kimi-coding/kimi-code}"
+export KIMI_E2E_MODEL="${KIMI_E2E_MODEL:-kimi-coding/kimi-for-coding}"
 export KIMI_E2E_CACHE_INTERVALS="${KIMI_E2E_CACHE_INTERVALS:-60,300}"
 export KIMI_E2E_CACHE_KEY="${KIMI_E2E_CACHE_KEY:-pi-provider-kimi-code-e2e-$$-$(date +%s)}"
 export KIMI_E2E_CACHE_REPEAT="${KIMI_E2E_CACHE_REPEAT:-2000}"
@@ -90,7 +90,7 @@ long_text = (
     "\n\nReply with only: ok"
 )
 payload = {
-    "model": "kimi-code",
+    "model": "kimi-for-coding",
     "max_tokens": 100,
     "prompt_cache_key": cache_key,
     "messages": [
@@ -118,7 +118,7 @@ headers = {
 def make_payload(round_key):
     text = long_text.replace(f"cache-key:{cache_key}", f"cache-key:{round_key}")
     return {
-        "model": "kimi-code",
+        "model": "kimi-for-coding",
         "max_tokens": 100,
         "prompt_cache_key": round_key,
         "messages": [{"role": "user", "content": [
@@ -285,7 +285,7 @@ PYIMG
 import json, sys
 file_id = '$file_id'
 print(json.dumps({
-    'model': 'kimi-code',
+    'model': 'kimi-for-coding',
     'max_tokens': 200,
     'messages': [{
         'role': 'user',
@@ -339,7 +339,7 @@ cache_key_injection_check() {
   payload=$(python3 -c "
 import json
 print(json.dumps({
-    'model': 'kimi-code',
+    'model': 'kimi-for-coding',
     'max_tokens': 100,
     'prompt_cache_key': '$test_cache_key',
     'messages': [{'role': 'user', 'content': 'Reply with: ok'}],
