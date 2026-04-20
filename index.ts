@@ -29,7 +29,8 @@ import {
   streamSimpleOpenAICompletions,
   AssistantMessageEventStream,
 } from "@mariozechner/pi-ai";
-import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
+import type { ExtensionAPI, OAuthCredential } from "@mariozechner/pi-coding-agent";
+import { AuthStorage } from "@mariozechner/pi-coding-agent";
 
 // =============================================================================
 // Constants
@@ -710,6 +711,54 @@ async function* filterEmptyResponseStream(
 }
 
 // =============================================================================
+// Auth refresh: recover from server-side token invalidation
+// =============================================================================
+// pi-coding-agent only refreshes an OAuth token when the locally cached
+// `expires` is in the past. If the server rotates/revokes the access token
+// before that (common with short-lived session tokens), every request keeps
+// returning 401. We detect that situation by inspecting the first event of
+// the upstream stream, force a refresh through AuthStorage (which persists
+// the new credentials under a file lock), and retry once.
+
+const PROVIDER_ID = "kimi-coding";
+
+async function refreshKimiAuthToken(currentKey: string): Promise<string | null> {
+  try {
+    const storage = AuthStorage.create();
+    const cred = storage.get(PROVIDER_ID);
+    if (!cred || cred.type !== "oauth") {
+      console.error(
+        `[kimi-coding] auth refresh skipped: no OAuth credentials for ${PROVIDER_ID} on disk`,
+      );
+      return null;
+    }
+
+    // If disk already has a different valid token (e.g., another process or a
+    // previous retry refreshed it while the caller's in-memory cache went
+    // stale), reuse it without hitting the OAuth endpoint.
+    if (cred.access !== currentKey && Date.now() < cred.expires) {
+      console.error("[kimi-coding] auth refresh: reusing newer on-disk token");
+      return cred.access;
+    }
+
+    console.error("[kimi-coding] auth refresh: requesting new access token");
+    const refreshed = await refreshAccessToken(cred.refresh);
+    const newCred: OAuthCredential = {
+      type: "oauth",
+      access: refreshed.access_token,
+      refresh: refreshed.refresh_token,
+      expires: Date.now() + refreshed.expires_in * 1000,
+    };
+    storage.set(PROVIDER_ID, newCred);
+    console.error("[kimi-coding] auth refresh: new token persisted");
+    return newCred.access;
+  } catch (err) {
+    console.error("[kimi-coding] auth refresh failed:", err);
+    return null;
+  }
+}
+
+// =============================================================================
 // Stream wrapper: orchestrates payload mutation + event filter
 // =============================================================================
 // Reads every side-effect source (process.env, options, apiKey) at the top
@@ -723,7 +772,7 @@ function streamSimpleKimi(
   options?: SimpleStreamOptions,
 ): AssistantMessageEventStream {
   const filtered = new AssistantMessageEventStream();
-  const apiKey = options?.apiKey || process.env.KIMI_API_KEY || "";
+  const initialKey = options?.apiKey || process.env.KIMI_API_KEY || "";
 
   const cacheKeyOverride = (
     options as (SimpleStreamOptions & { prompt_cache_key?: unknown }) | undefined
@@ -731,61 +780,105 @@ function streamSimpleKimi(
   const cacheKey = (typeof cacheKeyOverride === "string" && cacheKeyOverride) || options?.sessionId;
   const cacheRetention = resolveCacheRetention(options?.cacheRetention);
   const envOverrides = readEnvOverrides();
-  const upload: Uploader | undefined = apiKey
-    ? (mimeType, data) => uploadKimiFile(apiKey, mimeType, data)
-    : undefined;
-
   const originalOnPayload = options?.onPayload;
-  const patchedOptions: SimpleStreamOptions = {
-    ...options,
-    onPayload: async (payload, modelData) => {
-      let nextPayload: unknown = payload;
 
-      if (isRecord(nextPayload)) {
-        await applyKimiPayloadMutations(nextPayload, {
-          api: model.api,
-          upload,
-          cacheKey,
-          cacheRetention,
-          reasoning: options?.reasoning,
-          envOverrides,
-        });
-      }
+  const buildPatchedOptions = (apiKey: string): SimpleStreamOptions => {
+    const upload: Uploader | undefined = apiKey
+      ? (mimeType, data) => uploadKimiFile(apiKey, mimeType, data)
+      : undefined;
+    return {
+      ...options,
+      apiKey,
+      onPayload: async (payload, modelData) => {
+        let nextPayload: unknown = payload;
 
-      if (originalOnPayload) {
-        const res = await originalOnPayload(nextPayload, modelData);
-        if (res !== undefined) nextPayload = res;
-      }
+        if (isRecord(nextPayload)) {
+          await applyKimiPayloadMutations(nextPayload, {
+            api: model.api,
+            upload,
+            cacheKey,
+            cacheRetention,
+            reasoning: options?.reasoning,
+            envOverrides,
+          });
+        }
 
-      return nextPayload;
-    },
+        if (originalOnPayload) {
+          const res = await originalOnPayload(nextPayload, modelData);
+          if (res !== undefined) nextPayload = res;
+        }
+
+        return nextPayload;
+      },
+    };
   };
 
   void (async () => {
-    const upstream =
-      model.api === "openai-completions"
-        ? streamSimpleOpenAICompletions(
-            model as Model<"openai-completions">,
-            context,
-            patchedOptions,
-          )
-        : streamSimpleAnthropic(model as Model<"anthropic-messages">, context, patchedOptions);
+    let attempt = 0;
+    let currentKey = initialKey;
 
-    try {
-      for await (const event of filterEmptyResponseStream(upstream)) {
-        filtered.push(event);
+    while (true) {
+      const patchedOptions = buildPatchedOptions(currentKey);
+      const upstream =
+        model.api === "openai-completions"
+          ? streamSimpleOpenAICompletions(
+              model as Model<"openai-completions">,
+              context,
+              patchedOptions,
+            )
+          : streamSimpleAnthropic(model as Model<"anthropic-messages">, context, patchedOptions);
+
+      let pushedAny = false;
+      let shouldRetry = false;
+
+      try {
+        for await (const event of filterEmptyResponseStream(upstream)) {
+          // If the upstream terminates with an error before we've emitted
+          // anything downstream, speculatively try an OAuth refresh and
+          // retry once. This handles the common case of a server-side token
+          // invalidation before the local `expires` lapses, without having
+          // to pattern-match every possible error-message format.
+          //
+          // Non-auth errors (overflow, network, rate-limit, etc.) still
+          // trigger one wasted refresh, but the retried request fails the
+          // same way and we forward it — pi-coding-agent's own recovery
+          // paths (compaction, retry) take over from there.
+          if (!pushedAny && attempt === 0 && event.type === "error") {
+            console.error(
+              `[kimi-coding] upstream error on first event, attempting refresh: ${event.error?.errorMessage?.slice(0, 200)}`,
+            );
+            const refreshed = await refreshKimiAuthToken(currentKey);
+            if (refreshed && refreshed !== currentKey) {
+              console.error("[kimi-coding] retrying stream with refreshed token");
+              currentKey = refreshed;
+              shouldRetry = true;
+              break;
+            }
+            console.error(
+              "[kimi-coding] refresh did not yield a new token, forwarding original error",
+            );
+          }
+          filtered.push(event);
+          pushedAny = true;
+        }
+      } catch (err) {
+        console.error("[kimi-coding] stream error:", err);
+        filtered.push({
+          type: "error",
+          reason: "error",
+          error: {
+            content: [],
+            stopReason: "error",
+            usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0 },
+          },
+        } as AssistantMessageEvent & { type: "error" });
       }
-    } catch (err) {
-      console.error("[kimi-coding] stream error:", err);
-      filtered.push({
-        type: "error",
-        reason: "error",
-        error: {
-          content: [],
-          stopReason: "error",
-          usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0 },
-        },
-      } as AssistantMessageEvent & { type: "error" });
+
+      if (shouldRetry) {
+        attempt++;
+        continue;
+      }
+      break;
     }
   })();
 
