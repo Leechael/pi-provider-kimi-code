@@ -40,6 +40,9 @@ const CLIENT_ID = "17e5f671-d194-4dfb-9706-5516cb48c098";
 const DEFAULT_OAUTH_HOST = "https://auth.kimi.com";
 const PROTOCOL =
   process.env.KIMI_CODE_PROTOCOL === "openai" ? "openai-completions" : "anthropic-messages";
+// Use a custom api identifier so this provider never conflicts with the
+// built-in "anthropic-messages" or "openai-completions" stream handlers.
+const KIMI_API_TYPE = PROTOCOL === "openai-completions" ? "kimi-openai-completions" : "kimi-anthropic-messages";
 const DEFAULT_BASE_URL =
   PROTOCOL === "openai-completions"
     ? "https://api.kimi.com/coding/v1"
@@ -786,9 +789,12 @@ function streamSimpleKimi(
     const upload: Uploader | undefined = apiKey
       ? (mimeType, data) => uploadKimiFile(apiKey, mimeType, data)
       : undefined;
+    // Only forward apiKey if we actually have one — never override the
+    // caller's credential (e.g. Claude Code OAuth token) with an empty string.
+    const apiKeyOverride = apiKey ? { apiKey } : {};
     return {
       ...options,
-      apiKey,
+      ...apiKeyOverride,
       onPayload: async (payload, modelData) => {
         let nextPayload: unknown = payload;
 
@@ -819,8 +825,11 @@ function streamSimpleKimi(
 
     while (true) {
       const patchedOptions = buildPatchedOptions(currentKey);
+      // Route by the module-level PROTOCOL, not model.api, since we register
+      // with a custom api type (kimi-openai-completions / kimi-anthropic-messages)
+      // to avoid overriding the built-in Anthropic/OpenAI stream handlers.
       const upstream =
-        model.api === "openai-completions"
+        PROTOCOL === "openai-completions"
           ? streamSimpleOpenAICompletions(
               model as Model<"openai-completions">,
               context,
@@ -893,7 +902,7 @@ export default function (pi: ExtensionAPI) {
   pi.registerProvider("kimi-coding", {
     baseUrl: getBaseUrl(),
     apiKey: "KIMI_API_KEY",
-    api: PROTOCOL,
+    api: KIMI_API_TYPE,
     streamSimple: streamSimpleKimi,
 
     headers: getCommonHeaders(),
