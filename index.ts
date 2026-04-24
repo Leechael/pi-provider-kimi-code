@@ -112,7 +112,17 @@ function getDeviceModel(): string {
     return version && arch ? `macOS ${version} ${arch}` : `macOS ${arch}`;
   }
   if (platform === "win32") {
-    const release = os.release();
+    // Only show the major release (e.g. "Windows 10", "Windows 11") to match
+    // the upstream kimi-cli behavior in `def _device_model() -> str:`.
+    // See: https://github.com/MoonshotAI/kimi-cli/blob/main/src/kimi_cli/auth/oauth.py
+    const parts = os.release().split(".");
+    let release = parts[0];
+    if (release === "10" && parts.length >= 3) {
+      const build = parseInt(parts[2], 10);
+      if (!isNaN(build) && build >= 22000) {
+        release = "11";
+      }
+    }
     return release && arch ? `Windows ${release} ${arch}` : `Windows ${arch}`;
   }
   const release = os.release();
