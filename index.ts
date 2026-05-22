@@ -350,6 +350,9 @@ export interface KimiOAuthExtras {
   wireModelId?: string;
   modelDisplay?: string;
   contextLength?: number;
+  supportsReasoning?: boolean;
+  supportsImageIn?: boolean;
+  supportsVideoIn?: boolean;
 }
 
 export type KimiOAuthCredentials = OAuthCredentials & KimiOAuthExtras;
@@ -358,6 +361,9 @@ interface KimiServerModel {
   id?: unknown;
   display_name?: unknown;
   context_length?: unknown;
+  supports_reasoning?: unknown;
+  supports_image_in?: unknown;
+  supports_video_in?: unknown;
 }
 
 export function buildModelsUrl(baseUrl: string): string {
@@ -390,10 +396,45 @@ export async function discoverKimiModelMetadata(accessToken: string): Promise<Ki
     if (typeof preferred.context_length === "number" && preferred.context_length > 0) {
       extras.contextLength = preferred.context_length;
     }
+    if (typeof preferred.supports_reasoning === "boolean") {
+      extras.supportsReasoning = preferred.supports_reasoning;
+    }
+    if (typeof preferred.supports_image_in === "boolean") {
+      extras.supportsImageIn = preferred.supports_image_in;
+    }
+    if (typeof preferred.supports_video_in === "boolean") {
+      extras.supportsVideoIn = preferred.supports_video_in;
+    }
     return extras;
   } catch {
     return {};
   }
+}
+
+export function applyKimiOAuthExtrasToModel(model: Model<Api>, extras: KimiOAuthExtras): Model<Api> {
+  const next: Model<Api> & { wireModelId?: string } = { ...model };
+  if (typeof extras.modelDisplay === "string" && extras.modelDisplay) {
+    next.name = extras.modelDisplay;
+  }
+  if (typeof extras.contextLength === "number" && extras.contextLength > 0) {
+    next.contextWindow = extras.contextLength;
+  }
+  if (typeof extras.wireModelId === "string" && extras.wireModelId) {
+    next.wireModelId = extras.wireModelId;
+  }
+  if (typeof extras.supportsReasoning === "boolean") {
+    next.reasoning = extras.supportsReasoning;
+  }
+  if (
+    typeof extras.supportsImageIn === "boolean" ||
+    typeof extras.supportsVideoIn === "boolean"
+  ) {
+    const input = ["text"];
+    if (extras.supportsImageIn) input.push("image");
+    if (extras.supportsVideoIn) input.push("video");
+    (next as unknown as { input: string[] }).input = input;
+  }
+  return next;
 }
 
 // =============================================================================
@@ -1171,17 +1212,7 @@ export default function (pi: ExtensionAPI) {
         const extras = cred as KimiOAuthCredentials;
         return models.map((model) => {
           if (model.id !== "kimi-for-coding") return model;
-          const next: Model<Api> & { wireModelId?: string } = { ...model };
-          if (typeof extras.modelDisplay === "string" && extras.modelDisplay) {
-            next.name = extras.modelDisplay;
-          }
-          if (typeof extras.contextLength === "number" && extras.contextLength > 0) {
-            next.contextWindow = extras.contextLength;
-          }
-          if (typeof extras.wireModelId === "string" && extras.wireModelId) {
-            next.wireModelId = extras.wireModelId;
-          }
-          return next;
+          return applyKimiOAuthExtrasToModel(model, extras);
         });
       },
     },

@@ -1,6 +1,7 @@
 import { describe, it, beforeEach, afterEach } from "node:test";
 import assert from "node:assert/strict";
-import { discoverKimiModelMetadata } from "../index.ts";
+import { applyKimiOAuthExtrasToModel, discoverKimiModelMetadata } from "../index.ts";
+import type { Api, Model } from "@earendil-works/pi-ai";
 
 type FetchCall = { url: string; init?: RequestInit };
 
@@ -67,7 +68,14 @@ describe("discoverKimiModelMetadata", () => {
       jsonResponse({
         data: [
           { id: "k2p7-beta", display_name: "Beta K2.7" },
-          { id: "kimi-for-coding", display_name: "Kimi For Coding", context_length: 262144 },
+          {
+            id: "kimi-for-coding",
+            display_name: "Kimi For Coding",
+            context_length: 262144,
+            supports_reasoning: true,
+            supports_image_in: true,
+            supports_video_in: true,
+          },
         ],
       }),
     );
@@ -76,6 +84,9 @@ describe("discoverKimiModelMetadata", () => {
     assert.equal(result.wireModelId, "kimi-for-coding");
     assert.equal(result.modelDisplay, "Kimi For Coding");
     assert.equal(result.contextLength, 262144);
+    assert.equal(result.supportsReasoning, true);
+    assert.equal(result.supportsImageIn, true);
+    assert.equal(result.supportsVideoIn, true);
   });
 
   it("falls back to the first entry when no kimi-for-coding is present", async () => {
@@ -123,5 +134,37 @@ describe("discoverKimiModelMetadata", () => {
 
     await discoverKimiModelMetadata("tok-1");
     assert.equal(mock.calls[0]?.url, "https://proxy.example.com/kimi/v1/models");
+  });
+});
+
+describe("applyKimiOAuthExtrasToModel", () => {
+  it("applies server capabilities to the registered Kimi model", () => {
+    const model: Model<Api> = {
+      id: "kimi-for-coding",
+      name: "Kimi for Coding",
+      provider: "kimi-coding",
+      api: "kimi-anthropic-messages" as Api,
+      baseUrl: "https://api.kimi.com/coding",
+      reasoning: false,
+      input: ["text"],
+      cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+      contextWindow: 262144,
+      maxTokens: 32000,
+    };
+
+    const result = applyKimiOAuthExtrasToModel(model, {
+      wireModelId: "kimi-k2-next",
+      modelDisplay: "Kimi K2 Next",
+      contextLength: 1048576,
+      supportsReasoning: true,
+      supportsImageIn: true,
+      supportsVideoIn: true,
+    }) as Model<Api> & { wireModelId?: string; input: string[] };
+
+    assert.equal(result.name, "Kimi K2 Next");
+    assert.equal(result.contextWindow, 1048576);
+    assert.equal(result.wireModelId, "kimi-k2-next");
+    assert.equal(result.reasoning, true);
+    assert.deepEqual(result.input, ["text", "image", "video"]);
   });
 });
