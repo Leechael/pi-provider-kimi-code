@@ -765,8 +765,7 @@ async function uploadKimiFile(
   formData.append("file", new Blob([buffer], { type: mimeType }), filename);
   formData.append("purpose", "image");
 
-  const baseUrl = process.env.KIMI_CODE_BASE_URL || DEFAULT_BASE_URL;
-  const uploadUrl = `${deriveFilesBaseUrl(baseUrl)}/files`;
+  const uploadUrl = `${deriveFilesBaseUrl(getBaseUrl())}/files`;
   const debug = process.env.KIMI_CODE_DEBUG === "1";
   if (debug) {
     console.log(
