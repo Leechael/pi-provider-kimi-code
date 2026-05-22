@@ -12,13 +12,13 @@ pi-coding-agent already ships a built-in `kimi-coding` provider (see [`pi.dev/do
 
 - **Kimi server-side prompt cache never hits.** The built-in provider only emits Anthropic's standard `cache_control` markers, which the Kimi server does not honor. This extension injects `prompt_cache_key` (Kimi's native session-cache field) so cache reads on the Coding Plan actually fire. Without it, every turn pays full prompt cost.
 - **Images and videos are inlined as base64.** The built-in provider has no integration with Kimi's `/files` upload endpoint, so multimedia is sent inline as base64 in `messages`, counted toward your token budget and capped by request-size limits. This extension uploads images over `KIMI_CODE_UPLOAD_THRESHOLD_BYTES` (default 1 MB) and all videos to `/files`, references them by `ms://` id, and pays only the file-storage cost instead of token cost.
-- **OpenAI-compatible mode of the Coding endpoint is not exposed.** The built-in `kimi-coding` provider is Anthropic-only on `api.kimi.com/coding`. Kimi For Coding also serves an OpenAI-compatible variant at `api.kimi.com/coding/v1` — useful when something in your toolchain expects `role: "tool"` semantics, or when working around the [tool_result misread issue](https://github.com/Leechael/pi-provider-kimi-code/issues/5) under the Anthropic protocol. Opt in with `KIMI_CODE_PROTOCOL=openai`. (Note: the `moonshotai` / `moonshotai-cn` providers in pi-mono are a different product — Moonshot's pay-per-token Open Platform, not the Coding Plan.)
+- **OpenAI-compatible mode of the Coding endpoint is not exposed.** The built-in `kimi-coding` provider is Anthropic-only on `api.kimi.com/coding`. Kimi For Coding also serves an OpenAI-compatible variant at `api.kimi.com/coding/v1` — useful when something in your toolchain expects `role: "tool"` semantics, or when working around the [tool_result misread issue](https://github.com/Leechael/pi-provider-kimi-code/issues/5) under the Anthropic protocol. Opt in with `KIMI_CODE_PROTOCOL=openai`. (Note: the `moonshotai` / `moonshotai-cn` providers in `pi` are a different product — Moonshot's pay-per-token Open Platform, not the Coding Plan.)
 
 ## Who is this for?
 
 - You already pay for a **[Kimi Code Plan](https://www.kimi.com/code/docs/en/)** and want to use it inside `pi-coding-agent` instead of the official `kimi-cli` — see [MoonshotAI/kimi-cli#757](https://github.com/MoonshotAI/kimi-cli/issues/757) for the canonical feature request this extension answers.
 - You want **"Claude Code for Kimi"**: log in with your Kimi account instead of buying separate API credits. (`KIMI_API_KEY` is also supported as a fallback for CI.)
-- You're in the [pi / pi-mono](https://github.com/badlogic/pi-mono) ecosystem and want **Kimi K2.6** (and the K2.5 coverage that comes with the Code Plan) as a pi provider.
+- You're in the [pi](https://github.com/earendil-works/pi) ecosystem and want **Kimi K2.6** (and the K2.5 coverage that comes with the Code Plan) as a pi provider.
 
 Pay-per-token via `KIMI_API_KEY` also works if you just want to try Kimi in CI or without a subscription.
 
@@ -131,7 +131,7 @@ No. This is an independent extension. The login flow is derived from the public 
 
 ### Which pi version does this work with?
 
-Any recent [pi-coding-agent](https://github.com/badlogic/pi-mono/tree/main/packages/coding-agent).
+Any recent [pi-coding-agent](https://github.com/earendil-works/pi/tree/main/packages/coding-agent).
 
 ### Why are there two protocol modes?
 
@@ -165,7 +165,7 @@ In OpenAI mode this extension maps the `developer` role to `system` (Kimi's Codi
 
 ## References
 
-- Upstream harness: [badlogic/pi-mono](https://github.com/badlogic/pi-mono) · [pi-coding-agent](https://github.com/badlogic/pi-mono/tree/main/packages/coding-agent)
+- Upstream harness: [earendil-works/pi](https://github.com/earendil-works/pi) · [pi-coding-agent](https://github.com/earendil-works/pi/tree/main/packages/coding-agent)
 - Upstream login implementation and feature request: [MoonshotAI/kimi-cli](https://github.com/MoonshotAI/kimi-cli) · [kimi-cli#757](https://github.com/MoonshotAI/kimi-cli/issues/757)
 - Environment variables: [docs/ENV.md](docs/ENV.md)
 - Testing guide: [docs/TESTING.md](docs/TESTING.md)
@@ -173,7 +173,7 @@ In OpenAI mode this extension maps the `developer` role to `system` (Kimi's Codi
 
 ## Credits
 
-Based on the login implementation from [`kimi-cli`](https://github.com/MoonshotAI/kimi-cli) by Moonshot AI. Built as an extension for [`pi-coding-agent`](https://github.com/badlogic/pi-mono/tree/main/packages/coding-agent) by [@badlogic](https://github.com/badlogic).
+Based on the login implementation from [`kimi-cli`](https://github.com/MoonshotAI/kimi-cli) by Moonshot AI. Built as an extension for [`pi-coding-agent`](https://github.com/earendil-works/pi/tree/main/packages/coding-agent) by [@badlogic](https://github.com/badlogic).
 
 ## License
 
