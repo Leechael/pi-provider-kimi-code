@@ -626,6 +626,7 @@ export interface KimiPayloadContext {
   cacheKey?: string;
   cacheRetention: CacheRetention;
   reasoning?: ThinkingLevel;
+  thinkingKeep?: string;
   envOverrides: KimiEnvOverrides;
 }
 
@@ -870,6 +871,9 @@ export async function applyKimiPayloadMutations(
         ...oldThinking,
         type: mapped.enabled ? "enabled" : "disabled",
       };
+      if (mapped.enabled && ctx.thinkingKeep) {
+        (extraBody.thinking as JsonRecord).keep = ctx.thinkingKeep;
+      }
       payload.extra_body = extraBody;
     }
   }
@@ -1019,6 +1023,7 @@ function streamSimpleKimi(
   const cacheKey = (typeof cacheKeyOverride === "string" && cacheKeyOverride) || options?.sessionId;
   const cacheRetention = resolveCacheRetention(options?.cacheRetention);
   const envOverrides = readEnvOverrides();
+  const thinkingKeep = process.env.KIMI_MODEL_THINKING_KEEP;
   const originalOnPayload = options?.onPayload;
   // The pi-side model id ("kimi-for-coding") is what users select via /model
   // and what gets persisted into sessions. The wire model id discovered at
@@ -1047,6 +1052,7 @@ function streamSimpleKimi(
             cacheKey,
             cacheRetention,
             reasoning: options?.reasoning,
+            thinkingKeep,
             envOverrides,
           });
           if (

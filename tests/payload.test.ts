@@ -1,5 +1,6 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
+import type { ThinkingLevel } from "@earendil-works/pi-ai";
 import { applyKimiPayloadMutations, type JsonRecord, type KimiPayloadContext } from "../index.ts";
 
 const baseCtx = (overrides: Partial<KimiPayloadContext> = {}): KimiPayloadContext => ({
@@ -154,6 +155,30 @@ describe("applyKimiPayloadMutations", () => {
     assert.equal(payload.reasoning_effort, "high");
     assert.deepEqual(payload.extra_body, {
       thinking: { keep: "all", type: "enabled" },
+    });
+  });
+
+  it("applies thinkingKeep only when reasoning is enabled", async () => {
+    const enabledPayload: JsonRecord = {
+      messages: [{ role: "user", content: "hi" }],
+    };
+    await applyKimiPayloadMutations(
+      enabledPayload,
+      baseCtx({ reasoning: "high", thinkingKeep: "all" }),
+    );
+    assert.deepEqual(enabledPayload.extra_body, {
+      thinking: { type: "enabled", keep: "all" },
+    });
+
+    const disabledPayload: JsonRecord = {
+      messages: [{ role: "user", content: "hi" }],
+    };
+    await applyKimiPayloadMutations(
+      disabledPayload,
+      baseCtx({ reasoning: "none" as ThinkingLevel, thinkingKeep: "all" }),
+    );
+    assert.deepEqual(disabledPayload.extra_body, {
+      thinking: { type: "disabled" },
     });
   });
 });
