@@ -1000,6 +1000,16 @@ async function* filterEmptyResponseStream(
 
 const PROVIDER_ID = "kimi-coding";
 
+export function isKimiAuthErrorMessage(message: unknown): boolean {
+  const text = String(message ?? "").toLowerCase();
+  return (
+    /\b401\b/.test(text) ||
+    text.includes("unauthorized") ||
+    text.includes("incorrect api key") ||
+    text.includes("invalid api key")
+  );
+}
+
 async function refreshKimiAuthToken(currentKey: string): Promise<string | null> {
   try {
     const storage = AuthStorage.create();
@@ -1145,12 +1155,14 @@ function streamSimpleKimi(
             continue;
           }
 
-          // Speculative OAuth refresh on the first error.  We retry once so
-          // that short-lived Kimi tokens invalidated by the server before the
-          // local expires timestamp lapses don't surface as raw 401s to the
-          // user.  Non-auth errors still trigger one wasted refresh, but the
-          // retried request fails the same way and we forward it.
-          if (attempt === 0 && event.type === "error") {
+          // Speculative OAuth refresh on the first auth error. We retry once
+          // so short-lived Kimi tokens invalidated before the local expires
+          // timestamp lapses don't surface as raw 401s to the user.
+          if (
+            attempt === 0 &&
+            event.type === "error" &&
+            isKimiAuthErrorMessage(event.error?.errorMessage)
+          ) {
             console.error(
               `[kimi-coding] upstream error on first event, attempting refresh: ${event.error?.errorMessage?.slice(0, 200)}`,
             );
@@ -1184,7 +1196,7 @@ function streamSimpleKimi(
         // started, and flushing the buffered `start` would resurrect the
         // phantom empty assistant message this PR set out to fix.
         console.error("[kimi-coding] stream error:", err);
-        if (attempt === 0) {
+        if (attempt === 0 && isKimiAuthErrorMessage(err instanceof Error ? err.message : err)) {
           const refreshed = await refreshKimiAuthToken(currentKey);
           if (refreshed && refreshed !== currentKey) {
             console.error("[kimi-coding] retrying stream after thrown error with refreshed token");

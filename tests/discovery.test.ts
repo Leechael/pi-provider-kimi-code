@@ -4,6 +4,7 @@ import {
   DEFAULT_KIMI_MODEL_INPUT,
   applyKimiOAuthExtrasToModel,
   discoverKimiModelMetadata,
+  isKimiAuthErrorMessage,
   refreshAccessToken,
 } from "../index.ts";
 import type { Api, Model } from "@earendil-works/pi-ai";
@@ -221,5 +222,19 @@ describe("refreshAccessToken", () => {
       /Token refresh unauthorized: revoked/,
     );
     assert.equal(attempts, 1);
+  });
+});
+
+describe("isKimiAuthErrorMessage", () => {
+  it("recognizes auth failures that should trigger token refresh", () => {
+    assert.equal(isKimiAuthErrorMessage("401 Unauthorized"), true);
+    assert.equal(isKimiAuthErrorMessage("incorrect API KEY"), true);
+    assert.equal(isKimiAuthErrorMessage("invalid api key"), true);
+  });
+
+  it("does not classify transient or generic errors as auth failures", () => {
+    assert.equal(isKimiAuthErrorMessage("500 internal server error"), false);
+    assert.equal(isKimiAuthErrorMessage("429 rate limited"), false);
+    assert.equal(isKimiAuthErrorMessage("network socket closed"), false);
   });
 });
