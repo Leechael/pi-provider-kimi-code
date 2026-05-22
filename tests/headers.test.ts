@@ -1,6 +1,7 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { asciiHeaderValue, buildModelsUrl } from "../index.ts";
+import os from "node:os";
+import { asciiHeaderValue, buildModelsUrl, getOsVersion } from "../index.ts";
 
 describe("asciiHeaderValue", () => {
   it("passes ASCII strings through unchanged", () => {
@@ -52,5 +53,11 @@ describe("buildModelsUrl", () => {
       buildModelsUrl("http://127.0.0.1:8080/proxy"),
       "http://127.0.0.1:8080/proxy/v1/models",
     );
+  });
+});
+
+describe("getOsVersion", () => {
+  it("uses Node's OS version string, matching upstream platform.version semantics", () => {
+    assert.equal(getOsVersion(), os.version());
   });
 });

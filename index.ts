@@ -170,6 +170,10 @@ function getDeviceModel(): string {
   });
 }
 
+export function getOsVersion(): string {
+  return os.version();
+}
+
 export function asciiHeaderValue(value: string, fallback = "unknown"): string {
   const trimmed = value.trim();
   /* oxlint-disable-next-line no-control-regex */
@@ -207,7 +211,7 @@ function getCommonHeaders(): Record<string, string> {
     "X-Msh-Version": KIMI_CLI_VERSION,
     "X-Msh-Device-Name": os.hostname(),
     "X-Msh-Device-Model": DEVICE_MODEL,
-    "X-Msh-Os-Version": os.release(),
+    "X-Msh-Os-Version": getOsVersion(),
     "X-Msh-Device-Id": getStableDeviceId(),
   };
   return Object.fromEntries(
