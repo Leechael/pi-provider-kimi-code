@@ -55,6 +55,7 @@ const KIMI_CLI_USER_AGENT = `KimiCLI/${KIMI_CLI_VERSION}`;
 const KIMI_PLATFORM = "kimi_cli";
 const DEVICE_ID_PATH = join(os.homedir(), ".pi", "providers", "kimi-coding", "device_id");
 export const DEFAULT_KIMI_MODEL_INPUT = ["text", "image", "video"] as const;
+const RETRYABLE_REFRESH_STATUSES = new Set([429, 500, 502, 503, 504]);
 
 // =============================================================================
 // Device identification
@@ -317,34 +318,68 @@ async function requestDeviceToken(auth: DeviceAuthorization): Promise<TokenRespo
   throw new Error(`Token request failed: ${response.status} ${text}`);
 }
 
-async function refreshAccessToken(refreshToken: string): Promise<TokenResponse> {
-  const response = await fetch(`${getOAuthHost()}/api/oauth/token`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/x-www-form-urlencoded",
-      ...getCommonHeaders(),
-    },
-    body: new URLSearchParams({
-      client_id: CLIENT_ID,
-      grant_type: "refresh_token",
-      refresh_token: refreshToken,
-    }),
-  });
+interface RefreshAccessTokenOptions {
+  maxRetries?: number;
+  sleep?: (ms: number) => Promise<void>;
+}
 
-  if (!response.ok) {
-    const text = await response.text().catch(() => "");
-    if (response.status === 401 || response.status === 403) {
-      throw new Error(`Token refresh unauthorized: ${text}`);
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+export async function refreshAccessToken(
+  refreshToken: string,
+  options: RefreshAccessTokenOptions = {},
+): Promise<TokenResponse> {
+  const maxRetries = options.maxRetries ?? 3;
+  const wait = options.sleep ?? sleep;
+  let lastError: unknown;
+
+  for (let attempt = 0; attempt < maxRetries; attempt++) {
+    try {
+      const response = await fetch(`${getOAuthHost()}/api/oauth/token`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/x-www-form-urlencoded",
+          ...getCommonHeaders(),
+        },
+        body: new URLSearchParams({
+          client_id: CLIENT_ID,
+          grant_type: "refresh_token",
+          refresh_token: refreshToken,
+        }),
+      });
+
+      if (!response.ok) {
+        const text = await response.text().catch(() => "");
+        if (response.status === 401 || response.status === 403) {
+          throw new Error(`Token refresh unauthorized: ${text}`);
+        }
+        if (RETRYABLE_REFRESH_STATUSES.has(response.status)) {
+          throw new Error(`Token refresh retryable: ${response.status} ${text}`);
+        }
+        throw new Error(`Token refresh failed: ${response.status} ${text}`);
+      }
+
+      const data = (await response.json()) as TokenResponse;
+      if (!data.access_token || !data.refresh_token) {
+        throw new Error("Token refresh response missing required fields");
+      }
+
+      return data;
+    } catch (error) {
+      lastError = error;
+      const message = error instanceof Error ? error.message : String(error);
+      if (message.startsWith("Token refresh unauthorized:")) throw error;
+      if (message.startsWith("Token refresh failed:")) throw error;
+      if (attempt < maxRetries - 1) {
+        await wait(2 ** attempt * 1000);
+        continue;
+      }
     }
-    throw new Error(`Token refresh failed: ${response.status} ${text}`);
   }
 
-  const data = (await response.json()) as TokenResponse;
-  if (!data.access_token || !data.refresh_token) {
-    throw new Error("Token refresh response missing required fields");
-  }
-
-  return data;
+  throw new Error("Token refresh failed after retries.", { cause: lastError });
 }
 
 // =============================================================================

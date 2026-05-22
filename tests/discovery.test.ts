@@ -4,6 +4,7 @@ import {
   DEFAULT_KIMI_MODEL_INPUT,
   applyKimiOAuthExtrasToModel,
   discoverKimiModelMetadata,
+  refreshAccessToken,
 } from "../index.ts";
 import type { Api, Model } from "@earendil-works/pi-ai";
 
@@ -176,5 +177,49 @@ describe("applyKimiOAuthExtrasToModel", () => {
 describe("DEFAULT_KIMI_MODEL_INPUT", () => {
   it("advertises text, image, and video input by default", () => {
     assert.deepEqual([...DEFAULT_KIMI_MODEL_INPUT], ["text", "image", "video"]);
+  });
+});
+
+describe("refreshAccessToken", () => {
+  it("retries retryable refresh failures before returning the token", async () => {
+    let attempts = 0;
+    mock = mockFetch(() => {
+      attempts++;
+      if (attempts === 1) return new Response("busy", { status: 503 });
+      return jsonResponse({
+        access_token: "access-2",
+        refresh_token: "refresh-2",
+        expires_in: 3600,
+        scope: "",
+        token_type: "Bearer",
+      });
+    });
+
+    const waits: number[] = [];
+    const token = await refreshAccessToken("refresh-1", {
+      sleep: async (ms) => {
+        waits.push(ms);
+      },
+    });
+
+    assert.equal(attempts, 2);
+    assert.deepEqual(waits, [1000]);
+    assert.equal(token.access_token, "access-2");
+  });
+
+  it("does not retry unauthorized refresh responses", async () => {
+    let attempts = 0;
+    mock = mockFetch(() => {
+      attempts++;
+      return new Response("revoked", { status: 401 });
+    });
+
+    await assert.rejects(
+      refreshAccessToken("refresh-1", {
+        sleep: async () => {},
+      }),
+      /Token refresh unauthorized: revoked/,
+    );
+    assert.equal(attempts, 1);
   });
 });
