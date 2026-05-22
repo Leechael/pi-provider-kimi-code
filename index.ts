@@ -48,7 +48,7 @@ const DEFAULT_BASE_URL =
   PROTOCOL === "openai-completions"
     ? "https://api.kimi.com/coding/v1"
     : "https://api.kimi.com/coding";
-const KIMI_CLI_VERSION = "1.30.0";
+const KIMI_CLI_VERSION = "1.44.0";
 const KIMI_CLI_USER_AGENT = `KimiCLI/${KIMI_CLI_VERSION}`;
 const KIMI_PLATFORM = "kimi_cli";
 const DEVICE_ID_PATH = join(os.homedir(), ".pi", "providers", "kimi-coding", "device_id");
