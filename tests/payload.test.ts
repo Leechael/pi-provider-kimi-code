@@ -142,4 +142,18 @@ describe("applyKimiPayloadMutations", () => {
     assert.equal(payload.model, "kimi-for-coding");
     assert.equal(payload.temperature, 0.4);
   });
+
+  it("merges reasoning type into existing extra_body.thinking fields", async () => {
+    const payload: JsonRecord = {
+      messages: [{ role: "user", content: "hi" }],
+      extra_body: { thinking: { keep: "all" } },
+    };
+
+    await applyKimiPayloadMutations(payload, baseCtx({ reasoning: "high" }));
+
+    assert.equal(payload.reasoning_effort, "high");
+    assert.deepEqual(payload.extra_body, {
+      thinking: { keep: "all", type: "enabled" },
+    });
+  });
 });

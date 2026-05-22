@@ -865,7 +865,11 @@ export async function applyKimiPayloadMutations(
     if (mapped) {
       payload.reasoning_effort = mapped.effort;
       const extraBody = isRecord(payload.extra_body) ? payload.extra_body : {};
-      extraBody.thinking = { type: mapped.enabled ? "enabled" : "disabled" };
+      const oldThinking = isRecord(extraBody.thinking) ? extraBody.thinking : {};
+      extraBody.thinking = {
+        ...oldThinking,
+        type: mapped.enabled ? "enabled" : "disabled",
+      };
       payload.extra_body = extraBody;
     }
   }
