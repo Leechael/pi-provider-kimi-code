@@ -125,8 +125,19 @@ function getDeviceModel(): string {
     }
     return release && arch ? `Windows ${release} ${arch}` : `Windows ${arch}`;
   }
+  // Normalize platform name to match Python `platform.system()` casing used by
+  // upstream kimi-cli (e.g. "Linux", "FreeBSD", "SunOS"), since Node's
+  // `process.platform` is always lower-case.
+  const SYSTEM_NAME: Record<string, string> = {
+    aix: "AIX",
+    freebsd: "FreeBSD",
+    linux: "Linux",
+    openbsd: "OpenBSD",
+    sunos: "SunOS",
+  };
+  const system = SYSTEM_NAME[platform] ?? platform;
   const release = os.release();
-  return release && arch ? `${platform} ${release} ${arch}` : `${platform} ${arch}`;
+  return release && arch ? `${system} ${release} ${arch}` : `${system} ${arch}`;
 }
 
 function asciiHeaderValue(value: string, fallback = "unknown"): string {
