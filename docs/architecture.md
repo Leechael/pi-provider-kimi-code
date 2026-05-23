@@ -41,8 +41,8 @@ pi-provider-kimi-code/
 
 The package is intentionally a single-file extension. pi loads `index.ts` directly
 via jiti (TypeScript-in-JS runtime), so no build step is required. The virtual modules
-`@mariozechner/pi-ai` and `@mariozechner/pi-coding-agent` are provided by the pi
-runtime; no npm dependencies are needed.
+`@earendil-works/pi-ai` and `@earendil-works/pi-coding-agent` are provided by
+the pi runtime; no npm dependencies are needed.
 
 ## Provider Registration
 
@@ -383,8 +383,8 @@ zero-build setup reduces friction for both development and distribution.
 
 ### Why no dependencies?
 
-`@mariozechner/pi-ai` (for types and SDK streaming) and
-`@mariozechner/pi-coding-agent` (for `ExtensionAPI` type) are virtual modules
+`@earendil-works/pi-ai` (for types and SDK streaming) and
+`@earendil-works/pi-coding-agent` (for `ExtensionAPI` type) are virtual modules
 injected by the pi runtime. The only Node.js APIs used are built-ins. There is
 nothing to install.
 
