@@ -4,7 +4,11 @@ import { mkdtempSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { loadKimiCodeConfig, saveProjectKimiCodeConfig } from "../src/config.ts";
+import {
+  loadKimiCodeConfig,
+  saveHomeKimiCodeConfig,
+  saveProjectKimiCodeConfig,
+} from "../src/config.ts";
 
 function tempDir(name: string): string {
   return mkdtempSync(join(tmpdir(), `${name}-`));
@@ -31,7 +35,7 @@ describe("loadKimiCodeConfig", () => {
   it("reads global config", () => {
     const cwd = tempDir("kimi-config-cwd");
     const home = tempDir("kimi-config-home");
-    writeJson(join(home, ".pi", "agent", "pi-provider-kimi-code.json"), {
+    writeJson(join(home, ".pi", "pi-provider-kimi-code.json"), {
       tools: { moonshot_search: { enabled: true } },
     });
 
@@ -46,7 +50,7 @@ describe("loadKimiCodeConfig", () => {
   it("deep-merges project config over global config", () => {
     const cwd = tempDir("kimi-config-cwd");
     const home = tempDir("kimi-config-home");
-    writeJson(join(home, ".pi", "agent", "pi-provider-kimi-code.json"), {
+    writeJson(join(home, ".pi", "pi-provider-kimi-code.json"), {
       tools: {
         moonshot_search: { enabled: true },
         moonshot_fetch: { enabled: false },
@@ -85,7 +89,7 @@ describe("loadKimiCodeConfig", () => {
   it("lets project config disable a globally enabled tool", () => {
     const cwd = tempDir("kimi-config-cwd");
     const home = tempDir("kimi-config-home");
-    writeJson(join(home, ".pi", "agent", "pi-provider-kimi-code.json"), {
+    writeJson(join(home, ".pi", "pi-provider-kimi-code.json"), {
       tools: { moonshot_search: { enabled: true } },
     });
     writeJson(join(cwd, ".pi", "pi-provider-kimi-code.json"), {
@@ -103,7 +107,7 @@ describe("loadKimiCodeConfig", () => {
   it("ignores malformed JSON and logs an error", () => {
     const cwd = tempDir("kimi-config-cwd");
     const home = tempDir("kimi-config-home");
-    const configPath = join(home, ".pi", "agent", "pi-provider-kimi-code.json");
+    const configPath = join(home, ".pi", "pi-provider-kimi-code.json");
     mkdirSync(join(configPath, ".."), { recursive: true });
     writeFileSync(configPath, "{", "utf8");
 
@@ -183,6 +187,25 @@ describe("loadKimiCodeConfig", () => {
       tools: {
         moonshot_search: { enabled: true, default_collapsed: true },
         moonshot_fetch: { enabled: false, default_collapsed: false },
+      },
+    });
+  });
+
+  it("saves home config at ~/.pi/pi-provider-kimi-code.json", () => {
+    const home = tempDir("kimi-config-home");
+    const configPath = join(home, ".pi", "pi-provider-kimi-code.json");
+
+    saveHomeKimiCodeConfig(home, {
+      tools: {
+        moonshot_search: { enabled: true, default_collapsed: false },
+        moonshot_fetch: { enabled: false, default_collapsed: true },
+      },
+    });
+
+    assert.deepEqual(JSON.parse(readFileSync(configPath, "utf8")), {
+      tools: {
+        moonshot_search: { enabled: true, default_collapsed: false },
+        moonshot_fetch: { enabled: false, default_collapsed: true },
       },
     });
   });

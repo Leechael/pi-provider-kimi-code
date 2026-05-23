@@ -77,7 +77,7 @@ describe("extension tool registration", () => {
       tools.map((tool) => tool.name),
       [],
     );
-    assert.ok(commands.has("kimi"));
+    assert.ok(commands.has("kimi-settings"));
   });
 
   it("registers only enabled Moonshot tools", () => {
@@ -114,26 +114,43 @@ describe("extension tool registration", () => {
     assert.match(component.render(80).join("\n"), /"url": "https:\/\/example.com"/);
   });
 
-  it("writes project config and updates active tools from /kimi", async () => {
+  it("writes project config and updates active tools from /kimi-settings", async () => {
     const cwd = tempDir("kimi-extension-cwd");
     const configPath = join(cwd, ".pi", "pi-provider-kimi-code.json");
     const { commands, getActiveTools, pi, setActiveTools, tools } = makePi();
     setActiveTools(["shell", "moonshot_fetch"]);
-    const choices = ["Toggle moonshot_search enabled", "Toggle moonshot_fetch collapsed", "Done"];
+    const choices = [
+      "Edit project config (.pi/pi-provider-kimi-code.json)",
+      "moonshot_search -> disabled, default collapsed",
+      "Enable moonshot_search",
+      "Back",
+      "moonshot_fetch -> disabled, default collapsed",
+      "Expand previews by default",
+      "Back",
+      "Back",
+      "Done",
+    ];
     const titles: string[] = [];
     const notifications: string[] = [];
     const originalFetch = globalThis.fetch;
     const originalKimiApiKey = process.env.KIMI_API_KEY;
     process.env.KIMI_API_KEY = "test-key";
     globalThis.fetch = async () =>
-      new Response(JSON.stringify({ usage: { limit: 100, remaining: 80 } }), {
-        status: 200,
-        headers: { "content-type": "application/json" },
-      });
+      new Response(
+        JSON.stringify({
+          user: { membership: { level: "LEVEL_INTERMEDIATE" } },
+          usage: { limit: 100, remaining: 80 },
+          limits: [{ detail: { limit: 200, used: 50 } }],
+        }),
+        {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        },
+      );
 
     try {
       withCwd(cwd, () => registerKimiCodeExtension(pi));
-      const kimiCommand = commands.get("kimi");
+      const kimiCommand = commands.get("kimi-settings");
       assert.ok(kimiCommand);
 
       await kimiCommand.handler("", {
@@ -157,8 +174,11 @@ describe("extension tool registration", () => {
       }
     }
 
-    assert.match(titles[0], /Weekly limit: 80% left \(80\/100\)/);
-    assert.match(titles[0], /moonshot_search: disabled, default collapsed/);
+    assert.doesNotMatch(titles[0], /Membership: Allegretto/);
+    assert.match(notifications[0], /Membership: Allegretto \(LEVEL_INTERMEDIATE\)/);
+    assert.match(notifications[0], /Weekly limit: \[################----\] 80% left \(80\/100\)/);
+    assert.match(notifications[0], /Month limit: \[###############-----\] 75% left \(150\/200\)/);
+    assert.equal(titles[0], "Kimi settings");
     assert.deepEqual(JSON.parse(readFileSync(configPath, "utf8")), {
       tools: {
         moonshot_search: { enabled: true, default_collapsed: true },
@@ -170,6 +190,10 @@ describe("extension tool registration", () => {
       tools.map((tool) => tool.name),
       ["moonshot_search"],
     );
-    assert.deepEqual(notifications, ["Kimi config updated", "Kimi config updated"]);
+    assert.deepEqual(notifications, [
+      "Membership: Allegretto (LEVEL_INTERMEDIATE)\nWeekly limit: [################----] 80% left (80/100)\nMonth limit: [###############-----] 75% left (150/200)",
+      "Saved moonshot_search config",
+      "Saved moonshot_fetch config",
+    ]);
   });
 });

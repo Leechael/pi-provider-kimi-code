@@ -25,10 +25,16 @@ import {
   type ExtensionCommandContext,
 } from "@earendil-works/pi-coding-agent";
 import os from "node:os";
+import { relative } from "node:path";
 
 import {
   type KimiCodeConfig,
+  getProjectKimiCodeConfigPath,
+  getGlobalKimiCodeConfigPath,
+  loadHomeKimiCodeConfig,
   loadKimiCodeConfig,
+  loadProjectKimiCodeConfig,
+  saveHomeKimiCodeConfig,
   saveProjectKimiCodeConfig,
 } from "./src/config.ts";
 import {
@@ -49,6 +55,15 @@ import { buildMoonshotFetchTool, buildMoonshotSearchTool } from "./src/tools/moo
 
 const MOONSHOT_TOOL_NAMES = ["moonshot_search", "moonshot_fetch"] as const;
 type MoonshotToolName = (typeof MOONSHOT_TOOL_NAMES)[number];
+type KimiConfigScope = "project" | "home";
+const MEMBERSHIP_LEVEL_NAMES: Record<string, string> = {
+  LEVEL_FREE: "Free",
+  LEVEL_BASIC: "Adagio",
+  LEVEL_STANDARD: "Moderato",
+  LEVEL_INTERMEDIATE: "Allegretto",
+  LEVEL_ADVANCED: "Allegro",
+  LEVEL_PREMIUM: "Vivace",
+};
 
 interface UsageRow {
   label: string;
@@ -122,6 +137,10 @@ function parseUsageSummary(payload: unknown): string {
   }
 
   const record = payload as Record<string, unknown>;
+  const lines: string[] = [];
+  const membership = parseMembership(record);
+  if (membership) lines.push(membership);
+
   const rows: UsageRow[] = [];
   const summary = parseUsageRow(record.usage, "Weekly limit");
   if (summary) rows.push(summary);
@@ -132,20 +151,39 @@ function parseUsageSummary(payload: unknown): string {
         typeof item === "object" && item !== null && !Array.isArray(item)
           ? ((item as Record<string, unknown>).detail ?? item)
           : item;
-      const row = parseUsageRow(detail, `Limit #${index + 1}`);
+      const row = parseUsageRow(detail, index === 0 ? "Month limit" : `Limit #${index + 1}`);
       if (row) rows.push(row);
     }
   }
 
-  if (rows.length === 0) return "Usage: no usage data";
-  return rows
-    .map((row) => {
-      if (row.limit <= 0) return `${row.label}: ${row.used} used`;
-      const remaining = Math.max(0, Math.min(row.limit - row.used, row.limit));
-      const percent = Math.round((remaining / row.limit) * 100);
-      return `${row.label}: ${percent}% left (${remaining}/${row.limit})`;
-    })
-    .join("\n");
+  lines.push(...rows.map(formatUsageRow));
+  return lines.length === 0 ? "Usage: no usage data" : lines.join("\n");
+}
+
+function parseMembership(record: Record<string, unknown>): string | null {
+  const user = record.user;
+  if (typeof user !== "object" || user === null || Array.isArray(user)) return null;
+  const membership = (user as Record<string, unknown>).membership;
+  if (typeof membership !== "object" || membership === null || Array.isArray(membership)) {
+    return null;
+  }
+  const level = (membership as Record<string, unknown>).level;
+  if (typeof level !== "string" || !level) return null;
+  const name = MEMBERSHIP_LEVEL_NAMES[level];
+  return name ? `Membership: ${name} (${level})` : `Membership: ${level}`;
+}
+
+function formatUsageRow(row: UsageRow): string {
+  if (row.limit <= 0) return `${row.label}: ${row.used} used`;
+  const remaining = Math.max(0, Math.min(row.limit - row.used, row.limit));
+  const percent = Math.round((remaining / row.limit) * 100);
+  return `${row.label}: ${quotaBar(remaining, row.limit)} ${percent}% left (${remaining}/${row.limit})`;
+}
+
+function quotaBar(remaining: number, limit: number): string {
+  const width = 20;
+  const filled = Math.max(0, Math.min(width, Math.round((remaining / limit) * width)));
+  return `[${"#".repeat(filled)}${"-".repeat(width - filled)}]`;
 }
 
 async function fetchKimiUsageSummary(): Promise<string> {
@@ -208,36 +246,132 @@ function toggleCollapsed(config: KimiCodeConfig, toolName: MoonshotToolName): Ki
 
 async function runKimiCommand(pi: ExtensionAPI, ctx: ExtensionCommandContext): Promise<void> {
   let config = loadKimiCodeConfig({ cwd: ctx.cwd, home: os.homedir() });
+  let usage = await fetchKimiUsageSummary();
+  ctx.ui.notify(usage);
 
   while (true) {
-    const usage = await fetchKimiUsageSummary();
-    const title = `Kimi Code\n\n${usage}\n\n${moonshotStatus(config)}`;
-    const choice = await ctx.ui.select(title, [
-      "Toggle moonshot_search enabled",
-      "Toggle moonshot_search collapsed",
-      "Toggle moonshot_fetch enabled",
-      "Toggle moonshot_fetch collapsed",
-      "Refresh",
+    const choice = await ctx.ui.select(buildKimiMainTitle(config, ctx.cwd), [
+      `Edit project config (${relative(ctx.cwd, getProjectKimiCodeConfigPath(ctx.cwd))})`,
+      `Edit home config (${homeRelative(getGlobalKimiCodeConfigPath(os.homedir()))})`,
+      "Refresh usage",
       "Done",
     ]);
 
     if (!choice || choice === "Done") return;
-    if (choice === "Refresh") continue;
-
-    if (choice === "Toggle moonshot_search enabled") {
-      config = toggleEnabled(config, "moonshot_search");
-    } else if (choice === "Toggle moonshot_search collapsed") {
-      config = toggleCollapsed(config, "moonshot_search");
-    } else if (choice === "Toggle moonshot_fetch enabled") {
-      config = toggleEnabled(config, "moonshot_fetch");
-    } else if (choice === "Toggle moonshot_fetch collapsed") {
-      config = toggleCollapsed(config, "moonshot_fetch");
+    if (choice === "Refresh usage") {
+      usage = await fetchKimiUsageSummary();
+      ctx.ui.notify(usage);
+      continue;
     }
-
-    saveProjectKimiCodeConfig(ctx.cwd, config);
-    registerConfiguredMoonshotTools(pi, config, { updateActiveTools: true });
-    ctx.ui.notify("Kimi config updated", "info");
+    if (choice.startsWith("Edit project config")) {
+      config = await editConfigScope(pi, ctx, "project");
+    } else if (choice.startsWith("Edit home config")) {
+      config = await editConfigScope(pi, ctx, "home");
+    }
   }
+}
+
+async function editConfigScope(
+  pi: ExtensionAPI,
+  ctx: ExtensionCommandContext,
+  scope: KimiConfigScope,
+): Promise<KimiCodeConfig> {
+  let current = loadScopeKimiCodeConfig(scope, ctx.cwd);
+  while (true) {
+    const choice = await ctx.ui.select(buildConfigScopeTitle(scope, current, ctx.cwd), [
+      toolMenuItem(current, "moonshot_search"),
+      toolMenuItem(current, "moonshot_fetch"),
+      "Back",
+    ]);
+    if (!choice || choice === "Back") {
+      return loadKimiCodeConfig({ cwd: ctx.cwd, home: os.homedir() });
+    }
+    if (choice.startsWith("moonshot_search")) {
+      current = await editMoonshotTool(pi, ctx, scope, current, "moonshot_search");
+    } else if (choice.startsWith("moonshot_fetch")) {
+      current = await editMoonshotTool(pi, ctx, scope, current, "moonshot_fetch");
+    }
+  }
+}
+
+async function editMoonshotTool(
+  pi: ExtensionAPI,
+  ctx: ExtensionCommandContext,
+  scope: KimiConfigScope,
+  config: KimiCodeConfig,
+  toolName: MoonshotToolName,
+): Promise<KimiCodeConfig> {
+  let current = config;
+  while (true) {
+    const tool = current.tools[toolName];
+    const choice = await ctx.ui.select(
+      `Edit ${toolName}\n\n${formatToolStatus(current, toolName)}`,
+      [
+        tool.enabled ? `Disable ${toolName}` : `Enable ${toolName}`,
+        tool.default_collapsed ? "Expand previews by default" : "Collapse previews by default",
+        "Back",
+      ],
+    );
+    if (!choice || choice === "Back") return current;
+    if (choice.startsWith("Enable") || choice.startsWith("Disable")) {
+      current = toggleEnabled(current, toolName);
+    } else if (choice.endsWith("previews by default")) {
+      current = toggleCollapsed(current, toolName);
+    }
+    saveScopeKimiCodeConfig(scope, ctx.cwd, current);
+    const effective = loadKimiCodeConfig({ cwd: ctx.cwd, home: os.homedir() });
+    registerConfiguredMoonshotTools(pi, effective, { updateActiveTools: true });
+    ctx.ui.notify(`Saved ${toolName} config`, "info");
+  }
+}
+
+function loadScopeKimiCodeConfig(scope: KimiConfigScope, cwd: string): KimiCodeConfig {
+  if (scope === "project") return loadProjectKimiCodeConfig(cwd);
+  return loadHomeKimiCodeConfig(os.homedir());
+}
+
+function saveScopeKimiCodeConfig(
+  scope: KimiConfigScope,
+  cwd: string,
+  config: KimiCodeConfig,
+): void {
+  if (scope === "project") {
+    saveProjectKimiCodeConfig(cwd, config);
+  } else {
+    saveHomeKimiCodeConfig(os.homedir(), config);
+  }
+}
+
+function buildKimiMainTitle(_config: KimiCodeConfig, _cwd: string): string {
+  return "Kimi settings";
+}
+
+function buildConfigScopeTitle(
+  scope: KimiConfigScope,
+  config: KimiCodeConfig,
+  cwd: string,
+): string {
+  const path =
+    scope === "project"
+      ? relative(cwd, getProjectKimiCodeConfigPath(cwd))
+      : homeRelative(getGlobalKimiCodeConfigPath(os.homedir()));
+  return [`Edit ${scope} config`, `File: ${path}`, "", moonshotStatus(config)].join("\n");
+}
+
+function homeRelative(filePath: string): string {
+  const home = os.homedir();
+  return filePath.startsWith(`${home}/`) ? `~/${filePath.slice(home.length + 1)}` : filePath;
+}
+
+function toolMenuItem(config: KimiCodeConfig, toolName: MoonshotToolName): string {
+  return `${toolName} -> ${formatToolStatus(config, toolName)}`;
+}
+
+function formatToolStatus(config: KimiCodeConfig, toolName: MoonshotToolName): string {
+  const tool = config.tools[toolName];
+  const enabled = tool.enabled ? "enabled" : "disabled";
+  const collapsed = tool.default_collapsed ? "default collapsed" : "default expanded";
+  return `${enabled}, ${collapsed}`;
 }
 
 export default function (pi: ExtensionAPI) {
@@ -285,7 +419,7 @@ export default function (pi: ExtensionAPI) {
 
   registerConfiguredMoonshotTools(pi, config, { updateActiveTools: false });
 
-  pi.registerCommand("kimi", {
+  pi.registerCommand("kimi-settings", {
     description: "Show Kimi usage and configure optional Kimi tools",
     handler: async (_args, ctx) => {
       await runKimiCommand(pi, ctx);

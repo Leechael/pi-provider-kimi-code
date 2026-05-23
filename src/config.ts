@@ -21,7 +21,7 @@ export const DEFAULT_KIMI_CODE_CONFIG: KimiCodeConfig = {
 };
 
 export function getGlobalKimiCodeConfigPath(home: string): string {
-  return join(home, ".pi", "agent", "pi-provider-kimi-code.json");
+  return join(home, ".pi", "pi-provider-kimi-code.json");
 }
 
 export function getProjectKimiCodeConfigPath(cwd: string): string {
@@ -105,7 +105,15 @@ export function loadKimiCodeConfig(options: LoadKimiCodeConfigOptions): KimiCode
 }
 
 export function loadProjectKimiCodeConfig(cwd: string): KimiCodeConfig {
-  const projectConfig = readConfigFileQuiet(getProjectKimiCodeConfigPath(cwd));
+  return loadKimiCodeConfigFile(getProjectKimiCodeConfigPath(cwd));
+}
+
+export function loadHomeKimiCodeConfig(home: string): KimiCodeConfig {
+  return loadKimiCodeConfigFile(getGlobalKimiCodeConfigPath(home));
+}
+
+function loadKimiCodeConfigFile(path: string): KimiCodeConfig {
+  const projectConfig = readConfigFileQuiet(path);
   return {
     tools: {
       moonshot_search: {
@@ -121,7 +129,14 @@ export function loadProjectKimiCodeConfig(cwd: string): KimiCodeConfig {
 }
 
 export function saveProjectKimiCodeConfig(cwd: string, config: KimiCodeConfig): void {
-  const path = getProjectKimiCodeConfigPath(cwd);
+  saveKimiCodeConfigFile(getProjectKimiCodeConfigPath(cwd), config);
+}
+
+export function saveHomeKimiCodeConfig(home: string, config: KimiCodeConfig): void {
+  saveKimiCodeConfigFile(getGlobalKimiCodeConfigPath(home), config);
+}
+
+function saveKimiCodeConfigFile(path: string, config: KimiCodeConfig): void {
   const raw = readConfigFileQuiet(path);
   const next = {
     ...raw,

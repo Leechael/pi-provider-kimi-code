@@ -8,7 +8,7 @@ Add a JSON config file that this extension reads from a stable location, and use
 
 Out of scope (intentionally): JSONC (comment) support, environment-variable overrides for the new config keys, local HTTP fallback for the fetch tool, migration of existing `KIMI_CODE_*` env vars into the new file, hot reload.
 
-Follow-up implemented in the same branch: `/kimi` shows Kimi usage plus Moonshot tool states, and writes the current project's `.pi/pi-provider-kimi-code.json` while updating the active tool set for the current session.
+Follow-up implemented in the same branch: `/kimi-settings` shows Kimi usage, edits home/project config, and updates the active tool set for the current session.
 
 ## Why now
 
@@ -21,8 +21,8 @@ Two-tier lookup mirroring `pi-mono/packages/coding-agent/examples/extensions/pre
 
 | Tier    | Path                                     | Precedence                    |
 | ------- | ---------------------------------------- | ----------------------------- |
-| global  | `~/.pi/agent/pi-provider-kimi-code.json` | base                          |
-| project | `<cwd>/.pi/pi-provider-kimi-code.json`   | overrides global (deep merge) |
+| home    | `~/.pi/pi-provider-kimi-code.json`       | base                          |
+| project | `<cwd>/.pi/pi-provider-kimi-code.json`   | overrides home (deep merge) |
 
 JSON, not JSONC. Comment support can be revisited in v2.
 
