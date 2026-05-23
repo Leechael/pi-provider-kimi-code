@@ -1,10 +1,10 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
+import { mkdtempSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { loadKimiCodeConfig } from "../src/config.ts";
+import { loadKimiCodeConfig, saveProjectKimiCodeConfig } from "../src/config.ts";
 
 function tempDir(name: string): string {
   return mkdtempSync(join(tmpdir(), `${name}-`));
@@ -134,6 +134,55 @@ describe("loadKimiCodeConfig", () => {
       tools: {
         moonshot_search: { enabled: true, default_collapsed: true },
         moonshot_fetch: { enabled: false, default_collapsed: true },
+      },
+    });
+  });
+
+  it("saves project config and preserves unrelated keys", () => {
+    const cwd = tempDir("kimi-config-cwd");
+    const configPath = join(cwd, ".pi", "pi-provider-kimi-code.json");
+    writeJson(configPath, {
+      model: { name: "custom" },
+      tools: {
+        other_tool: { enabled: true },
+        moonshot_search: { enabled: true, default_collapsed: false },
+      },
+    });
+
+    saveProjectKimiCodeConfig(cwd, {
+      tools: {
+        moonshot_search: { enabled: false, default_collapsed: true },
+        moonshot_fetch: { enabled: true, default_collapsed: false },
+      },
+    });
+
+    assert.deepEqual(JSON.parse(readFileSync(configPath, "utf8")), {
+      model: { name: "custom" },
+      tools: {
+        other_tool: { enabled: true },
+        moonshot_search: { enabled: false, default_collapsed: true },
+        moonshot_fetch: { enabled: true, default_collapsed: false },
+      },
+    });
+  });
+
+  it("overwrites a malformed project config with the resolved shape", () => {
+    const cwd = tempDir("kimi-config-cwd");
+    const configPath = join(cwd, ".pi", "pi-provider-kimi-code.json");
+    mkdirSync(join(configPath, ".."), { recursive: true });
+    writeFileSync(configPath, "{", "utf8");
+
+    saveProjectKimiCodeConfig(cwd, {
+      tools: {
+        moonshot_search: { enabled: true, default_collapsed: true },
+        moonshot_fetch: { enabled: false, default_collapsed: false },
+      },
+    });
+
+    assert.deepEqual(JSON.parse(readFileSync(configPath, "utf8")), {
+      tools: {
+        moonshot_search: { enabled: true, default_collapsed: true },
+        moonshot_fetch: { enabled: false, default_collapsed: false },
       },
     });
   });

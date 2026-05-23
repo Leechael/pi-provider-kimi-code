@@ -1,5 +1,5 @@
-import { existsSync, readFileSync } from "node:fs";
-import { join } from "node:path";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { dirname, join } from "node:path";
 
 export interface KimiCodeConfig {
   tools: {
@@ -39,6 +39,16 @@ function readConfigFile(path: string): Record<string, unknown> {
     return isRecord(parsed) ? parsed : {};
   } catch (error) {
     console.error(`[kimi-coding] failed to read config file ${path}:`, error);
+    return {};
+  }
+}
+
+function readConfigFileQuiet(path: string): Record<string, unknown> {
+  try {
+    if (!existsSync(path)) return {};
+    const parsed = JSON.parse(readFileSync(path, "utf8")) as unknown;
+    return isRecord(parsed) ? parsed : {};
+  } catch {
     return {};
   }
 }
@@ -92,4 +102,35 @@ export function loadKimiCodeConfig(options: LoadKimiCodeConfigOptions): KimiCode
       },
     },
   };
+}
+
+export function loadProjectKimiCodeConfig(cwd: string): KimiCodeConfig {
+  const projectConfig = readConfigFileQuiet(getProjectKimiCodeConfigPath(cwd));
+  return {
+    tools: {
+      moonshot_search: {
+        enabled: readEnabled(projectConfig, "moonshot_search"),
+        default_collapsed: readDefaultCollapsed(projectConfig, "moonshot_search"),
+      },
+      moonshot_fetch: {
+        enabled: readEnabled(projectConfig, "moonshot_fetch"),
+        default_collapsed: readDefaultCollapsed(projectConfig, "moonshot_fetch"),
+      },
+    },
+  };
+}
+
+export function saveProjectKimiCodeConfig(cwd: string, config: KimiCodeConfig): void {
+  const path = getProjectKimiCodeConfigPath(cwd);
+  const raw = readConfigFileQuiet(path);
+  const next = {
+    ...raw,
+    tools: {
+      ...(isRecord(raw.tools) ? raw.tools : {}),
+      moonshot_search: { ...config.tools.moonshot_search },
+      moonshot_fetch: { ...config.tools.moonshot_fetch },
+    },
+  };
+  mkdirSync(dirname(path), { recursive: true });
+  writeFileSync(path, `${JSON.stringify(next, null, 2)}\n`, "utf8");
 }
