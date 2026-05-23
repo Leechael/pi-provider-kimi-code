@@ -177,7 +177,7 @@ describe("extension tool registration", () => {
     assert.doesNotMatch(titles[0], /Membership: Allegretto/);
     assert.match(notifications[0], /Membership: Allegretto \(LEVEL_INTERMEDIATE\)/);
     assert.match(notifications[0], /Weekly limit: \[################----\] 80% left \(80\/100\)/);
-    assert.match(notifications[0], /Month limit: \[###############-----\] 75% left \(150\/200\)/);
+    assert.match(notifications[0], /5h rate limit: \[###############-----\] 75% left \(150\/200\)/);
     assert.equal(titles[0], "Kimi settings");
     assert.deepEqual(JSON.parse(readFileSync(configPath, "utf8")), {
       tools: {
@@ -191,7 +191,7 @@ describe("extension tool registration", () => {
       ["moonshot_search"],
     );
     assert.deepEqual(notifications, [
-      "Membership: Allegretto (LEVEL_INTERMEDIATE)\nWeekly limit: [################----] 80% left (80/100)\nMonth limit: [###############-----] 75% left (150/200)",
+      "Membership: Allegretto (LEVEL_INTERMEDIATE)\nWeekly limit: [################----] 80% left (80/100)\n5h rate limit: [###############-----] 75% left (150/200)",
       "Saved moonshot_search config",
       "Saved moonshot_fetch config",
     ]);

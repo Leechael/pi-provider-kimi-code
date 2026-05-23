@@ -151,7 +151,7 @@ function parseUsageSummary(payload: unknown): string {
         typeof item === "object" && item !== null && !Array.isArray(item)
           ? ((item as Record<string, unknown>).detail ?? item)
           : item;
-      const row = parseUsageRow(detail, index === 0 ? "Month limit" : `Limit #${index + 1}`);
+      const row = parseUsageRow(detail, index === 0 ? "5h rate limit" : `Limit #${index + 1}`);
       if (row) rows.push(row);
     }
   }
