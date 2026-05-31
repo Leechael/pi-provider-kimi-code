@@ -1,0 +1,147 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Test with coverage
+        id: coverage
+        shell: bash
+        run: |
+          set +e
+          node --test --experimental-test-coverage tests/*.test.ts 2>&1 | tee coverage.txt
+          status=${PIPESTATUS[0]}
+          set -e
+
+          summary=$(node <<'NODE'
+          const fs = require('node:fs');
+          const text = fs.readFileSync('coverage.txt', 'utf8');
+          const line = text.split(/\r?\n/).find((item) => item.includes('all files') && item.includes('|'));
+          if (!line) {
+            console.log('Coverage summary unavailable.');
+            process.exit(0);
+          }
+          const parts = line
+            .replace(/^.*all files\s*\|/, '')
+            .split('|')
+            .map((part) => part.trim())
+            .filter(Boolean);
+          const [lines, branches, functions] = parts;
+          console.log(`Lines ${lines}, branches ${branches}, functions ${functions}`);
+          NODE
+          )
+
+          echo "status=$status" >> "$GITHUB_OUTPUT"
+          {
+            echo "summary<<EOF"
+            echo "$summary"
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Type check
+        id: typecheck
+        continue-on-error: true
+        run: npm run check
+
+      - name: Lint
+        id: lint
+        continue-on-error: true
+        run: npm run lint
+
+      - name: Format check
+        id: format
+        continue-on-error: true
+        run: npm run format:check
+
+      - name: Package size
+        id: package
+        shell: bash
+        run: |
+          npm pack --json > pack.json
+          summary=$(node <<'NODE'
+          const fs = require('node:fs');
+          const [pkg] = JSON.parse(fs.readFileSync('pack.json', 'utf8'));
+          const formatBytes = (bytes) => {
+            const units = ['B', 'KB', 'MB', 'GB'];
+            let value = bytes;
+            let unit = units.shift();
+            while (value >= 1024 && units.length > 0) {
+              value /= 1024;
+              unit = units.shift();
+            }
+            return `${value.toFixed(value >= 10 || unit === 'B' ? 0 : 1)} ${unit}`;
+          };
+          console.log(`Packed ${formatBytes(pkg.size)}, unpacked ${formatBytes(pkg.unpackedSize)}, files ${pkg.entryCount}`);
+          NODE
+          )
+          {
+            echo "summary<<EOF"
+            echo "$summary"
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Comment coverage and package size
+        if: always() && github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const marker = '<!-- pi-provider-kimi-code-ci-summary -->';
+            const coverage = `${{ steps.coverage.outputs.summary || 'Coverage summary unavailable.' }}`;
+            const packageSize = `${{ steps.package.outputs.summary || 'Package size unavailable.' }}`;
+            const body = [
+              marker,
+              '## CI summary',
+              '',
+              `- Test coverage: ${coverage}`,
+              `- Package size: ${packageSize}`,
+              '',
+              '| Check | Result |',
+              '| --- | --- |',
+              `| Tests | ${{ steps.coverage.outputs.status == '0' && 'passed' || 'failed' }} |`,
+              `| Type check | ${{ steps.typecheck.outcome }} |`,
+              `| Lint | ${{ steps.lint.outcome }} |`,
+              `| Format | ${{ steps.format.outcome }} |`,
+            ].join('\n');
+
+            const owner = context.repo.owner;
+            const repo = context.repo.repo;
+            const issue_number = context.payload.pull_request.number;
+            const { data: comments } = await github.rest.issues.listComments({ owner, repo, issue_number, per_page: 100 });
+            const existing = comments.find((comment) => comment.user?.type === 'Bot' && comment.body?.includes(marker));
+            if (existing) {
+              await github.rest.issues.updateComment({ owner, repo, comment_id: existing.id, body });
+            } else {
+              await github.rest.issues.createComment({ owner, repo, issue_number, body });
+            }
+
+      - name: Fail on coverage test failure
+        if: steps.coverage.outputs.status != '0'
+        run: exit 1
+
+      - name: Fail on check failure
+        if: steps.typecheck.outcome != 'success' || steps.lint.outcome != 'success' || steps.format.outcome != 'success'
+        run: exit 1
