@@ -1,6 +1,9 @@
 import { describe, it, beforeEach, afterEach } from "node:test";
 import assert from "node:assert/strict";
-import { DEFAULT_KIMI_MODEL_INPUT } from "../src/constants.ts";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { DEFAULT_KIMI_MODEL_INPUT, PROVIDER_ID } from "../src/constants.ts";
 import {
   applyKimiEnvOverridesToModel,
   applyKimiOAuthExtrasToModel,
@@ -9,6 +12,7 @@ import {
 import {
   isKimiAuthErrorMessage,
   refreshAccessToken,
+  refreshKimiAuthToken,
   requestDeviceAuthorization,
   requestDeviceToken,
 } from "../src/oauth.ts";
@@ -55,6 +59,7 @@ beforeEach(() => {
   delete process.env.KIMI_MODEL_CAPABILITIES;
   delete process.env.KIMI_CODE_OAUTH_HOST;
   delete process.env.KIMI_OAUTH_HOST;
+  delete process.env.PI_CODING_AGENT_DIR;
 });
 
 describe("discoverKimiModelMetadata", () => {
@@ -340,6 +345,77 @@ describe("refreshAccessToken", () => {
       /Token refresh unauthorized: revoked/,
     );
     assert.equal(attempts, 1);
+  });
+});
+
+describe("refreshKimiAuthToken", () => {
+  function withTempAuthFile(credential: Record<string, unknown>) {
+    const dir = mkdtempSync(join(tmpdir(), "pi-kimi-auth-"));
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(join(dir, "auth.json"), JSON.stringify({ [PROVIDER_ID]: credential }), "utf8");
+    process.env.PI_CODING_AGENT_DIR = dir;
+    return {
+      dir,
+      readCredential() {
+        return JSON.parse(readFileSync(join(dir, "auth.json"), "utf8"))[PROVIDER_ID];
+      },
+      cleanup() {
+        rmSync(dir, { recursive: true, force: true });
+        delete process.env.PI_CODING_AGENT_DIR;
+      },
+    };
+  }
+
+  it("reuses a newer on-disk access token without calling the refresh endpoint", async () => {
+    const auth = withTempAuthFile({
+      type: "oauth",
+      access: "newer-access",
+      refresh: "refresh-1",
+      expires: Date.now() + 60_000,
+    });
+    mock = mockFetch(() => {
+      throw new Error("fetch should not be called");
+    });
+
+    try {
+      const result = await refreshKimiAuthToken("stale-access");
+      assert.equal(result, "newer-access");
+      assert.equal(mock.calls.length, 0);
+    } finally {
+      auth.cleanup();
+    }
+  });
+
+  it("refreshes stale OAuth credentials and preserves stored metadata", async () => {
+    const auth = withTempAuthFile({
+      type: "oauth",
+      access: "stale-access",
+      refresh: "refresh-1",
+      expires: Date.now() - 1,
+      wireModelId: "kimi-for-coding",
+      modelDisplay: "Kimi For Coding",
+    });
+    mock = mockFetch(() =>
+      jsonResponse({
+        access_token: "fresh-access",
+        refresh_token: "refresh-2",
+        expires_in: 900,
+        scope: "kimi-code",
+        token_type: "Bearer",
+      }),
+    );
+
+    try {
+      const result = await refreshKimiAuthToken("stale-access");
+      assert.equal(result, "fresh-access");
+      const stored = auth.readCredential();
+      assert.equal(stored.access, "fresh-access");
+      assert.equal(stored.refresh, "refresh-2");
+      assert.equal(stored.wireModelId, "kimi-for-coding");
+      assert.equal(stored.modelDisplay, "Kimi For Coding");
+    } finally {
+      auth.cleanup();
+    }
   });
 });
 

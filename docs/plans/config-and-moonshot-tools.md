@@ -19,10 +19,10 @@ Follow-up implemented in the same branch: `/kimi-settings` shows Kimi usage, edi
 
 Two-tier lookup mirroring `pi-mono/packages/coding-agent/examples/extensions/preset.ts`:
 
-| Tier    | Path                                     | Precedence                    |
-| ------- | ---------------------------------------- | ----------------------------- |
-| home    | `~/.pi/pi-provider-kimi-code.json`       | base                          |
-| project | `<cwd>/.pi/pi-provider-kimi-code.json`   | overrides home (deep merge) |
+| Tier    | Path                                   | Precedence                  |
+| ------- | -------------------------------------- | --------------------------- |
+| home    | `~/.pi/pi-provider-kimi-code.json`     | base                        |
+| project | `<cwd>/.pi/pi-provider-kimi-code.json` | overrides home (deep merge) |
 
 JSON, not JSONC. Comment support can be revisited in v2.
 
@@ -102,12 +102,12 @@ When a tool is disabled, do not register it (rather than registering + hiding) â
 
 All under `tests/`, continuing to use `node:test`. No new devDeps.
 
-| File                            | What it asserts                                                                                                                                                             |
-| ------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `tests/config.test.ts`          | default when no file; global only; project overrides global; malformed JSON tolerated; only `tools.moonshot_search.enabled` set still produces a full default-shaped object |
-| `tests/extension-registration.test.ts` | missing config registers no Moonshot tools; enabled config registers only the selected Moonshot tools                                                                  |
-| `tests/moonshot-search.test.ts` | mock `fetch` to validate URL + body + headers shape; result-shape mapping; missing OAuth returns an error result; collapsed TUI rendering                                  |
-| `tests/moonshot-fetch.test.ts`  | same envelope as search; exact body field name confirmed against upstream; non-2xx service responses do not fall back to local fetch; collapsed TUI rendering                |
+| File                                   | What it asserts                                                                                                                                                             |
+| -------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `tests/config.test.ts`                 | default when no file; global only; project overrides global; malformed JSON tolerated; only `tools.moonshot_search.enabled` set still produces a full default-shaped object |
+| `tests/extension-registration.test.ts` | missing config registers no Moonshot tools; enabled config registers only the selected Moonshot tools                                                                       |
+| `tests/moonshot-search.test.ts`        | mock `fetch` to validate URL + body + headers shape; result-shape mapping; missing OAuth returns an error result; collapsed TUI rendering                                   |
+| `tests/moonshot-fetch.test.ts`         | same envelope as search; exact body field name confirmed against upstream; non-2xx service responses do not fall back to local fetch; collapsed TUI rendering               |
 
 ## Documentation
 

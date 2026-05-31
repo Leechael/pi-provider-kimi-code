@@ -388,6 +388,7 @@ export async function refreshKimiAuthToken(currentKey: string): Promise<string |
     console.error("[kimi-coding] auth refresh: requesting new access token");
     const refreshed = await refreshAccessToken(cred.refresh);
     const newCred: OAuthCredential = {
+      ...cred,
       type: "oauth",
       access: refreshed.access_token,
       refresh: refreshed.refresh_token,

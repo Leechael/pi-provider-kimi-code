@@ -24,10 +24,9 @@ export const DEFAULT_BASE_URL = IS_OPENAI_PROTOCOL
   ? "https://api.kimi.com/coding/v1"
   : "https://api.kimi.com/coding";
 
-export const KIMI_CODE_VERSION = "0.1.1";
-export const KIMI_CODE_USER_AGENT_PRODUCT = "kimi-code-cli";
-export const KIMI_CODE_USER_AGENT = `${KIMI_CODE_USER_AGENT_PRODUCT}/${KIMI_CODE_VERSION}`;
-export const KIMI_PLATFORM = "kimi-code-cli";
+export const KIMI_CODE_VERSION = "0.6.0";
+export const KIMI_CODE_USER_AGENT = `kimi-code-cli/${KIMI_CODE_VERSION}`;
+export const KIMI_PLATFORM = "kimi_code_cli";
 
 export function getKimiCodeHome(): string {
   const value = process.env.KIMI_CODE_HOME?.trim();

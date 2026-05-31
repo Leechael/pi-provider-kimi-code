@@ -3,37 +3,37 @@
   "version": "0.5.0",
   "description": "Use Kimi Code in Pi without losing the Kimi-specific bits",
   "keywords": [
-    "pi-package",
-    "pi-extension",
-    "pi-provider",
-    "pi",
-    "pi-coding-agent",
-    "pi-mono",
-    "coding-agent",
     "ai-provider",
+    "coding-agent",
+    "device-code",
+    "kimi",
+    "kimi-coder",
+    "kimi-for-coding",
+    "kimi-k2",
+    "kimi-k2.5",
+    "kimi-k2.6",
     "llm",
     "llm-provider",
-    "kimi",
-    "kimi-for-coding",
-    "kimi-coder",
-    "kimi-k2",
-    "kimi-k2.6",
-    "kimi-k2.5",
     "moonshot",
     "moonshotai",
     "oauth",
-    "device-code",
+    "pi",
+    "pi-coding-agent",
+    "pi-extension",
+    "pi-mono",
+    "pi-package",
+    "pi-provider",
     "subscription"
   ],
+  "bugs": {
+    "url": "https://github.com/Leechael/pi-provider-kimi-code/issues"
+  },
   "license": "MIT",
+  "author": "Leechael",
   "repository": {
     "type": "git",
     "url": "https://github.com/Leechael/pi-provider-kimi-code"
   },
-  "bugs": {
-    "url": "https://github.com/Leechael/pi-provider-kimi-code/issues"
-  },
-  "author": "Leechael",
   "files": [
     "index.ts",
     "src",
@@ -51,16 +51,18 @@
     "format:check": "oxfmt . --check",
     "pre-commit": "prek run"
   },
-  "peerDependencies": {
-    "@earendil-works/pi-coding-agent": "*",
-    "@earendil-works/pi-ai": "*"
-  },
   "devDependencies": {
+    "@earendil-works/pi-ai": "^0.78.0",
+    "@earendil-works/pi-coding-agent": "^0.78.0",
     "@j178/prek": "^0.3.8",
     "@types/node": "^24.0.0",
     "oxfmt": "^0.44.0",
     "oxlint": "^1.59.0",
     "typescript": "^5.9.0"
+  },
+  "peerDependencies": {
+    "@earendil-works/pi-ai": "*",
+    "@earendil-works/pi-coding-agent": "*"
   },
   "pi": {
     "extensions": [

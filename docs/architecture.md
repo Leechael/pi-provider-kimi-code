@@ -20,7 +20,7 @@ streaming to:
 
 - upload inline base64 images (and videos, OpenAI protocol only) to Kimi's `/v1/files` endpoint as `ms://` references
 - inject Kimi's proprietary `prompt_cache_key` alongside Anthropic `cache_control`
-- apply env-level hyperparameter overrides (`temperature`, `top_p`, `max_tokens`)
+- apply env-level hyperparameter overrides (`temperature`, `top_p`, `max_completion_tokens`)
 - map pi's `reasoning` level to Kimi's `reasoning_effort` + `extra_body.thinking`
 - suppress Kimi's `(Empty response: ...)` placeholder text blocks from the response stream
 
@@ -301,27 +301,27 @@ Every unit below can be tested without touching the network, the filesystem, or
 
 #### Layer 1 — pure inputs/outputs
 
-| Function | Contract | Fixture strategy |
-|---|---|---|
-| `isRecord(value)` | Type guard for plain objects | Boolean assertions over `null`, `[]`, `{}`, primitives |
-| `mapThinkingLevel(level)` | `ThinkingLevel` → `{effort, enabled}` | Table test, all 7 levels + `undefined` |
-| `parseInlineUploadThreshold(raw)` | `string \| undefined` → bytes | Valid int, empty, `undefined`, negative, non-numeric |
-| `deriveFilesBaseUrl(baseUrl)` | Ensure the base URL ends with `/v1` (the `/files` suffix is appended by `uploadKimiFile`) | `/coding` vs `/coding/v1` vs trailing slash |
-| `parseDataUrl(url)` | Data URL regex → `{mimeType, data} \| null` | Valid, missing `;base64,`, non-data URL |
-| `getUploadFilename(mimeType)` | MIME → filename | Known MIMEs, generic `video/*`, unknown |
+| Function                          | Contract                                                                                  | Fixture strategy                                       |
+| --------------------------------- | ----------------------------------------------------------------------------------------- | ------------------------------------------------------ |
+| `isRecord(value)`                 | Type guard for plain objects                                                              | Boolean assertions over `null`, `[]`, `{}`, primitives |
+| `mapThinkingLevel(level)`         | `ThinkingLevel` → `{effort, enabled}`                                                     | Table test, all 7 levels + `undefined`                 |
+| `parseInlineUploadThreshold(raw)` | `string \| undefined` → bytes                                                             | Valid int, empty, `undefined`, negative, non-numeric   |
+| `deriveFilesBaseUrl(baseUrl)`     | Ensure the base URL ends with `/v1` (the `/files` suffix is appended by `uploadKimiFile`) | `/coding` vs `/coding/v1` vs trailing slash            |
+| `parseDataUrl(url)`               | Data URL regex → `{mimeType, data} \| null`                                               | Valid, missing `;base64,`, non-data URL                |
+| `getUploadFilename(mimeType)`     | MIME → filename                                                                           | Known MIMEs, generic `video/*`, unknown                |
 
 #### Layer 2 — pure given injected dependencies
 
-| Function | Contract | Fixture strategy |
-|---|---|---|
-| `transformOpenAIPayloadFiles(payload, upload)` | Replace inline base64 `image_url` / `video_url` fields with `ms://` refs | Build payload fixture, pass fake `upload = async () => "ms://fake"`, assert mutated payload. Cover: plain data URL, already `ms://`, mime that fails `parseDataUrl`, cache dedup for repeated URLs |
-| `transformAnthropicPayloadFiles(payload, upload)` | Replace base64 `image` blocks (including inside `tool_result`) with `{source: {type: "url", url}}` | Fixture with nested `tool_result.content`, assert recursive replacement + `cache_control` preservation |
-| `applyKimiPayloadMutations(payload, ctx)` | Apply all 5 steps in order | Table test per step: (a) developer→system, (b) upload dispatch by `ctx.api`, (c) cache_key precedence (existing > ctx.cacheKey > nothing), (d) env overrides only when set, (e) reasoning_effort only when `ctx.reasoning` is set |
+| Function                                          | Contract                                                                                           | Fixture strategy                                                                                                                                                                                                                  |
+| ------------------------------------------------- | -------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `transformOpenAIPayloadFiles(payload, upload)`    | Replace inline base64 `image_url` / `video_url` fields with `ms://` refs                           | Build payload fixture, pass fake `upload = async () => "ms://fake"`, assert mutated payload. Cover: plain data URL, already `ms://`, mime that fails `parseDataUrl`, cache dedup for repeated URLs                                |
+| `transformAnthropicPayloadFiles(payload, upload)` | Replace base64 `image` blocks (including inside `tool_result`) with `{source: {type: "url", url}}` | Fixture with nested `tool_result.content`, assert recursive replacement + `cache_control` preservation                                                                                                                            |
+| `applyKimiPayloadMutations(payload, ctx)`         | Apply all 5 steps in order                                                                         | Table test per step: (a) developer→system, (b) upload dispatch by `ctx.api`, (c) cache_key precedence (existing > ctx.cacheKey > nothing), (d) env overrides only when set, (e) reasoning_effort only when `ctx.reasoning` is set |
 
 #### Layer 3 — pure stream transformation
 
-| Function | Contract | Fixture strategy |
-|---|---|---|
+| Function                              | Contract                                                                              | Fixture strategy                                                                                                                                                                                                                               |
+| ------------------------------------- | ------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `filterEmptyResponseStream(upstream)` | Async generator that drops `(Empty response: ...)` text blocks and the related events | Build synthetic `AssistantMessageEvent[]`, wrap as `async function*`, collect output. Cover: legitimate text passes through, empty-response block fully suppressed, mixed stream (one real + one empty), final `done` cleans `message.content` |
 
 #### Layer 4 — integration
@@ -336,15 +336,15 @@ These are the knobs the extension reads; a contributor adding a new feature shou
 thread it through the same boundary — read at the edge in `streamSimpleKimi` or
 `uploadKimiFile`, carry the value into pure layers via explicit parameters.
 
-| Env var | Read site | Layer |
-|---|---|---|
-| `KIMI_API_KEY` | `streamSimpleKimi` (also pi core) | Orchestrator |
-| `KIMI_CODE_PROTOCOL` | `PROTOCOL` constant | Module load |
-| `KIMI_CODE_BASE_URL` | `getBaseUrl` + `uploadKimiFile` | I/O edge |
-| `KIMI_CODE_OAUTH_HOST` / `KIMI_OAUTH_HOST` | `getOAuthHost` | I/O edge |
-| `KIMI_CODE_UPLOAD_THRESHOLD_BYTES` | `uploadKimiFile` (via `parseInlineUploadThreshold`) | I/O edge |
-| `KIMI_CODE_DEBUG` | `uploadKimiFile` | I/O edge |
-| `KIMI_MODEL_TEMPERATURE` / `KIMI_MODEL_TOP_P` / `KIMI_MODEL_MAX_TOKENS` | `readEnvOverrides` → `streamSimpleKimi` | Orchestrator |
+| Env var                                                                            | Read site                                           | Layer        |
+| ---------------------------------------------------------------------------------- | --------------------------------------------------- | ------------ |
+| `KIMI_API_KEY`                                                                     | `streamSimpleKimi` (also pi core)                   | Orchestrator |
+| `KIMI_CODE_PROTOCOL`                                                               | `PROTOCOL` constant                                 | Module load  |
+| `KIMI_CODE_BASE_URL`                                                               | `getBaseUrl` + `uploadKimiFile`                     | I/O edge     |
+| `KIMI_CODE_OAUTH_HOST` / `KIMI_OAUTH_HOST`                                         | `getOAuthHost`                                      | I/O edge     |
+| `KIMI_CODE_UPLOAD_THRESHOLD_BYTES`                                                 | `uploadKimiFile` (via `parseInlineUploadThreshold`) | I/O edge     |
+| `KIMI_CODE_DEBUG`                                                                  | `uploadKimiFile`                                    | I/O edge     |
+| `KIMI_MODEL_TEMPERATURE` / `KIMI_MODEL_TOP_P` / `KIMI_MODEL_MAX_COMPLETION_TOKENS` | `readEnvOverrides` → `streamSimpleKimi`             | Orchestrator |
 
 OAuth behavior is extended via the `oauth` field in `pi.registerProvider`.
 Payload mutation is extended by adding a new step to `applyKimiPayloadMutations`

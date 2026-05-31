@@ -66,6 +66,49 @@ describe("moonshot_search", () => {
     ]);
   });
 
+  it("refreshes OAuth credentials once on 401 and retries the search", async () => {
+    const calls: Array<{ url: string; init: RequestInit }> = [];
+    const mockFetch: typeof fetch = async (input, init) => {
+      calls.push({ url: String(input), init: init ?? {} });
+      if (calls.length === 1) return new Response("unauthorized", { status: 401 });
+      return new Response(JSON.stringify({ search_results: [] }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      });
+    };
+    const refreshes: string[] = [];
+    const tool = buildMoonshotSearchTool({
+      deps: {
+        fetch: mockFetch,
+        getAccessToken: () => "stale-token",
+        refreshAccessToken: async (token) => {
+          refreshes.push(token);
+          return "fresh-token";
+        },
+      },
+    });
+
+    const result = await tool.execute(
+      "tool-call-1",
+      { query: "kimi code" },
+      undefined,
+      undefined,
+      undefined as never,
+    );
+
+    assert.equal(calls.length, 2);
+    assert.deepEqual(refreshes, ["stale-token"]);
+    assert.equal(
+      (calls[0].init.headers as Record<string, string>).Authorization,
+      "Bearer stale-token",
+    );
+    assert.equal(
+      (calls[1].init.headers as Record<string, string>).Authorization,
+      "Bearer fresh-token",
+    );
+    assert.deepEqual(result.details, []);
+  });
+
   it("returns an error result when OAuth credentials are missing", async () => {
     const tool = buildMoonshotSearchTool({
       deps: {

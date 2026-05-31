@@ -50,6 +50,52 @@ describe("moonshot_fetch", () => {
     });
   });
 
+  it("refreshes OAuth credentials once on 401 and retries the fetch", async () => {
+    const calls: Array<{ url: string; init: RequestInit }> = [];
+    const mockFetch: typeof fetch = async (input, init) => {
+      calls.push({ url: String(input), init: init ?? {} });
+      if (calls.length === 1) return new Response("unauthorized", { status: 401 });
+      return new Response("Fetched content", {
+        status: 200,
+        headers: { "Content-Type": "text/markdown" },
+      });
+    };
+    const refreshes: string[] = [];
+    const tool = buildMoonshotFetchTool({
+      deps: {
+        fetch: mockFetch,
+        getAccessToken: () => "stale-token",
+        refreshAccessToken: async (token) => {
+          refreshes.push(token);
+          return "fresh-token";
+        },
+      },
+    });
+
+    const result = await tool.execute(
+      "tool-call-2",
+      { url: "https://example.com/page" },
+      undefined,
+      undefined,
+      undefined as never,
+    );
+
+    assert.equal(calls.length, 2);
+    assert.deepEqual(refreshes, ["stale-token"]);
+    assert.equal(
+      (calls[0].init.headers as Record<string, string>).Authorization,
+      "Bearer stale-token",
+    );
+    assert.equal(
+      (calls[1].init.headers as Record<string, string>).Authorization,
+      "Bearer fresh-token",
+    );
+    assert.deepEqual(result.details, {
+      url: "https://example.com/page",
+      content: "Fetched content",
+    });
+  });
+
   it("returns an error result when OAuth credentials are missing", async () => {
     const tool = buildMoonshotFetchTool({
       deps: {

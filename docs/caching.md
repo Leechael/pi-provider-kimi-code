@@ -57,28 +57,28 @@ block: `cache_read_input_tokens` (Anthropic field) mirrors `cached_tokens`
 (OpenAI field). Variant requests use UUID-salted content so they cannot
 accidentally share cache through identical prefixes.
 
-| Test | Function | Topic |
-|---|---|---|
-| 4   | `cache_ttl_check`                  | TTL short-interval baseline (60s/300s) |
-| 4a  | `cache_mechanism_isolation_check`  | which marker drives cache |
-| 4b  | `dual_breakpoint_check`            | dual marker vs single |
-| 4c  | `cache_key_semantics_check`        | does `prompt_cache_key` segregate / collide? |
-| 4d  | `cache_chain_check`                | multi-turn chain, persistence, branch |
-| 4e  | `cross_protocol_cache_check`       | /messages ↔ /chat/completions |
-| 4f  | `system_tools_cache_check`         | system/tools in cached prefix |
-| 4g  | `large_delta_check`                | multi-chunk delta cross-boundary |
-| 4h  | `ttl_upper_check`                  | TTL upper bound (opt-in, long) |
-| 4i  | `block_size_sweep_check`           | 256-token alignment across sizes |
-| 4j  | `tools_change_cache_check`         | tools-only change impact |
-| 4k  | `small_boundary_cache_check`       | sub-256 token chunk behaviour |
-| 4l  | `openai_cache_boundary_check`      | OpenAI endpoint cache mechanics |
-| 4m  | `retention_none_provider_cache_check` | `PI_CACHE_RETENTION=none` via pi binary |
-| 4n  | `usage_field_extraction_check`     | unit test of usage extractor (no network) |
-| 4o  | `non_prompt_params_cache_check`    | does temperature/top_p/etc invalidate? |
-| 4p  | `multimodal_cache_check`           | image_url in cache identity |
-| 4q  | `concurrent_cache_check`           | parallel identical-prefix writes |
-| 4r  | `very_large_cache_check`           | ~100K context (opt-in) |
-| 4s  | `device_id_cache_check`            | `X-Msh-Device-Id` header in cache identity |
+| Test | Function                              | Topic                                        |
+| ---- | ------------------------------------- | -------------------------------------------- |
+| 4    | `cache_ttl_check`                     | TTL short-interval baseline (60s/300s)       |
+| 4a   | `cache_mechanism_isolation_check`     | which marker drives cache                    |
+| 4b   | `dual_breakpoint_check`               | dual marker vs single                        |
+| 4c   | `cache_key_semantics_check`           | does `prompt_cache_key` segregate / collide? |
+| 4d   | `cache_chain_check`                   | multi-turn chain, persistence, branch        |
+| 4e   | `cross_protocol_cache_check`          | /messages ↔ /chat/completions                |
+| 4f   | `system_tools_cache_check`            | system/tools in cached prefix                |
+| 4g   | `large_delta_check`                   | multi-chunk delta cross-boundary             |
+| 4h   | `ttl_upper_check`                     | TTL upper bound (opt-in, long)               |
+| 4i   | `block_size_sweep_check`              | 256-token alignment across sizes             |
+| 4j   | `tools_change_cache_check`            | tools-only change impact                     |
+| 4k   | `small_boundary_cache_check`          | sub-256 token chunk behaviour                |
+| 4l   | `openai_cache_boundary_check`         | OpenAI endpoint cache mechanics              |
+| 4m   | `retention_none_provider_cache_check` | `PI_CACHE_RETENTION=none` via pi binary      |
+| 4n   | `usage_field_extraction_check`        | unit test of usage extractor (no network)    |
+| 4o   | `non_prompt_params_cache_check`       | does temperature/top_p/etc invalidate?       |
+| 4p   | `multimodal_cache_check`              | image_url in cache identity                  |
+| 4q   | `concurrent_cache_check`              | parallel identical-prefix writes             |
+| 4r   | `very_large_cache_check`              | ~100K context (opt-in)                       |
+| 4s   | `device_id_cache_check`               | `X-Msh-Device-Id` header in cache identity   |
 
 ## Findings
 
@@ -87,11 +87,11 @@ accidentally share cache through identical prefixes.
 Four payload variants — distinct salted content, identical caching outcome:
 
 | Variant | `cache_control` | `prompt_cache_key` | probe `cache_read_input_tokens` |
-|---|---|---|---|
-| A | set    | unset  | 24048 |
-| B | unset  | set    | 24042 |
-| C | set    | set    | 24040 |
-| D | unset  | unset  | 24040 |
+| ------- | --------------- | ------------------ | ------------------------------- |
+| A       | set             | unset              | 24048                           |
+| B       | unset           | set                | 24042                           |
+| C       | set             | set                | 24040                           |
+| D       | unset           | unset              | 24040                           |
 
 Even **D (no markers)** hits. The cache writes implicitly on first send; the
 second send reads it back unconditionally.
@@ -143,12 +143,12 @@ The block-size sweep (Test 4i) confirms the same alignment across prompt
 sizes from 800 to 32 000 tokens:
 
 | warm prompt | probe `cache_read` | aligned to | delta |
-|---|---|---|---|
-|   834 |   768 |   3 × 256 | 0 |
-|  1638 |  1536 |   6 × 256 | 0 |
-|  4035 |  3840 |  15 × 256 | 0 |
-| 12035 | 12032 |  47 × 256 | 0 |
-| 32039 | 32000 | 125 × 256 | 0 |
+| ----------- | ------------------ | ---------- | ----- |
+| 834         | 768                | 3 × 256    | 0     |
+| 1638        | 1536               | 6 × 256    | 0     |
+| 4035        | 3840               | 15 × 256   | 0     |
+| 12035       | 12032              | 47 × 256   | 0     |
+| 32039       | 32000              | 125 × 256  | 0     |
 
 Cost ceiling: at most ~256 tokens of re-processing per turn — ~2.3% on an
 11K context, decreasing with larger contexts.
@@ -181,10 +181,10 @@ Test 4 — same 26036-token payload sent at `t=0`, probed at `t=60s` and
 Test 4h — same ~26K payload, warmed then probed at longer intervals:
 
 | Probe interval  | `prompt_tokens` | `cache_read` |
-|---|---|---|
-| 1800s (30 min)  | 26047 | 0 (MISS) |
-| 3600s (1 hour)  | 26046 | 0 (MISS) |
-| 7200s (2 hours) | 26047 | 0 (MISS) |
+| --------------- | --------------- | ------------ |
+| 1800s (30 min)  | 26047           | 0 (MISS)     |
+| 3600s (1 hour)  | 26046           | 0 (MISS)     |
+| 7200s (2 hours) | 26047           | 0 (MISS)     |
 
 TTL falls in the bracket **[300s, 1800s)** — at least 5 minutes, less
 than 30 minutes. Consistent with the ~5–10 minute window the upstream
@@ -216,10 +216,10 @@ Zero difference. Consistent with Finding 1.
 
 Warm via one endpoint, probe via the other with the same text content:
 
-| Direction | warm prompt | probe `cache_read` | aligned to |
-|---|---|---|---|
-| `/messages` → `/chat/completions` | 24041 | 23808 | 93 × 256 |
-| `/chat/completions` → `/messages` | 24040 | 23808 | 93 × 256 |
+| Direction                         | warm prompt | probe `cache_read` | aligned to |
+| --------------------------------- | ----------- | ------------------ | ---------- |
+| `/messages` → `/chat/completions` | 24041       | 23808              | 93 × 256   |
+| `/chat/completions` → `/messages` | 24040       | 23808              | 93 × 256   |
 
 Both directions cache-read at the same chunk-aligned offset that a
 within-protocol warm→probe would produce. The cache layer sits below the
@@ -236,20 +236,20 @@ invalidate cache.
 
 Test 4f — vary one of system/tools, keep messages identical:
 
-| Scenario | Warm config | Probe config | probe `cache_read` |
-|---|---|---|---|
-| F0 baseline      | `system=A`           | `system=A`            | 24050 (full HIT) |
-| F1 system swap   | `system=A`           | `system=B`            | **0** |
-| F2 add tools     | `system=A`           | `system=A` + `tools`  | **0** |
-| F3 remove system | `system=A`           | (no system)           | **0** |
+| Scenario         | Warm config | Probe config         | probe `cache_read` |
+| ---------------- | ----------- | -------------------- | ------------------ |
+| F0 baseline      | `system=A`  | `system=A`           | 24050 (full HIT)   |
+| F1 system swap   | `system=A`  | `system=B`           | **0**              |
+| F2 add tools     | `system=A`  | `system=A` + `tools` | **0**              |
+| F3 remove system | `system=A`  | (no system)          | **0**              |
 
 Test 4j — tools-only change:
 
-| Scenario   | Warm           | Probe           | probe `cache_read` |
-|---|---|---|---|
-| J0 baseline | `tools=[Read]` | `tools=[Read]`  | 22081 (full HIT) |
-| J1 swap     | `tools=[Read]` | `tools=[Write]` | **0** |
-| J2 add      | no tools       | `tools=[Read]`  | **0** |
+| Scenario    | Warm           | Probe           | probe `cache_read` |
+| ----------- | -------------- | --------------- | ------------------ |
+| J0 baseline | `tools=[Read]` | `tools=[Read]`  | 22081 (full HIT)   |
+| J1 swap     | `tools=[Read]` | `tools=[Write]` | **0**              |
+| J2 add      | no tools       | `tools=[Read]`  | **0**              |
 
 **Any change to `system` or `tools` fully invalidates the messages cache.**
 They appear to be serialized **before** `messages` in the prefix hash, so
@@ -283,13 +283,13 @@ sub-chunk cache for partial prefixes). Crossing the first chunk boundary
 unlocks the normal chunk-floor read behaviour.
 
 | warm prompt | exact re-send `cache_read` | extended `cache_read` | floor(warm / 256) × 256 |
-|---|---|---|---|
-|   43 |   43 |   0 |   0 |
-|   59 |   59 |   0 |   0 |
-|   85 |   85 |   0 |   0 |
-|  122 |  122 |   0 |   0 |
-|  201 |  201 |   0 |   0 |
-|  361 |  361 | 256 | 256 |
+| ----------- | -------------------------- | --------------------- | ----------------------- |
+| 43          | 43                         | 0                     | 0                       |
+| 59          | 59                         | 0                     | 0                       |
+| 85          | 85                         | 0                     | 0                       |
+| 122         | 122                        | 0                     | 0                       |
+| 201         | 201                        | 0                     | 0                       |
+| 361         | 361                        | 256                   | 256                     |
 
 Practical impact: very short conversations (system + first user < 256
 tokens) get no incremental cache reads until the conversation grows past
@@ -316,12 +316,12 @@ rules.
 Same prompt, probe with each of four generation knobs changed between warm
 and probe (OpenAI endpoint):
 
-| Knob changed     | cache_read / prompt   | ratio |
-|---|---|---|
-| `temperature`        | 24041 / 24041 | 100% |
-| `top_p`              | 24041 / 24041 | 100% |
-| `max_tokens`         | 24042 / 24042 | 100% |
-| `reasoning_effort`   | 24045 / 24045 | 100% |
+| Knob changed       | cache_read / prompt | ratio |
+| ------------------ | ------------------- | ----- |
+| `temperature`      | 24041 / 24041       | 100%  |
+| `top_p`            | 24041 / 24041       | 100%  |
+| `max_tokens`       | 24042 / 24042       | 100%  |
+| `reasoning_effort` | 24045 / 24045       | 100%  |
 
 The cache key is **prompt-content only** — sampling and reasoning controls
 are orthogonal. Mid-session tuning (e.g. flipping thinking on/off,
@@ -346,11 +346,11 @@ cache layer is safe for multi-agent or multi-tab use of the same plan.
 Two distinct PNGs uploaded via `/files`, referenced as `ms://` URLs, sent
 with identical text on the OpenAI-compat endpoint:
 
-| Probe                                  | prompt | cache_read | ratio |
-|---|---|---|---|
-| warm (image A + text)                  | 63 |  6 | 9.5%   |
-| exact resend (image A + same text)     | 63 | 63 | 100%   |
-| different image B + same text          | 63 |  6 | 9.5%   |
+| Probe                              | prompt | cache_read | ratio |
+| ---------------------------------- | ------ | ---------- | ----- |
+| warm (image A + text)              | 63     | 6          | 9.5%  |
+| exact resend (image A + same text) | 63     | 63         | 100%  |
+| different image B + same text      | 63     | 6          | 9.5%  |
 
 Changing only the image (same text, same `messages.content` shape) drops
 cache to the baseline ~6-token framing read. Image references (here, the
@@ -360,7 +360,7 @@ serialized prefix invalidates downstream.
 
 > Note: the test changes the `ms://` URL string itself between A and B
 > (different `file_id`). Whether Kimi additionally dereferences and hashes
-> image *bytes* (so two uploads of the same image would share cache) is
+> image _bytes_ (so two uploads of the same image would share cache) is
 > not measured here.
 
 ### 18. pi-binary cross-session invocations do not share cache (Test 4m)
@@ -393,14 +393,14 @@ the actual cache decision is content-hash based and unaffected.
 Four scenarios, identical ~24K-token payload, varying only the
 `X-Msh-Device-Id` request header. The provider sends this header on every
 call (`src/device.ts`) using a persisted random 32-char hex id; every
-prior 4* test omitted it, so this fills the header-dimension gap.
+prior 4\* test omitted it, so this fills the header-dimension gap.
 
-| Scenario | warm header | probe header | probe `cache_read_input_tokens` |
-|---|---|---|---|
-| V0 baseline       | device-A  | device-A  | 24044 |
-| V1 different device | device-A  | device-B  | 24043 |
-| V2 omitted → set  | (omitted) | device-A  | 24052 |
-| V3 set → omitted  | device-A  | (omitted) | 24052 |
+| Scenario            | warm header | probe header | probe `cache_read_input_tokens` |
+| ------------------- | ----------- | ------------ | ------------------------------- |
+| V0 baseline         | device-A    | device-A     | 24044                           |
+| V1 different device | device-A    | device-B     | 24043                           |
+| V2 omitted → set    | (omitted)   | device-A     | 24052                           |
+| V3 set → omitted    | device-A    | (omitted)    | 24052                           |
 
 All four probes read the full prompt back from cache (ratios vs V0:
 V1=100.0%, V2=100.0%, V3=100.0%). The device id header is ignored
@@ -472,4 +472,3 @@ rate-limiting server-side, not cache slotting.
 - **Cache behaviour at ~100K tokens.** Test 4r is opt-in (set
   `KIMI_E2E_SKIP_VERY_LARGE_CACHE=0`). The 32K sweep in Finding 4 holds for
   every size tested, but extreme sizes haven't been confirmed.
-

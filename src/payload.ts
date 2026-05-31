@@ -87,8 +87,7 @@ export function readEnvOverrides(): KimiEnvOverrides {
   if (temp) out.temperature = parseFloat(temp);
   const topP = process.env.KIMI_MODEL_TOP_P;
   if (topP) out.topP = parseFloat(topP);
-  const maxCompletionTokens =
-    process.env.KIMI_MODEL_MAX_COMPLETION_TOKENS ?? process.env.KIMI_MODEL_MAX_TOKENS;
+  const maxCompletionTokens = process.env.KIMI_MODEL_MAX_COMPLETION_TOKENS;
   if (maxCompletionTokens) out.maxCompletionTokens = parseInt(maxCompletionTokens, 10);
   return out;
 }
@@ -421,13 +420,18 @@ export async function applyKimiPayloadMutations(
     if (resolved) payload.prompt_cache_key = resolved;
   }
 
-  // 4. Env-level hyperparameter overrides (pre-parsed into numbers by caller).
+  // 4. Normalize deprecated max_tokens and apply env-level hyperparameter
+  //    overrides (pre-parsed into numbers by caller).
+  if (payload.max_completion_tokens === undefined && typeof payload.max_tokens === "number") {
+    payload.max_completion_tokens = payload.max_tokens;
+  }
+  delete payload.max_tokens;
+
   const { temperature, topP, maxCompletionTokens } = ctx.envOverrides;
   if (temperature !== undefined) payload.temperature = temperature;
   if (topP !== undefined) payload.top_p = topP;
   if (maxCompletionTokens !== undefined) {
     payload.max_completion_tokens = maxCompletionTokens;
-    delete payload.max_tokens;
   }
 
   // 5. Reasoning effort mapping.

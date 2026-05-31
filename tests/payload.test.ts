@@ -293,7 +293,19 @@ describe("applyKimiPayloadMutations", () => {
     });
   });
 
-  it("writes max completion tokens instead of legacy max_tokens", async () => {
+  it("renames deprecated max_tokens to max_completion_tokens", async () => {
+    const payload: JsonRecord = {
+      messages: [{ role: "user", content: "hi" }],
+      max_tokens: 128,
+    };
+
+    await applyKimiPayloadMutations(payload, baseCtx());
+
+    assert.equal(payload.max_tokens, undefined);
+    assert.equal(payload.max_completion_tokens, 128);
+  });
+
+  it("lets max completion token env override win over payload max_tokens", async () => {
     const payload: JsonRecord = {
       messages: [{ role: "user", content: "hi" }],
       max_tokens: 128,
@@ -310,13 +322,15 @@ describe("applyKimiPayloadMutations", () => {
 });
 
 describe("readEnvOverrides", () => {
-  it("prefers KIMI_MODEL_MAX_COMPLETION_TOKENS over legacy KIMI_MODEL_MAX_TOKENS", () => {
+  it("reads only KIMI_MODEL_MAX_COMPLETION_TOKENS for completion token caps", () => {
     const oldCompletion = process.env.KIMI_MODEL_MAX_COMPLETION_TOKENS;
     const oldLegacy = process.env.KIMI_MODEL_MAX_TOKENS;
     try {
-      process.env.KIMI_MODEL_MAX_COMPLETION_TOKENS = "64000";
+      delete process.env.KIMI_MODEL_MAX_COMPLETION_TOKENS;
       process.env.KIMI_MODEL_MAX_TOKENS = "32000";
+      assert.equal(readEnvOverrides().maxCompletionTokens, undefined);
 
+      process.env.KIMI_MODEL_MAX_COMPLETION_TOKENS = "64000";
       assert.equal(readEnvOverrides().maxCompletionTokens, 64000);
     } finally {
       if (oldCompletion === undefined) delete process.env.KIMI_MODEL_MAX_COMPLETION_TOKENS;
@@ -337,7 +351,7 @@ describe("filterEmptyResponseStream", () => {
   it("suppresses Kimi empty-response text blocks and cleans the final message", async () => {
     const events = [
       { type: "text_start", contentIndex: 0 },
-      { type: "text_delta", contentIndex: 0, content: "(Empty response:" },
+      { type: "text_delta", contentIndex: 0, delta: "(Empty response:" },
       {
         type: "text_end",
         contentIndex: 0,
@@ -367,12 +381,37 @@ describe("filterEmptyResponseStream", () => {
   it("passes normal text blocks through unchanged", async () => {
     const events = [
       { type: "text_start", contentIndex: 0 },
-      { type: "text_delta", contentIndex: 0, content: "hello" },
+      { type: "text_delta", contentIndex: 0, delta: "hello" },
       { type: "text_end", contentIndex: 0, content: "hello" },
     ];
 
     const out = await collectAsyncIterable(filterEmptyResponseStream(events as never));
 
     assert.deepEqual(out, events);
+  });
+
+  it("flushes normal text before text_end so answer text streams", async () => {
+    let releaseTextEnd: (() => void) | undefined;
+    const textEndReady = new Promise<void>((resolve) => {
+      releaseTextEnd = resolve;
+    });
+    const events = [
+      { type: "text_start", contentIndex: 0 },
+      { type: "text_delta", contentIndex: 0, delta: "hello" },
+      { type: "text_end", contentIndex: 0, content: "hello" },
+    ];
+    async function* upstream() {
+      yield events[0];
+      yield events[1];
+      await textEndReady;
+      yield events[2];
+    }
+
+    const iterator = filterEmptyResponseStream(upstream() as never)[Symbol.asyncIterator]();
+    assert.deepEqual(await iterator.next(), { value: events[0], done: false });
+    assert.deepEqual(await iterator.next(), { value: events[1], done: false });
+    releaseTextEnd?.();
+    assert.deepEqual(await iterator.next(), { value: events[2], done: false });
+    assert.deepEqual(await iterator.next(), { value: undefined, done: true });
   });
 });

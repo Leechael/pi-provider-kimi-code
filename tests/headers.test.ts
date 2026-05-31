@@ -1,7 +1,8 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import os from "node:os";
-import { asciiHeaderValue, getOsVersion } from "../src/device.ts";
+import { KIMI_CODE_VERSION } from "../src/constants.ts";
+import { asciiHeaderValue, getCommonHeaders, getOsVersion } from "../src/device.ts";
 import { buildModelsUrl } from "../src/models.ts";
 
 describe("asciiHeaderValue", () => {
@@ -20,6 +21,15 @@ describe("asciiHeaderValue", () => {
 
   it("trims surrounding whitespace", () => {
     assert.equal(asciiHeaderValue("  kimi-code-cli/0.1.1  "), "kimi-code-cli/0.1.1");
+  });
+});
+
+describe("getCommonHeaders", () => {
+  it("uses Kimi Code-compatible identity headers", () => {
+    const headers = getCommonHeaders();
+    assert.equal(headers["X-Msh-Platform"], "kimi_code_cli");
+    assert.equal(headers["User-Agent"], `kimi-code-cli/${KIMI_CODE_VERSION}`);
+    assert.equal(headers["X-Msh-Version"], KIMI_CODE_VERSION);
   });
 });
 

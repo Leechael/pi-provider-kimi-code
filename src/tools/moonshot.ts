@@ -3,6 +3,7 @@ import { Type, type Static } from "@earendil-works/pi-ai";
 
 import { PROVIDER_ID } from "../constants.ts";
 import { getCommonHeaders } from "../device.ts";
+import { refreshKimiAuthToken } from "../oauth.ts";
 
 const MOONSHOT_BASE_V1 = "https://api.kimi.com/coding/v1";
 const MOONSHOT_TIMEOUT_MS = 180_000;
@@ -47,6 +48,7 @@ export interface MoonshotFetchResult {
 interface MoonshotToolDeps {
   fetch: typeof fetch;
   getAccessToken: () => string | null;
+  refreshAccessToken: (currentToken: string) => Promise<string | null>;
 }
 
 export interface BuildMoonshotToolOptions {
@@ -68,6 +70,7 @@ function buildDeps(options: BuildMoonshotToolOptions = {}): MoonshotToolDeps {
   return {
     fetch: options.deps?.fetch ?? fetch,
     getAccessToken: options.deps?.getAccessToken ?? defaultGetAccessToken,
+    refreshAccessToken: options.deps?.refreshAccessToken ?? refreshKimiAuthToken,
   };
 }
 
@@ -196,6 +199,19 @@ async function readErrorBody(response: Response): Promise<string> {
   return response.text().catch(() => "");
 }
 
+async function fetchWithAuthRetry(
+  deps: MoonshotToolDeps,
+  accessToken: string,
+  request: (token: string) => Promise<Response>,
+): Promise<Response> {
+  const response = await request(accessToken);
+  if (response.status !== 401) return response;
+
+  const refreshed = await deps.refreshAccessToken(accessToken);
+  if (!refreshed || refreshed === accessToken) return response;
+  return request(refreshed);
+}
+
 export function buildMoonshotSearchTool(options: BuildMoonshotToolOptions = {}) {
   const deps = buildDeps(options);
   const defaultCollapsed = options.defaultCollapsed ?? true;
@@ -219,17 +235,19 @@ export function buildMoonshotSearchTool(options: BuildMoonshotToolOptions = {}) 
       const includeContent = params.include_content === true;
       const timeout = buildTimeoutSignal(signal);
       try {
-        const response = await deps.fetch(`${MOONSHOT_BASE_V1}/search`, {
-          method: "POST",
-          headers: buildHeaders(accessToken, toolCallId),
-          body: JSON.stringify({
-            text_query: params.query,
-            limit,
-            enable_page_crawling: includeContent,
-            timeout_seconds: 30,
+        const response = await fetchWithAuthRetry(deps, accessToken, (token) =>
+          deps.fetch(`${MOONSHOT_BASE_V1}/search`, {
+            method: "POST",
+            headers: buildHeaders(token, toolCallId),
+            body: JSON.stringify({
+              text_query: params.query,
+              limit,
+              enable_page_crawling: includeContent,
+              timeout_seconds: 30,
+            }),
+            signal: timeout.signal,
           }),
-          signal: timeout.signal,
-        });
+        );
 
         if (!response.ok) {
           const body = await readErrorBody(response);
@@ -279,15 +297,17 @@ export function buildMoonshotFetchTool(options: BuildMoonshotToolOptions = {}) {
 
       const timeout = buildTimeoutSignal(signal);
       try {
-        const response = await deps.fetch(`${MOONSHOT_BASE_V1}/fetch`, {
-          method: "POST",
-          headers: {
-            ...buildHeaders(accessToken, toolCallId),
-            Accept: "text/markdown",
-          },
-          body: JSON.stringify({ url: params.url }),
-          signal: timeout.signal,
-        });
+        const response = await fetchWithAuthRetry(deps, accessToken, (token) =>
+          deps.fetch(`${MOONSHOT_BASE_V1}/fetch`, {
+            method: "POST",
+            headers: {
+              ...buildHeaders(token, toolCallId),
+              Accept: "text/markdown",
+            },
+            body: JSON.stringify({ url: params.url }),
+            signal: timeout.signal,
+          }),
+        );
 
         if (!response.ok) {
           const body = await readErrorBody(response);
