@@ -337,7 +337,7 @@ describe("filterEmptyResponseStream", () => {
   it("suppresses Kimi empty-response text blocks and cleans the final message", async () => {
     const events = [
       { type: "text_start", contentIndex: 0 },
-      { type: "text_delta", contentIndex: 0, content: "(Empty response:" },
+      { type: "text_delta", contentIndex: 0, delta: "(Empty response:" },
       {
         type: "text_end",
         contentIndex: 0,
@@ -367,12 +367,37 @@ describe("filterEmptyResponseStream", () => {
   it("passes normal text blocks through unchanged", async () => {
     const events = [
       { type: "text_start", contentIndex: 0 },
-      { type: "text_delta", contentIndex: 0, content: "hello" },
+      { type: "text_delta", contentIndex: 0, delta: "hello" },
       { type: "text_end", contentIndex: 0, content: "hello" },
     ];
 
     const out = await collectAsyncIterable(filterEmptyResponseStream(events as never));
 
     assert.deepEqual(out, events);
+  });
+
+  it("flushes normal text before text_end so answer text streams", async () => {
+    let releaseTextEnd: (() => void) | undefined;
+    const textEndReady = new Promise<void>((resolve) => {
+      releaseTextEnd = resolve;
+    });
+    const events = [
+      { type: "text_start", contentIndex: 0 },
+      { type: "text_delta", contentIndex: 0, delta: "hello" },
+      { type: "text_end", contentIndex: 0, content: "hello" },
+    ];
+    async function* upstream() {
+      yield events[0];
+      yield events[1];
+      await textEndReady;
+      yield events[2];
+    }
+
+    const iterator = filterEmptyResponseStream(upstream() as never)[Symbol.asyncIterator]();
+    assert.deepEqual(await iterator.next(), { value: events[0], done: false });
+    assert.deepEqual(await iterator.next(), { value: events[1], done: false });
+    releaseTextEnd?.();
+    assert.deepEqual(await iterator.next(), { value: events[2], done: false });
+    assert.deepEqual(await iterator.next(), { value: undefined, done: true });
   });
 });

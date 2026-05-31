@@ -46,24 +46,50 @@ export async function* filterEmptyResponseStream(
 ): AsyncIterable<AssistantMessageEvent> {
   const suppressedIndices = new Set<number>();
   let textBuffer: AssistantMessageEvent[] = [];
+  let bufferedText = "";
   let bufferingIndex: number | null = null;
 
+  const suppressBufferedTextBlock = (): void => {
+    if (bufferingIndex !== null) suppressedIndices.add(bufferingIndex);
+    textBuffer = [];
+    bufferedText = "";
+    bufferingIndex = null;
+  };
+
+  const flushBufferedTextBlock = async function* (): AsyncIterable<AssistantMessageEvent> {
+    for (const buffered of textBuffer) yield buffered;
+    textBuffer = [];
+    bufferedText = "";
+    bufferingIndex = null;
+  };
+
   for await (const event of upstream) {
-    // Start buffering when a new text block begins.
+    // Start buffering only long enough to decide whether this text block is
+    // Kimi's synthetic "(Empty response: ...)" wrapper. Normal text is flushed
+    // as soon as it diverges from the marker so output still streams.
     if (event.type === "text_start") {
       bufferingIndex = event.contentIndex;
       textBuffer = [event];
+      bufferedText = "";
       continue;
     }
 
-    // Accumulate text deltas + detect the empty-response marker on text_end.
     if (
       bufferingIndex !== null &&
       "contentIndex" in event &&
       event.contentIndex === bufferingIndex
     ) {
       if (event.type === "text_delta") {
+        bufferedText += event.delta;
         textBuffer.push(event);
+        if (bufferedText.startsWith(EMPTY_RESPONSE_PREFIX)) {
+          suppressBufferedTextBlock();
+          continue;
+        }
+        if (EMPTY_RESPONSE_PREFIX.startsWith(bufferedText)) {
+          continue;
+        }
+        yield* flushBufferedTextBlock();
         continue;
       }
       if (event.type === "text_end") {
@@ -72,14 +98,11 @@ export async function* filterEmptyResponseStream(
           // array: it is a shared reference into session state, and mutating
           // it would shift subsequent contentIndex values, corrupting the
           // stream.
-          suppressedIndices.add(bufferingIndex);
+          suppressBufferedTextBlock();
         } else {
-          // Legitimate text block — flush buffered events + end event.
-          for (const buffered of textBuffer) yield buffered;
+          yield* flushBufferedTextBlock();
           yield event;
         }
-        textBuffer = [];
-        bufferingIndex = null;
         continue;
       }
     }
@@ -102,6 +125,10 @@ export async function* filterEmptyResponseStream(
     }
 
     yield event;
+  }
+
+  if (bufferingIndex !== null) {
+    yield* flushBufferedTextBlock();
   }
 }
 
