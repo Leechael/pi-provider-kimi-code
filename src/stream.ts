@@ -137,8 +137,10 @@ export async function* filterEmptyResponseStream(
 // Stream wrapper: orchestrates payload mutation + event filter
 // =============================================================================
 
+const KIMI_API_KEY_ENV_REFERENCES = new Set(["$KIMI_API_KEY", "${KIMI_API_KEY}"]);
+
 export function resolveKimiApiKey(apiKey: string | undefined): string {
-  if (apiKey === "$KIMI_API_KEY") {
+  if (apiKey !== undefined && KIMI_API_KEY_ENV_REFERENCES.has(apiKey)) {
     return process.env.KIMI_API_KEY?.trim() || "";
   }
   return apiKey || process.env.KIMI_API_KEY || "";

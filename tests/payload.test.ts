@@ -352,6 +352,7 @@ describe("resolveKimiApiKey", () => {
       process.env.KIMI_API_KEY = "env-key";
 
       assert.equal(resolveKimiApiKey("$KIMI_API_KEY"), "env-key");
+      assert.equal(resolveKimiApiKey("${KIMI_API_KEY}"), "env-key");
     } finally {
       if (original === undefined) delete process.env.KIMI_API_KEY;
       else process.env.KIMI_API_KEY = original;
