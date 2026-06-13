@@ -19,6 +19,15 @@ import {
 } from "@earendil-works/pi-ai";
 import type { KimiResolvedModelConfig } from "./config.ts";
 
+// Module-level resolved config set once at registration by index.ts.
+// The model object is pi-owned; hiding config on it via type assertion
+// breaks whenever pi clones or reconstructs models internally.
+let resolvedStore: KimiResolvedModelConfig | null = null;
+
+export function setStoreResolvedKimiConfig(config: KimiResolvedModelConfig): void {
+  resolvedStore = config;
+}
+
 import { IS_OPENAI_PROTOCOL, PROTOCOL } from "./constants.ts";
 import { getCommonHeaders } from "./device.ts";
 import { isKimiAuthErrorMessage, refreshKimiAuthToken } from "./oauth.ts";
@@ -163,7 +172,7 @@ export function streamSimpleKimi(
   )?.prompt_cache_key;
   const cacheKey = (typeof cacheKeyOverride === "string" && cacheKeyOverride) || options?.sessionId;
   const cacheRetention = resolveCacheRetention(options?.cacheRetention);
-  const resolvedConfig = (model as Model<Api> & { resolvedConfig?: KimiResolvedModelConfig })
+  const resolvedConfig = resolvedStore ?? (model as Model<Api> & { resolvedConfig?: KimiResolvedModelConfig })
     .resolvedConfig;
   const modelConfig: KimiResolvedModelConfig = resolvedConfig ?? {
     contextWindow: model.contextWindow,

@@ -28,6 +28,7 @@ import os from "node:os";
 
 import {
   type KimiCodeConfig,
+  type KimiResolvedModelConfig,
   kimiCodeConfigPath,
   loadKimiCodeConfig,
   saveKimiCodeConfig,
@@ -44,7 +45,7 @@ import {
   discoverKimiModelMetadata,
 } from "./src/models.ts";
 import { loginKimiCode, refreshKimiCodeToken } from "./src/oauth.ts";
-import { streamSimpleKimi } from "./src/stream.ts";
+import { streamSimpleKimi, setStoreResolvedKimiConfig } from "./src/stream.ts";
 import { buildMoonshotFetchTool, buildMoonshotSearchTool } from "./src/tools/moonshot.ts";
 
 const MOONSHOT_TOOL_NAMES = ["moonshot_search", "moonshot_fetch"] as const;
@@ -356,17 +357,19 @@ export default async function (pi: ExtensionAPI) {
   // cached OAuth cred) and call /v1/models. Server values layer over
   // config fallbacks.
   let model = baseModel;
+  const resolvedConfig: KimiResolvedModelConfig = { ...config.model };
   const token = getKimiUsageToken();
   if (token) {
     const extras = await discoverKimiModelMetadata(token);
     model = applyKimiOAuthExtrasToModel(baseModel, extras);
+    if (extras.thinkingType !== undefined) {
+      resolvedConfig.thinkingType = extras.thinkingType;
+    }
   }
 
-  // Attach the full resolved config for stream/payload consumption.
-  (model as Model<Api> & { resolvedConfig?: Record<string, unknown> }).resolvedConfig = {
-    ...config.model,
-    ...((model as Model<Api> & { resolvedConfig?: Record<string, unknown> }).resolvedConfig),
-  };
+  // Store resolved config where stream/payload code reads it — not on
+  // the model object (pi owns that and can strip unknown properties).
+  setStoreResolvedKimiConfig(resolvedConfig);
 
   pi.registerProvider(PROVIDER_ID, {
     baseUrl: getBaseUrl(),
@@ -388,6 +391,12 @@ export default async function (pi: ExtensionAPI) {
       // request payload by streamSimpleKimi.
       modifyModels: (models, cred) => {
         const extras = cred as KimiOAuthCredentials;
+        if (extras.thinkingType !== undefined) {
+          setStoreResolvedKimiConfig({
+            ...(resolvedConfig as KimiResolvedModelConfig),
+            thinkingType: extras.thinkingType,
+          });
+        }
         return models.map((m) => {
           if (m.id !== "kimi-for-coding") return m;
           return applyKimiOAuthExtrasToModel(m, extras);

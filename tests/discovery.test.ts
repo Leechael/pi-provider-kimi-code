@@ -198,14 +198,13 @@ describe("applyKimiOAuthExtrasToModel", () => {
       supportsImageIn: true,
       supportsVideoIn: true,
       thinkingType: "only",
-    }) as Model<Api> & { wireModelId?: string; input: string[]; resolvedConfig?: { thinkingType?: string } };
+    }) as Model<Api> & { wireModelId?: string; input: string[] };
 
     assert.equal(result.name, "Kimi K2 Next");
     assert.equal(result.contextWindow, 1048576);
     assert.equal(result.wireModelId, "kimi-k2-next");
     assert.equal(result.reasoning, true);
     assert.deepEqual(result.input, ["text", "image", "video"]);
-    assert.equal(result.resolvedConfig?.thinkingType, "only");
   });
 
   it("rebuilds input from server capabilities only, ignoring model.input", () => {

@@ -94,8 +94,7 @@ export function applyKimiOAuthExtrasToModel(
     next.reasoning = extras.supportsReasoning;
   }
 
-  // Build input from server capabilities. Image and video are additive —
-  // if the server reports them, they're available regardless of config.input.
+  // Build input from server capabilities. Image and video are additive.
   const input = ["text"];
   if (typeof extras.supportsImageIn === "boolean" && extras.supportsImageIn) {
     input.push("image");
@@ -104,17 +103,6 @@ export function applyKimiOAuthExtrasToModel(
     input.push("video");
   }
   (next as unknown as { input: string[] }).input = input;
-
-  // Carry resolved config on the model for stream/payload consumption.
-  // At this stage only thinkingType comes from the server; the full
-  // resolvedConfig (reasoningMap, thinkingKeep, generation) is attached in
-  // index.ts at registration time.
-  const existing = (model as Model<Api> & { resolvedConfig?: Record<string, unknown> })
-    .resolvedConfig;
-  (next as Model<Api> & { resolvedConfig?: Record<string, unknown> }).resolvedConfig = {
-    ...existing,
-    ...(extras.thinkingType !== undefined ? { thinkingType: extras.thinkingType } : {}),
-  };
 
   return next;
 }
