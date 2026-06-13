@@ -6,8 +6,11 @@ import { join } from "node:path";
 
 import {
   loadKimiCodeConfig,
-  saveHomeKimiCodeConfig,
-  saveProjectKimiCodeConfig,
+  saveKimiCodeConfig,
+  ensureKimiCodeConfig,
+  ConfigError,
+  KIMI_CODE_CONFIG_TEMPLATE,
+  kimiCodeConfigPath,
 } from "../src/config.ts";
 
 function tempDir(name: string): string {
@@ -19,194 +22,342 @@ function writeJson(path: string, value: unknown): void {
   writeFileSync(path, JSON.stringify(value), "utf8");
 }
 
+function fullConfig(overrides: Record<string, unknown> = {}): Record<string, unknown> {
+  return {
+    model: {
+      contextWindow: 262144,
+      maxTokens: 32000,
+      input: ["text", "image"],
+      reasoning: true,
+      reasoningMap: {
+        none: { effort: null, enabled: false },
+        low: { effort: "low", enabled: true },
+        medium: { effort: "medium", enabled: true },
+        high: { effort: "high", enabled: true },
+        xhigh: { effort: "high", enabled: true },
+      },
+      thinkingKeep: "all",
+      generation: { temperature: null, topP: null, maxCompletionTokens: null },
+    },
+    tools: {
+      moonshot_search: { enabled: false, default_collapsed: true },
+      moonshot_fetch: { enabled: false, default_collapsed: true },
+    },
+    uploads: { thresholdBytes: 1048576 },
+    protocol: "openai",
+    ...overrides,
+  };
+}
+
+const REASONING_MAP = {
+  none: { effort: null, enabled: false },
+  low: { effort: "low", enabled: true },
+  medium: { effort: "medium", enabled: true },
+  high: { effort: "high", enabled: true },
+  xhigh: { effort: "high", enabled: true },
+};
+
 describe("loadKimiCodeConfig", () => {
-  it("returns defaults when no config files exist", () => {
-    const cwd = tempDir("kimi-config-cwd");
+  it("throws ConfigError when no config file exists and bootstrap writes template", () => {
     const home = tempDir("kimi-config-home");
 
-    assert.deepEqual(loadKimiCodeConfig({ cwd, home }), {
-      tools: {
-        moonshot_search: { enabled: false, default_collapsed: true },
-        moonshot_fetch: { enabled: false, default_collapsed: true },
-      },
-    });
+    const created = ensureKimiCodeConfig(home);
+    assert.equal(created, true);
+
+    const loaded = loadKimiCodeConfig(home);
+    assert.deepEqual(loaded.model, KIMI_CODE_CONFIG_TEMPLATE.model);
+    assert.deepEqual(loaded.tools, KIMI_CODE_CONFIG_TEMPLATE.tools);
+    assert.deepEqual(loaded.uploads, KIMI_CODE_CONFIG_TEMPLATE.uploads);
+    assert.equal(loaded.protocol, KIMI_CODE_CONFIG_TEMPLATE.protocol);
   });
 
-  it("reads global config", () => {
-    const cwd = tempDir("kimi-config-cwd");
+  it("reads complete config", () => {
     const home = tempDir("kimi-config-home");
-    writeJson(join(home, ".pi", "pi-provider-kimi-code.json"), {
-      tools: { moonshot_search: { enabled: true } },
-    });
-
-    assert.deepEqual(loadKimiCodeConfig({ cwd, home }), {
+    writeJson(kimiCodeConfigPath(home), fullConfig({
       tools: {
         moonshot_search: { enabled: true, default_collapsed: true },
         moonshot_fetch: { enabled: false, default_collapsed: true },
       },
-    });
+      model: {
+        ...(fullConfig().model as Record<string, unknown>),
+        maxTokens: 64000,
+      },
+    }));
+
+    const loaded = loadKimiCodeConfig(home);
+    assert.equal(loaded.model.maxTokens, 64000);
+    assert.equal(loaded.tools.moonshot_search.enabled, true);
   });
 
-  it("deep-merges project config over global config", () => {
-    const cwd = tempDir("kimi-config-cwd");
+  it("reads default_collapsed from config", () => {
     const home = tempDir("kimi-config-home");
-    writeJson(join(home, ".pi", "pi-provider-kimi-code.json"), {
-      tools: {
-        moonshot_search: { enabled: true },
-        moonshot_fetch: { enabled: false },
-      },
-    });
-    writeJson(join(cwd, ".pi", "pi-provider-kimi-code.json"), {
-      tools: { moonshot_fetch: { enabled: true } },
-    });
-
-    assert.deepEqual(loadKimiCodeConfig({ cwd, home }), {
-      tools: {
-        moonshot_search: { enabled: true, default_collapsed: true },
-        moonshot_fetch: { enabled: true, default_collapsed: true },
-      },
-    });
-  });
-
-  it("reads default_collapsed when explicitly configured", () => {
-    const cwd = tempDir("kimi-config-cwd");
-    const home = tempDir("kimi-config-home");
-    writeJson(join(cwd, ".pi", "pi-provider-kimi-code.json"), {
+    writeJson(kimiCodeConfigPath(home), fullConfig({
       tools: {
         moonshot_search: { enabled: true, default_collapsed: false },
         moonshot_fetch: { enabled: false, default_collapsed: true },
       },
-    });
+    }));
 
-    assert.deepEqual(loadKimiCodeConfig({ cwd, home }), {
-      tools: {
-        moonshot_search: { enabled: true, default_collapsed: false },
-        moonshot_fetch: { enabled: false, default_collapsed: true },
-      },
-    });
+    const loaded = loadKimiCodeConfig(home);
+    assert.equal(loaded.tools.moonshot_search.default_collapsed, false);
+    assert.equal(loaded.tools.moonshot_fetch.default_collapsed, true);
   });
 
-  it("lets project config disable a globally enabled tool", () => {
-    const cwd = tempDir("kimi-config-cwd");
+  it("throws on missing 'model' top-level field", () => {
     const home = tempDir("kimi-config-home");
-    writeJson(join(home, ".pi", "pi-provider-kimi-code.json"), {
-      tools: { moonshot_search: { enabled: true } },
-    });
-    writeJson(join(cwd, ".pi", "pi-provider-kimi-code.json"), {
-      tools: { moonshot_search: { enabled: false } },
+    writeJson(kimiCodeConfigPath(home), {
+      tools: fullConfig().tools,
+      uploads: fullConfig().uploads,
+      protocol: "openai",
     });
 
-    assert.deepEqual(loadKimiCodeConfig({ cwd, home }), {
-      tools: {
-        moonshot_search: { enabled: false, default_collapsed: true },
-        moonshot_fetch: { enabled: false, default_collapsed: true },
-      },
-    });
+    assert.throws(
+      () => loadKimiCodeConfig(home),
+      (e: unknown) => e instanceof ConfigError && e.message.includes("model"),
+    );
   });
 
-  it("ignores malformed JSON and logs an error", () => {
-    const cwd = tempDir("kimi-config-cwd");
+  it("throws on missing 'uploads' top-level field", () => {
     const home = tempDir("kimi-config-home");
-    const configPath = join(home, ".pi", "pi-provider-kimi-code.json");
-    mkdirSync(join(configPath, ".."), { recursive: true });
-    writeFileSync(configPath, "{", "utf8");
+    writeJson(kimiCodeConfigPath(home), {
+      model: fullConfig().model,
+      tools: fullConfig().tools,
+      protocol: "openai",
+    });
 
-    const originalError = console.error;
-    const errors: unknown[][] = [];
-    console.error = (...args: unknown[]) => errors.push(args);
-    try {
-      assert.deepEqual(loadKimiCodeConfig({ cwd, home }), {
-        tools: {
-          moonshot_search: { enabled: false, default_collapsed: true },
-          moonshot_fetch: { enabled: false, default_collapsed: true },
+    assert.throws(
+      () => loadKimiCodeConfig(home),
+      (e: unknown) => e instanceof ConfigError && e.message.includes("uploads"),
+    );
+  });
+
+  it("throws on missing 'protocol' top-level field", () => {
+    const home = tempDir("kimi-config-home");
+    writeJson(kimiCodeConfigPath(home), {
+      model: fullConfig().model,
+      tools: fullConfig().tools,
+      uploads: fullConfig().uploads,
+    });
+
+    assert.throws(
+      () => loadKimiCodeConfig(home),
+      (e: unknown) => e instanceof ConfigError && e.message.includes("protocol"),
+    );
+  });
+
+  it("throws on v1 config file (tools only)", () => {
+    const home = tempDir("kimi-config-home");
+    writeJson(kimiCodeConfigPath(home), {
+      tools: fullConfig().tools,
+    });
+
+    assert.throws(
+      () => loadKimiCodeConfig(home),
+      (e: unknown) => e instanceof ConfigError,
+    );
+  });
+
+  it("throws on model.maxTokens as string", () => {
+    const home = tempDir("kimi-config-home");
+    writeJson(kimiCodeConfigPath(home), fullConfig({
+      model: {
+        ...(fullConfig().model as Record<string, unknown>),
+        maxTokens: "32000",
+      },
+    }));
+
+    assert.throws(
+      () => loadKimiCodeConfig(home),
+      (e: unknown) =>
+        e instanceof ConfigError &&
+        e.configPath === "model.maxTokens" &&
+        e.message.includes("positive number"),
+    );
+  });
+
+  it("throws on model.input containing invalid modality", () => {
+    const home = tempDir("kimi-config-home");
+    writeJson(kimiCodeConfigPath(home), fullConfig({
+      model: {
+        ...(fullConfig().model as Record<string, unknown>),
+        input: ["text", "image", "drawing"],
+      },
+    }));
+
+    assert.throws(
+      () => loadKimiCodeConfig(home),
+      (e: unknown) =>
+        e instanceof ConfigError &&
+        e.message.includes("drawing"),
+    );
+  });
+
+  it("throws on model.reasoningMap entry with wrong types", () => {
+    const home = tempDir("kimi-config-home");
+    writeJson(kimiCodeConfigPath(home), fullConfig({
+      model: {
+        ...(fullConfig().model as Record<string, unknown>),
+        reasoningMap: {
+          ...REASONING_MAP,
+          xhigh: { effort: "high", enabled: "yes" },
         },
-      });
-      assert.equal(errors.length, 1);
-    } finally {
-      console.error = originalError;
-    }
+      },
+    }));
+
+    assert.throws(
+      () => loadKimiCodeConfig(home),
+      (e: unknown) =>
+        e instanceof ConfigError &&
+        e.configPath.includes("enabled"),
+    );
   });
 
-  it("returns the full default-shaped object when one nested key is set", () => {
-    const cwd = tempDir("kimi-config-cwd");
+  it("throws on model.thinkingKeep with invalid value", () => {
     const home = tempDir("kimi-config-home");
-    writeJson(join(cwd, ".pi", "pi-provider-kimi-code.json"), {
-      tools: { moonshot_search: { enabled: true } },
-    });
+    writeJson(kimiCodeConfigPath(home), fullConfig({
+      model: {
+        ...(fullConfig().model as Record<string, unknown>),
+        thinkingKeep: "everything",
+      },
+    }));
 
-    assert.deepEqual(loadKimiCodeConfig({ cwd, home }), {
+    assert.throws(
+      () => loadKimiCodeConfig(home),
+      (e: unknown) =>
+        e instanceof ConfigError &&
+        e.configPath === "model.thinkingKeep",
+    );
+  });
+
+  it("throws on uploads.thresholdBytes zero", () => {
+    const home = tempDir("kimi-config-home");
+    writeJson(kimiCodeConfigPath(home), fullConfig({
+      uploads: { thresholdBytes: 0 },
+    }));
+
+    assert.throws(
+      () => loadKimiCodeConfig(home),
+      (e: unknown) =>
+        e instanceof ConfigError &&
+        e.configPath === "uploads.thresholdBytes",
+    );
+  });
+
+  it("throws on protocol with invalid value", () => {
+    const home = tempDir("kimi-config-home");
+    writeJson(kimiCodeConfigPath(home), fullConfig({
+      protocol: "grpc",
+    }));
+
+    assert.throws(
+      () => loadKimiCodeConfig(home),
+      (e: unknown) =>
+        e instanceof ConfigError &&
+        e.configPath === "protocol",
+    );
+  });
+
+  it("throws on tools.moonshot_search.enabled missing", () => {
+    const home = tempDir("kimi-config-home");
+    const base = fullConfig();
+    writeJson(kimiCodeConfigPath(home), {
+      ...base,
       tools: {
-        moonshot_search: { enabled: true, default_collapsed: true },
         moonshot_fetch: { enabled: false, default_collapsed: true },
       },
     });
+
+    assert.throws(
+      () => loadKimiCodeConfig(home),
+      (e: unknown) =>
+        e instanceof ConfigError &&
+        e.message.includes("moonshot_search"),
+    );
   });
 
-  it("saves project config and preserves unrelated keys", () => {
-    const cwd = tempDir("kimi-config-cwd");
-    const configPath = join(cwd, ".pi", "pi-provider-kimi-code.json");
-    writeJson(configPath, {
-      model: { name: "custom" },
-      tools: {
-        other_tool: { enabled: true },
-        moonshot_search: { enabled: true, default_collapsed: false },
-      },
-    });
-
-    saveProjectKimiCodeConfig(cwd, {
-      tools: {
-        moonshot_search: { enabled: false, default_collapsed: true },
-        moonshot_fetch: { enabled: true, default_collapsed: false },
-      },
-    });
-
-    assert.deepEqual(JSON.parse(readFileSync(configPath, "utf8")), {
-      model: { name: "custom" },
-      tools: {
-        other_tool: { enabled: true },
-        moonshot_search: { enabled: false, default_collapsed: true },
-        moonshot_fetch: { enabled: true, default_collapsed: false },
-      },
-    });
-  });
-
-  it("overwrites a malformed project config with the resolved shape", () => {
-    const cwd = tempDir("kimi-config-cwd");
-    const configPath = join(cwd, ".pi", "pi-provider-kimi-code.json");
+  it("throws on malformed JSON config file", () => {
+    const home = tempDir("kimi-config-home");
+    const configPath = kimiCodeConfigPath(home);
     mkdirSync(join(configPath, ".."), { recursive: true });
     writeFileSync(configPath, "{", "utf8");
 
-    saveProjectKimiCodeConfig(cwd, {
-      tools: {
-        moonshot_search: { enabled: true, default_collapsed: true },
-        moonshot_fetch: { enabled: false, default_collapsed: false },
-      },
-    });
-
-    assert.deepEqual(JSON.parse(readFileSync(configPath, "utf8")), {
-      tools: {
-        moonshot_search: { enabled: true, default_collapsed: true },
-        moonshot_fetch: { enabled: false, default_collapsed: false },
-      },
-    });
+    assert.throws(
+      () => loadKimiCodeConfig(home),
+      (e: unknown) => e instanceof ConfigError || (e instanceof SyntaxError),
+    );
   });
 
-  it("saves home config at ~/.pi/pi-provider-kimi-code.json", () => {
+  it("throws on config file that is not a JSON object", () => {
     const home = tempDir("kimi-config-home");
-    const configPath = join(home, ".pi", "pi-provider-kimi-code.json");
+    const configPath = kimiCodeConfigPath(home);
+    mkdirSync(join(configPath, ".."), { recursive: true });
+    writeFileSync(configPath, "[]", "utf8");
 
-    saveHomeKimiCodeConfig(home, {
-      tools: {
-        moonshot_search: { enabled: true, default_collapsed: false },
-        moonshot_fetch: { enabled: false, default_collapsed: true },
-      },
-    });
+    assert.throws(
+      () => loadKimiCodeConfig(home),
+      (e: unknown) => e instanceof ConfigError,
+    );
+  });
+});
 
-    assert.deepEqual(JSON.parse(readFileSync(configPath, "utf8")), {
-      tools: {
-        moonshot_search: { enabled: true, default_collapsed: false },
-        moonshot_fetch: { enabled: false, default_collapsed: true },
+describe("ensureKimiCodeConfig", () => {
+  it("writes template when file missing", () => {
+    const home = tempDir("kimi-config-home");
+    const configPath = kimiCodeConfigPath(home);
+
+    const created = ensureKimiCodeConfig(home);
+    assert.equal(created, true);
+
+    const content = JSON.parse(readFileSync(configPath, "utf8"));
+    assert.deepEqual(content, JSON.parse(JSON.stringify(KIMI_CODE_CONFIG_TEMPLATE)));
+  });
+
+  it("does not overwrite existing file", () => {
+    const home = tempDir("kimi-config-home");
+    const configPath = kimiCodeConfigPath(home);
+    writeJson(configPath, fullConfig({
+      model: {
+        ...(fullConfig().model as Record<string, unknown>),
+        maxTokens: 99999,
       },
-    });
+    }));
+
+    const created = ensureKimiCodeConfig(home);
+    assert.equal(created, false);
+
+    const content = JSON.parse(readFileSync(configPath, "utf8"));
+    assert.equal(content.model.maxTokens, 99999);
+  });
+});
+
+describe("saveKimiCodeConfig", () => {
+  it("writes the full config to the home file", () => {
+    const home = tempDir("kimi-config-home");
+    const configPath = kimiCodeConfigPath(home);
+
+    saveKimiCodeConfig(home, KIMI_CODE_CONFIG_TEMPLATE);
+
+    const content = JSON.parse(readFileSync(configPath, "utf8"));
+    assert.deepEqual(content, JSON.parse(JSON.stringify(KIMI_CODE_CONFIG_TEMPLATE)));
+  });
+
+  it("overwrites a malformed file with the full config", () => {
+    const home = tempDir("kimi-config-home");
+    const configPath = kimiCodeConfigPath(home);
+    mkdirSync(join(configPath, ".."), { recursive: true });
+    writeFileSync(configPath, "{", "utf8");
+
+    const cfg = {
+      ...KIMI_CODE_CONFIG_TEMPLATE,
+      tools: {
+        moonshot_search: { enabled: true, default_collapsed: true },
+        moonshot_fetch: { enabled: false, default_collapsed: false },
+      },
+    };
+
+    saveKimiCodeConfig(home, cfg);
+
+    const content = JSON.parse(readFileSync(configPath, "utf8"));
+    assert.deepEqual(content, JSON.parse(JSON.stringify(cfg)));
   });
 });

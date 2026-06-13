@@ -23,25 +23,6 @@
 | ---------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | `KIMI_CODE_UPLOAD_THRESHOLD_BYTES` | Minimum image size (in bytes) before uploading to Kimi's `/v1/files` endpoint as an `ms://` reference instead of inlining base64. Default: `1048576` (1 MB). |
 
-## Model identity overrides
-
-These mirror the same-name environment variables in upstream `kimi-cli`. When set they apply _after_ server-side discovery, so a user-provided override always wins over `/v1/models` metadata.
-
-| Variable                      | Description                                                                                                                                                                                                                                                  |
-| ----------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `KIMI_MODEL_NAME`             | Override the wire model id sent to the server and the human-readable model name shown in pi. Useful for pointing the extension at a non-default model variant exposed by the same Coding endpoint.                                                           |
-| `KIMI_MODEL_MAX_CONTEXT_SIZE` | Override the model's advertised context window (in tokens). Useful when a server-side rollout exceeds what `/v1/models` reports. Non-positive / non-numeric values are ignored.                                                                              |
-| `KIMI_MODEL_CAPABILITIES`     | Comma-separated capability flags. Recognized tokens: `thinking`, `always_thinking`, `image_in`. Either `thinking` or `always_thinking` enables reasoning; `image_in` enables image input. Tokens not in this list are ignored. Example: `thinking,image_in`. |
-
-## Generation overrides
-
-| Variable                           | Description                                                                                                                                                                                                                         |
-| ---------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `KIMI_MODEL_TEMPERATURE`           | Force temperature on outbound requests.                                                                                                                                                                                             |
-| `KIMI_MODEL_TOP_P`                 | Force top-p on outbound requests.                                                                                                                                                                                                   |
-| `KIMI_MODEL_MAX_COMPLETION_TOKENS` | Force max completion tokens on outbound requests.                                                                                                                                                                                   |
-| `KIMI_MODEL_THINKING_KEEP`         | When thinking is enabled, forwarded verbatim as `extra_body.thinking.keep`. Moonshot-specific switch for preserving thinking content across turns (e.g. `"all"`). Has no effect when reasoning is off. Mirrors upstream `kimi-cli`. |
-
 ## Diagnostics
 
 | Variable          | Description                                                                        |

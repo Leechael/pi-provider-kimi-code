@@ -30,7 +30,18 @@ streaming to:
 pi-provider-kimi-code/
 ├── .gitignore          # Excludes node_modules/, docs/, etc. from npm
 ├── package.json        # Extension manifest (pi.extensions field)
-├── index.ts            # OAuth + provider registration + stream wrapper
+├── index.ts            # Provider registration + settings command
+├── src/
+│   ├── config.ts       # Config schema, validation, load/save, bootstrap
+│   ├── constants.ts    # Module-level constants + env-driven configuration
+│   ├── device.ts       # Device id + kimi-cli-compatible request headers
+│   ├── models.ts       # /v1/models discovery + extras-merging helpers
+│   ├── oauth.ts        # Device flow, token refresh, login/refresh handlers
+│   ├── payload.ts      # Payload pipeline + file upload + transforms
+│   └── stream.ts       # Empty-response filter + streamSimpleKimi orchestrator
+├── tools/
+│   └── moonshot.ts     # Moonshot search/fetch tool definitions
+├── tests/              # Node test runner suites
 ├── docs/
 │   ├── architecture.md # This document
 │   ├── ENV.md          # Environment variable reference
@@ -194,8 +205,8 @@ ones; lower layers never reach upward.
 
 ```
 Layer 1 — Pure                             (no side effects, deterministic)
-    isRecord, mapThinkingLevel, parseInlineUploadThreshold, deriveFilesBaseUrl,
-    parseDataUrl, getUploadFilename, asciiHeaderValue
+    isRecord, resolveReasoningForLevel, parseInlineUploadThreshold,
+    deriveFilesBaseUrl, parseDataUrl, getUploadFilename, asciiHeaderValue
 
 Layer 2 — Pure given dependencies           (mutates input, calls injected Uploader)
     transformOpenAIPayloadFiles(payload, upload)
@@ -226,7 +237,7 @@ the middle layers are unit-testable without mocking modules.
                                     streamSimpleKimi(model, context, options)
                                                 │
             ┌───────────────────────────────────┤  read boundary:
-            │                                   │    apiKey, cacheKey, envOverrides,
+            │                                   │    apiKey, cacheKey, modelConfig,
             │                                   │    upload = apiKey
             │                                   │      ? (mime, data) => uploadKimiFile(apiKey, mime, data)
             │                                   │      : undefined
@@ -304,7 +315,7 @@ Every unit below can be tested without touching the network, the filesystem, or
 | Function                          | Contract                                                                                  | Fixture strategy                                       |
 | --------------------------------- | ----------------------------------------------------------------------------------------- | ------------------------------------------------------ |
 | `isRecord(value)`                 | Type guard for plain objects                                                              | Boolean assertions over `null`, `[]`, `{}`, primitives |
-| `mapThinkingLevel(level)`         | `ThinkingLevel` → `{effort, enabled}`                                                     | Table test, all 7 levels + `undefined`                 |
+| `resolveReasoningForLevel(level, config)` | `string` × `KimiResolvedModelConfig` → `ModelReasoningEntry \| undefined` | Table test, all levels + aliases + `undefined` |
 | `parseInlineUploadThreshold(raw)` | `string \| undefined` → bytes                                                             | Valid int, empty, `undefined`, negative, non-numeric   |
 | `deriveFilesBaseUrl(baseUrl)`     | Ensure the base URL ends with `/v1` (the `/files` suffix is appended by `uploadKimiFile`) | `/coding` vs `/coding/v1` vs trailing slash            |
 | `parseDataUrl(url)`               | Data URL regex → `{mimeType, data} \| null`                                               | Valid, missing `;base64,`, non-data URL                |
@@ -336,15 +347,15 @@ These are the knobs the extension reads; a contributor adding a new feature shou
 thread it through the same boundary — read at the edge in `streamSimpleKimi` or
 `uploadKimiFile`, carry the value into pure layers via explicit parameters.
 
-| Env var                                                                            | Read site                                           | Layer        |
-| ---------------------------------------------------------------------------------- | --------------------------------------------------- | ------------ |
-| `KIMI_API_KEY`                                                                     | `streamSimpleKimi` (also pi core)                   | Orchestrator |
-| `KIMI_CODE_PROTOCOL`                                                               | `PROTOCOL` constant                                 | Module load  |
-| `KIMI_CODE_BASE_URL`                                                               | `getBaseUrl` + `uploadKimiFile`                     | I/O edge     |
-| `KIMI_CODE_OAUTH_HOST` / `KIMI_OAUTH_HOST`                                         | `getOAuthHost`                                      | I/O edge     |
-| `KIMI_CODE_UPLOAD_THRESHOLD_BYTES`                                                 | `uploadKimiFile` (via `parseInlineUploadThreshold`) | I/O edge     |
-| `KIMI_CODE_DEBUG`                                                                  | `uploadKimiFile`                                    | I/O edge     |
-| `KIMI_MODEL_TEMPERATURE` / `KIMI_MODEL_TOP_P` / `KIMI_MODEL_MAX_COMPLETION_TOKENS` | `readEnvOverrides` → `streamSimpleKimi`             | Orchestrator |
+| Env var                                            | Read site                                           | Layer        |
+| -------------------------------------------------- | --------------------------------------------------- | ------------ |
+| `KIMI_API_KEY`                                     | `streamSimpleKimi` (also pi core)                   | Orchestrator |
+| `KIMI_CODE_PROTOCOL`                               | `PROTOCOL` constant                                 | Module load  |
+| `KIMI_CODE_BASE_URL`                               | `getBaseUrl` + `uploadKimiFile`                     | I/O edge     |
+| `KIMI_CODE_OAUTH_HOST` / `KIMI_OAUTH_HOST`         | `getOAuthHost`                                      | I/O edge     |
+| `KIMI_CODE_UPLOAD_THRESHOLD_BYTES`                 | `uploadKimiFile` (via `parseInlineUploadThreshold`) | I/O edge     |
+| `KIMI_CODE_DEBUG`                                  | `uploadKimiFile`                                    | I/O edge     |
+| JSON config (`~/.pi/pi-provider-kimi-code.json`)   | `loadKimiCodeConfig` at registration               | Registration |
 
 OAuth behavior is extended via the `oauth` field in `pi.registerProvider`.
 Payload mutation is extended by adding a new step to `applyKimiPayloadMutations`

@@ -1,6 +1,6 @@
 // Model identity: discovery against the server's /v1/models endpoint, plus the
 // extras-merging helpers used by both the OAuth modifyModels hook and the
-// `KIMI_MODEL_*` env-override path.
+// shared cold-start discovery at provider registration.
 
 import type { Api, Model, OAuthCredentials } from "@earendil-works/pi-ai";
 
@@ -13,6 +13,8 @@ export interface KimiOAuthExtras {
   contextLength?: number;
   supportsReasoning?: boolean;
   supportsImageIn?: boolean;
+  supportsVideoIn?: boolean;
+  thinkingType?: string;
 }
 
 export type KimiOAuthCredentials = OAuthCredentials & KimiOAuthExtras;
@@ -23,6 +25,8 @@ interface KimiServerModel {
   context_length?: unknown;
   supports_reasoning?: unknown;
   supports_image_in?: unknown;
+  supports_video_in?: unknown;
+  supports_thinking_type?: unknown;
 }
 
 export function buildModelsUrl(baseUrl: string): string {
@@ -47,8 +51,7 @@ export async function discoverKimiModelMetadata(accessToken: string): Promise<Ki
     if (!response.ok) return {};
     const json = (await response.json()) as { data?: unknown };
     const list = Array.isArray(json.data) ? (json.data as KimiServerModel[]) : [];
-    const preferred =
-      list.find((m) => typeof m.id === "string" && m.id === "kimi-for-coding") ?? list[0];
+    const preferred = list.find((m) => typeof m.id === "string" && m.id === "kimi-for-coding");
     if (!preferred || typeof preferred.id !== "string") return {};
     const extras: KimiOAuthExtras = { wireModelId: preferred.id };
     if (typeof preferred.display_name === "string") extras.modelDisplay = preferred.display_name;
@@ -60,6 +63,12 @@ export async function discoverKimiModelMetadata(accessToken: string): Promise<Ki
     }
     if (typeof preferred.supports_image_in === "boolean") {
       extras.supportsImageIn = preferred.supports_image_in;
+    }
+    if (typeof preferred.supports_video_in === "boolean") {
+      extras.supportsVideoIn = preferred.supports_video_in;
+    }
+    if (typeof preferred.supports_thinking_type === "string") {
+      extras.thinkingType = preferred.supports_thinking_type;
     }
     return extras;
   } catch {
@@ -84,46 +93,29 @@ export function applyKimiOAuthExtrasToModel(
   if (typeof extras.supportsReasoning === "boolean") {
     next.reasoning = extras.supportsReasoning;
   }
-  if (typeof extras.supportsImageIn === "boolean") {
-    const input = ["text"];
-    if (extras.supportsImageIn) input.push("image");
-    (next as unknown as { input: string[] }).input = input;
+
+  // Build input from server capabilities. Image and video are additive —
+  // if the server reports them, they're available regardless of config.input.
+  const input = ["text"];
+  if (typeof extras.supportsImageIn === "boolean" && extras.supportsImageIn) {
+    input.push("image");
   }
+  if (typeof extras.supportsVideoIn === "boolean" && extras.supportsVideoIn) {
+    input.push("video");
+  }
+  (next as unknown as { input: string[] }).input = input;
+
+  // Carry resolved config on the model for stream/payload consumption.
+  // At this stage only thinkingType comes from the server; the full
+  // resolvedConfig (reasoningMap, thinkingKeep, generation) is attached in
+  // index.ts at registration time.
+  const existing = (model as Model<Api> & { resolvedConfig?: Record<string, unknown> })
+    .resolvedConfig;
+  (next as Model<Api> & { resolvedConfig?: Record<string, unknown> }).resolvedConfig = {
+    ...existing,
+    ...(extras.thinkingType !== undefined ? { thinkingType: extras.thinkingType } : {}),
+  };
+
   return next;
 }
 
-function parseKimiModelCapabilities(value: string | undefined): KimiOAuthExtras | null {
-  if (!value) return null;
-  const caps = new Set(
-    value
-      .split(",")
-      .map((cap) => cap.trim().toLowerCase())
-      .filter(Boolean),
-  );
-  return {
-    supportsReasoning: caps.has("thinking") || caps.has("always_thinking"),
-    supportsImageIn: caps.has("image_in"),
-  };
-}
-
-export function applyKimiEnvOverridesToModel(model: Model<Api>): Model<Api> {
-  const extras: KimiOAuthExtras = {};
-  const modelName = process.env.KIMI_MODEL_NAME?.trim();
-  if (modelName) {
-    extras.wireModelId = modelName;
-    extras.modelDisplay = modelName;
-  }
-
-  const maxContextSize = process.env.KIMI_MODEL_MAX_CONTEXT_SIZE?.trim();
-  if (maxContextSize) {
-    const parsed = parseInt(maxContextSize, 10);
-    if (Number.isFinite(parsed) && parsed > 0) {
-      extras.contextLength = parsed;
-    }
-  }
-
-  const capabilities = parseKimiModelCapabilities(process.env.KIMI_MODEL_CAPABILITIES);
-  if (capabilities) Object.assign(extras, capabilities);
-
-  return applyKimiOAuthExtrasToModel(model, extras);
-}

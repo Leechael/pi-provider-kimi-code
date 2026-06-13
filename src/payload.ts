@@ -3,6 +3,7 @@
 // and the top-level applyKimiPayloadMutations that orchestrates them.
 
 import type { CacheRetention, ThinkingLevel } from "@earendil-works/pi-ai";
+import type { KimiResolvedModelConfig, ModelReasoningEntry } from "./config.ts";
 
 import { getBaseUrl } from "./constants.ts";
 import { getCommonHeaders } from "./device.ts";
@@ -15,12 +16,6 @@ const DEFAULT_KIMI_INLINE_UPLOAD_THRESHOLD_BYTES = 1 * 1024 * 1024;
 
 export type JsonRecord = Record<string, unknown>;
 export type Uploader = (mimeType: string, data: string) => Promise<string | null>;
-
-export interface KimiEnvOverrides {
-  temperature?: number;
-  topP?: number;
-  maxCompletionTokens?: number;
-}
 
 export function resolveCacheRetention(value?: CacheRetention): CacheRetention {
   if (value === "none" || value === "short" || value === "long") return value;
@@ -37,20 +32,31 @@ export interface KimiPayloadContext {
   cacheKey?: string;
   cacheRetention: CacheRetention;
   reasoning?: ThinkingLevel;
-  thinkingKeep?: string;
-  envOverrides: KimiEnvOverrides;
+  modelConfig: KimiResolvedModelConfig;
 }
 
 export function isRecord(value: unknown): value is JsonRecord {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-function mapThinkingLevel(level?: string): { effort: string | null; enabled: boolean } | undefined {
-  if (!level) return undefined;
-  if (level === "none" || level === "off") return { effort: null, enabled: false };
-  if (level === "minimal" || level === "low") return { effort: "low", enabled: true };
-  if (level === "medium") return { effort: "medium", enabled: true };
-  if (level === "high" || level === "xhigh") return { effort: "high", enabled: true };
+export function resolveReasoningForLevel(
+  level: string,
+  config: KimiResolvedModelConfig,
+): ModelReasoningEntry | undefined {
+  // 1. Exact match in the reasoning map.
+  const exact = config.reasoningMap[level];
+  if (exact) return exact;
+
+  // 2. Normalize known aliases (e.g. "off" → "none", "minimal" → "low").
+  //    These values arrive at runtime even though they are not in the
+  //    @earendil-works/pi-ai ThinkingLevel union type.
+  const alias: Record<string, string> = {
+    off: "none",
+    minimal: "low",
+  };
+  const resolved = alias[level];
+  if (resolved) return config.reasoningMap[resolved];
+
   return undefined;
 }
 
@@ -79,17 +85,6 @@ function getUploadFilename(mimeType: string): string {
     "image/webp": "upload.webp",
   };
   return map[mimeType] ?? "upload.bin";
-}
-
-export function readEnvOverrides(): KimiEnvOverrides {
-  const out: KimiEnvOverrides = {};
-  const temp = process.env.KIMI_MODEL_TEMPERATURE;
-  if (temp) out.temperature = parseFloat(temp);
-  const topP = process.env.KIMI_MODEL_TOP_P;
-  if (topP) out.topP = parseFloat(topP);
-  const maxCompletionTokens = process.env.KIMI_MODEL_MAX_COMPLETION_TOKENS;
-  if (maxCompletionTokens) out.maxCompletionTokens = parseInt(maxCompletionTokens, 10);
-  return out;
 }
 
 // =============================================================================
@@ -420,23 +415,22 @@ export async function applyKimiPayloadMutations(
     if (resolved) payload.prompt_cache_key = resolved;
   }
 
-  // 4. Normalize deprecated max_tokens and apply env-level hyperparameter
-  //    overrides (pre-parsed into numbers by caller).
+  // 4. Apply generation defaults from model config.
   if (payload.max_completion_tokens === undefined && typeof payload.max_tokens === "number") {
     payload.max_completion_tokens = payload.max_tokens;
   }
   delete payload.max_tokens;
 
-  const { temperature, topP, maxCompletionTokens } = ctx.envOverrides;
-  if (temperature !== undefined) payload.temperature = temperature;
-  if (topP !== undefined) payload.top_p = topP;
-  if (maxCompletionTokens !== undefined) {
-    payload.max_completion_tokens = maxCompletionTokens;
+  const gen = ctx.modelConfig.generation;
+  if (gen.temperature !== undefined) payload.temperature = gen.temperature;
+  if (gen.topP !== undefined) payload.top_p = gen.topP;
+  if (gen.maxCompletionTokens !== undefined) {
+    payload.max_completion_tokens = gen.maxCompletionTokens;
   }
 
-  // 5. Reasoning effort mapping.
+  // 5. Reasoning effort mapping from config.
   if (ctx.reasoning) {
-    const mapped = mapThinkingLevel(ctx.reasoning);
+    const mapped = resolveReasoningForLevel(ctx.reasoning, ctx.modelConfig);
     if (mapped) {
       payload.reasoning_effort = mapped.effort;
       const extraBody = isRecord(payload.extra_body) ? payload.extra_body : {};
@@ -445,8 +439,8 @@ export async function applyKimiPayloadMutations(
         ...oldThinking,
         type: mapped.enabled ? "enabled" : "disabled",
       };
-      if (mapped.enabled && ctx.thinkingKeep) {
-        (extraBody.thinking as JsonRecord).keep = ctx.thinkingKeep;
+      if (mapped.enabled && ctx.modelConfig.thinkingKeep) {
+        (extraBody.thinking as JsonRecord).keep = ctx.modelConfig.thinkingKeep;
       }
       payload.extra_body = extraBody;
     }

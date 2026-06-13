@@ -1,12 +1,13 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import type { ThinkingLevel } from "@earendil-works/pi-ai";
+import type { KimiResolvedModelConfig } from "../src/config.ts";
 import {
   applyKimiPayloadMutations,
   type JsonRecord,
   type KimiPayloadContext,
-  readEnvOverrides,
   resolveCacheRetention,
+  resolveReasoningForLevel,
 } from "../src/payload.ts";
 import {
   filterEmptyResponseStream,
@@ -14,10 +15,27 @@ import {
   resolveKimiApiKey,
 } from "../src/stream.ts";
 
+const defaultModelConfig: KimiResolvedModelConfig = {
+  contextWindow: 262144,
+  maxTokens: 32000,
+  input: ["text", "image"],
+  reasoning: true,
+  reasoningMap: {
+    none: { effort: null, enabled: false },
+    off: { effort: null, enabled: false },
+    low: { effort: "low", enabled: true },
+    medium: { effort: "medium", enabled: true },
+    high: { effort: "high", enabled: true },
+    xhigh: { effort: "high", enabled: true },
+  },
+  thinkingKeep: null,
+  generation: {},
+};
+
 const baseCtx = (overrides: Partial<KimiPayloadContext> = {}): KimiPayloadContext => ({
   api: "anthropic-messages",
   cacheRetention: "short",
-  envOverrides: {},
+  modelConfig: defaultModelConfig,
   ...overrides,
 });
 
@@ -279,7 +297,7 @@ describe("applyKimiPayloadMutations", () => {
     };
     await applyKimiPayloadMutations(
       enabledPayload,
-      baseCtx({ reasoning: "high", thinkingKeep: "all" }),
+      baseCtx({ reasoning: "high", modelConfig: { ...defaultModelConfig, thinkingKeep: "all" } }),
     );
     assert.deepEqual(enabledPayload.extra_body, {
       thinking: { type: "enabled", keep: "all" },
@@ -290,7 +308,7 @@ describe("applyKimiPayloadMutations", () => {
     };
     await applyKimiPayloadMutations(
       disabledPayload,
-      baseCtx({ reasoning: "none" as ThinkingLevel, thinkingKeep: "all" }),
+      baseCtx({ reasoning: "none" as ThinkingLevel, modelConfig: { ...defaultModelConfig, thinkingKeep: "all" } }),
     );
     assert.deepEqual(disabledPayload.extra_body, {
       thinking: { type: "disabled" },
@@ -309,7 +327,7 @@ describe("applyKimiPayloadMutations", () => {
     assert.equal(payload.max_completion_tokens, 128);
   });
 
-  it("lets max completion token env override win over payload max_tokens", async () => {
+  it("lets model config maxCompletionTokens override payload max_tokens", async () => {
     const payload: JsonRecord = {
       messages: [{ role: "user", content: "hi" }],
       max_tokens: 128,
@@ -317,7 +335,9 @@ describe("applyKimiPayloadMutations", () => {
 
     await applyKimiPayloadMutations(
       payload,
-      baseCtx({ envOverrides: { maxCompletionTokens: 32000 } }),
+      baseCtx({
+        modelConfig: { ...defaultModelConfig, generation: { maxCompletionTokens: 32000 } },
+      }),
     );
 
     assert.equal(payload.max_tokens, undefined);
@@ -325,23 +345,30 @@ describe("applyKimiPayloadMutations", () => {
   });
 });
 
-describe("readEnvOverrides", () => {
-  it("reads only KIMI_MODEL_MAX_COMPLETION_TOKENS for completion token caps", () => {
-    const oldCompletion = process.env.KIMI_MODEL_MAX_COMPLETION_TOKENS;
-    const oldLegacy = process.env.KIMI_MODEL_MAX_TOKENS;
-    try {
-      delete process.env.KIMI_MODEL_MAX_COMPLETION_TOKENS;
-      process.env.KIMI_MODEL_MAX_TOKENS = "32000";
-      assert.equal(readEnvOverrides().maxCompletionTokens, undefined);
+describe("resolveReasoningForLevel", () => {
+  it("returns the mapped entry for known levels", () => {
+    const cfg = defaultModelConfig;
+    assert.deepEqual(resolveReasoningForLevel("none", cfg), { effort: null, enabled: false });
+    assert.deepEqual(resolveReasoningForLevel("low", cfg), { effort: "low", enabled: true });
+    assert.deepEqual(resolveReasoningForLevel("medium", cfg), { effort: "medium", enabled: true });
+    assert.deepEqual(resolveReasoningForLevel("xhigh", cfg), { effort: "high", enabled: true });
+  });
 
-      process.env.KIMI_MODEL_MAX_COMPLETION_TOKENS = "64000";
-      assert.equal(readEnvOverrides().maxCompletionTokens, 64000);
-    } finally {
-      if (oldCompletion === undefined) delete process.env.KIMI_MODEL_MAX_COMPLETION_TOKENS;
-      else process.env.KIMI_MODEL_MAX_COMPLETION_TOKENS = oldCompletion;
-      if (oldLegacy === undefined) delete process.env.KIMI_MODEL_MAX_TOKENS;
-      else process.env.KIMI_MODEL_MAX_TOKENS = oldLegacy;
-    }
+  it("normalizes known aliases", () => {
+    const cfg = defaultModelConfig;
+    assert.deepEqual(resolveReasoningForLevel("off", cfg), {
+      effort: null,
+      enabled: false,
+    });
+    assert.deepEqual(resolveReasoningForLevel("minimal", cfg), {
+      effort: "low",
+      enabled: true,
+    });
+  });
+
+  it("returns undefined for unknown levels", () => {
+    const cfg = defaultModelConfig;
+    assert.equal(resolveReasoningForLevel("unknown", cfg), undefined);
   });
 });
 

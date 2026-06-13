@@ -5,7 +5,6 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DEFAULT_KIMI_MODEL_INPUT, PROVIDER_ID } from "../src/constants.ts";
 import {
-  applyKimiEnvOverridesToModel,
   applyKimiOAuthExtrasToModel,
   discoverKimiModelMetadata,
 } from "../src/models.ts";
@@ -109,7 +108,7 @@ describe("discoverKimiModelMetadata", () => {
     assert.equal(result.supportsImageIn, true);
   });
 
-  it("falls back to the first entry when no kimi-for-coding is present", async () => {
+  it("returns empty when kimi-for-coding is not in the model list", async () => {
     mock = mockFetch(() =>
       jsonResponse({
         data: [{ id: "k2p7-beta", display_name: "Beta K2.7", context_length: 1048576 }],
@@ -117,9 +116,7 @@ describe("discoverKimiModelMetadata", () => {
     );
 
     const result = await discoverKimiModelMetadata("tok-1");
-    assert.equal(result.wireModelId, "k2p7-beta");
-    assert.equal(result.modelDisplay, "Beta K2.7");
-    assert.equal(result.contextLength, 1048576);
+    assert.deepEqual(result, {});
   });
 
   it("returns empty when the server replies non-2xx", async () => {
@@ -199,12 +196,36 @@ describe("applyKimiOAuthExtrasToModel", () => {
       contextLength: 1048576,
       supportsReasoning: true,
       supportsImageIn: true,
-    }) as Model<Api> & { wireModelId?: string; input: string[] };
+      supportsVideoIn: true,
+      thinkingType: "only",
+    }) as Model<Api> & { wireModelId?: string; input: string[]; resolvedConfig?: { thinkingType?: string } };
 
     assert.equal(result.name, "Kimi K2 Next");
     assert.equal(result.contextWindow, 1048576);
     assert.equal(result.wireModelId, "kimi-k2-next");
     assert.equal(result.reasoning, true);
+    assert.deepEqual(result.input, ["text", "image", "video"]);
+    assert.equal(result.resolvedConfig?.thinkingType, "only");
+  });
+
+  it("rebuilds input from server capabilities only, ignoring model.input", () => {
+    const model: Model<Api> = {
+      id: "kimi-for-coding",
+      name: "Kimi for Coding",
+      provider: "kimi-coding",
+      api: "kimi-anthropic-messages" as Api,
+      baseUrl: "https://api.kimi.com/coding",
+      reasoning: false,
+      input: ["text", "video"],
+      cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+      contextWindow: 262144,
+      maxTokens: 32000,
+    } as Model<Api>;
+
+    const result = applyKimiOAuthExtrasToModel(model, {
+      supportsImageIn: true,
+    }) as Model<Api> & { input: string[] };
+
     assert.deepEqual(result.input, ["text", "image"]);
   });
 });
@@ -212,61 +233,6 @@ describe("applyKimiOAuthExtrasToModel", () => {
 describe("DEFAULT_KIMI_MODEL_INPUT", () => {
   it("advertises text and image input by default", () => {
     assert.deepEqual([...DEFAULT_KIMI_MODEL_INPUT], ["text", "image"]);
-  });
-});
-
-describe("applyKimiEnvOverridesToModel", () => {
-  it("applies official Kimi model env overrides to the registered model", () => {
-    process.env.KIMI_MODEL_NAME = "kimi-k2-custom";
-    process.env.KIMI_MODEL_MAX_CONTEXT_SIZE = "1048576";
-    process.env.KIMI_MODEL_CAPABILITIES = "thinking,image_in,video_in";
-
-    const model: Model<Api> = {
-      id: "kimi-for-coding",
-      name: "Kimi for Coding",
-      provider: "kimi-coding",
-      api: "kimi-openai-completions" as Api,
-      baseUrl: "https://api.kimi.com/coding/v1",
-      reasoning: false,
-      input: ["text"],
-      cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-      contextWindow: 262144,
-      maxTokens: 32000,
-    };
-
-    const result = applyKimiEnvOverridesToModel(model) as Model<Api> & {
-      wireModelId?: string;
-      input: string[];
-    };
-
-    assert.equal(result.id, "kimi-for-coding");
-    assert.equal(result.name, "kimi-k2-custom");
-    assert.equal(result.wireModelId, "kimi-k2-custom");
-    assert.equal(result.contextWindow, 1048576);
-    assert.equal(result.reasoning, true);
-    assert.deepEqual(result.input, ["text", "image"]);
-  });
-
-  it("maps official capabilities exactly when provided", () => {
-    process.env.KIMI_MODEL_CAPABILITIES = "image_in";
-
-    const model: Model<Api> = {
-      id: "kimi-for-coding",
-      name: "Kimi for Coding",
-      provider: "kimi-coding",
-      api: "kimi-openai-completions" as Api,
-      baseUrl: "https://api.kimi.com/coding/v1",
-      reasoning: true,
-      input: ["text", "image"],
-      cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-      contextWindow: 262144,
-      maxTokens: 32000,
-    };
-
-    const result = applyKimiEnvOverridesToModel(model) as Model<Api> & { input: string[] };
-
-    assert.equal(result.reasoning, false);
-    assert.deepEqual(result.input, ["text", "image"]);
   });
 });
 

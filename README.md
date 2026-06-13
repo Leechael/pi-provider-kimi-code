@@ -90,23 +90,45 @@ Select it inside Pi:
 /model kimi-coding/kimi-for-coding
 ```
 
-Kimi keeps Coding models behind aliases. Rather than hardcoding a stale model list, this extension asks Kimi for the current model info when you log in or refresh. If your account is on a newer rollout or internal test, Pi can pick up the latest model name and context size without waiting for a package release.
+Model capabilities (context window, reasoning support, image/video input) are discovered
+live from Kimi's `/v1/models` endpoint at provider registration and on OAuth login.
+The JSON config provides user-adjustable knobs the server does not report:
+`maxTokens`, `reasoningMap`, `thinkingKeep`, and `generation` defaults.
 
-Fallback values:
+```json
+{
+  "model": {
+    "contextWindow": 262144,
+    "maxTokens": 32000,
+    "input": ["text", "image"],
+    "reasoning": true,
+    "reasoningMap": {
+      "none":  { "effort": null,     "enabled": false },
+      "off":   { "effort": null,     "enabled": false },
+      "low":   { "effort": "low",    "enabled": true  },
+      "medium":{ "effort": "medium", "enabled": true  },
+      "high":  { "effort": "high",   "enabled": true  },
+      "xhigh": { "effort": "high",   "enabled": true  }
+    },
+    "thinkingKeep": "all",
+    "generation": {
+      "temperature": null,
+      "topP": null,
+      "maxCompletionTokens": null
+    }
+  },
+  "tools": {
+    "moonshot_search": { "enabled": false, "default_collapsed": true },
+    "moonshot_fetch":  { "enabled": false, "default_collapsed": true }
+  },
+  "uploads": { "thresholdBytes": 1048576 },
+  "protocol": "openai"
+}
+```
 
-- Context window: `262144` tokens
-- Max output: `32000` tokens
-- Input: text and image
-- Reasoning: enabled
-
-Kimi K2.6 supports Pi's reasoning levels. This provider maps them to Kimi's current reasoning efforts:
-
-- `off` / `none` — reasoning disabled
-- `minimal` / `low` — low effort
-- `medium` — medium effort
-- `high` / `xhigh` — high effort
-
-If Kimi reports a larger context window, the provider uses that value. You can also override the advertised context or model name with `KIMI_MODEL_MAX_CONTEXT_SIZE` / `KIMI_MODEL_NAME`; see [docs/ENV.md](docs/ENV.md).
+Edit `~/.pi/pi-provider-kimi-code.json` (home) or `<cwd>/.pi/pi-provider-kimi-code.json`
+(project). Project overrides home via deep merge. Restart pi after editing the model
+block.
 
 ## Optional Moonshot tools
 
@@ -147,16 +169,21 @@ Both tools require `/login kimi-coding` OAuth credentials. `KIMI_API_KEY` is not
 
 If you already use another search or fetch tool, pick one path for a session. Overlapping tools can make the model choose the wrong one.
 
-## Common knobs
+## Configuration
 
-Most users do not need environment variables. Two are worth knowing:
+All model knobs (context window, max tokens, reasoning map, thinking keep, generation
+defaults) live in the JSON config file, not environment variables. The `KIMI_MODEL_*`
+env vars from earlier versions are ignored.
+
+Two env vars cover the common cases:
 
 - `KIMI_API_KEY` — static API key for CI or pay-per-token use.
 - `KIMI_CODE_PROTOCOL` — `openai` by default; set to `anthropic` if your Pi setup needs Anthropic-compatible requests.
 
 Moonshot search/fetch tools are configured through `/kimi-settings` or JSON config files, not env vars.
 
-The full env list, including base URL overrides, `kimi-cli` path overrides, upload tuning, debug logs, and model metadata overrides, lives in [docs/ENV.md](docs/ENV.md).
+The full env list, including base URL overrides, `kimi-cli` path overrides, upload tuning,
+debug logs, and model metadata overrides, lives in [docs/ENV.md](docs/ENV.md).
 
 ## Notes
 

@@ -2,3 +2,5 @@ node_modules/
 *.tgz
 .claude/
 storage/
+BLUEPRINT.md
+BLUEPRINT_v2.md
