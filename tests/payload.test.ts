@@ -21,8 +21,8 @@ const defaultModelConfig: KimiResolvedModelConfig = {
   input: ["text", "image"],
   reasoning: true,
   reasoningMap: {
-    none: { effort: null, enabled: false },
     off: { effort: null, enabled: false },
+    minimal: { effort: "low", enabled: true },
     low: { effort: "low", enabled: true },
     medium: { effort: "medium", enabled: true },
     high: { effort: "high", enabled: true },
@@ -308,7 +308,7 @@ describe("applyKimiPayloadMutations", () => {
     };
     await applyKimiPayloadMutations(
       disabledPayload,
-      baseCtx({ reasoning: "none" as ThinkingLevel, modelConfig: { ...defaultModelConfig, thinkingKeep: "all" } }),
+      baseCtx({ reasoning: "off" as ThinkingLevel, modelConfig: { ...defaultModelConfig, thinkingKeep: "all" } }),
     );
     assert.deepEqual(disabledPayload.extra_body, {
       thinking: { type: "disabled" },
@@ -348,7 +348,8 @@ describe("applyKimiPayloadMutations", () => {
 describe("resolveReasoningForLevel", () => {
   it("returns the mapped entry for known levels", () => {
     const cfg = defaultModelConfig;
-    assert.deepEqual(resolveReasoningForLevel("none", cfg), { effort: null, enabled: false });
+    assert.deepEqual(resolveReasoningForLevel("off", cfg), { effort: null, enabled: false });
+    assert.deepEqual(resolveReasoningForLevel("minimal", cfg), { effort: "low", enabled: true });
     assert.deepEqual(resolveReasoningForLevel("low", cfg), { effort: "low", enabled: true });
     assert.deepEqual(resolveReasoningForLevel("medium", cfg), { effort: "medium", enabled: true });
     assert.deepEqual(resolveReasoningForLevel("xhigh", cfg), { effort: "high", enabled: true });
@@ -369,6 +370,7 @@ describe("resolveReasoningForLevel", () => {
   it("returns undefined for unknown levels", () => {
     const cfg = defaultModelConfig;
     assert.equal(resolveReasoningForLevel("unknown", cfg), undefined);
+    assert.equal(resolveReasoningForLevel("none", cfg), undefined);
   });
 });
 

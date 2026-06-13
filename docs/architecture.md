@@ -355,7 +355,7 @@ thread it through the same boundary — read at the edge in `streamSimpleKimi` o
 | `KIMI_CODE_OAUTH_HOST` / `KIMI_OAUTH_HOST`         | `getOAuthHost`                                      | I/O edge     |
 | `KIMI_CODE_UPLOAD_THRESHOLD_BYTES`                 | `uploadKimiFile` (via `parseInlineUploadThreshold`) | I/O edge     |
 | `KIMI_CODE_DEBUG`                                  | `uploadKimiFile`                                    | I/O edge     |
-| JSON config (`~/.pi/pi-provider-kimi-code.json`)   | `loadKimiCodeConfig` at registration               | Registration |
+| JSON config (`~/.pi/providers/kimi-coding/config.json`)   | `loadKimiCodeConfig` at registration               | Registration |
 
 OAuth behavior is extended via the `oauth` field in `pi.registerProvider`.
 Payload mutation is extended by adding a new step to `applyKimiPayloadMutations`

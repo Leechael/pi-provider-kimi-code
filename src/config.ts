@@ -88,8 +88,8 @@ export const KIMI_CODE_CONFIG_TEMPLATE: KimiCodeConfig = {
     input: ["text", "image"],
     reasoning: true,
     reasoningMap: {
-      none: { effort: null, enabled: false },
       off: { effort: null, enabled: false },
+      minimal: { effort: "low", enabled: true },
       low: { effort: "low", enabled: true },
       medium: { effort: "medium", enabled: true },
       high: { effort: "high", enabled: true },
@@ -120,7 +120,15 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function readConfigFile(path: string): Record<string, unknown> {
   if (!existsSync(path)) return {};
-  const parsed = JSON.parse(readFileSync(path, "utf8")) as unknown;
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(readFileSync(path, "utf8")) as unknown;
+  } catch (err) {
+    throw new ConfigError(
+      `invalid JSON: ${err instanceof Error ? err.message : String(err)}`,
+      path,
+    );
+  }
   if (!isRecord(parsed)) {
     throw new ConfigError(
       `config file must be a JSON object`,

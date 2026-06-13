@@ -103,19 +103,15 @@ The JSON config provides user-adjustable knobs the server does not report:
     "input": ["text", "image"],
     "reasoning": true,
     "reasoningMap": {
-      "none":  { "effort": null,     "enabled": false },
-      "off":   { "effort": null,     "enabled": false },
-      "low":   { "effort": "low",    "enabled": true  },
-      "medium":{ "effort": "medium", "enabled": true  },
-      "high":  { "effort": "high",   "enabled": true  },
-      "xhigh": { "effort": "high",   "enabled": true  }
+      "off":      { "effort": null,     "enabled": false },
+      "minimal":  { "effort": "low",    "enabled": true  },
+      "low":      { "effort": "low",    "enabled": true  },
+      "medium":   { "effort": "medium", "enabled": true  },
+      "high":     { "effort": "high",   "enabled": true  },
+      "xhigh":    { "effort": "high",   "enabled": true  }
     },
     "thinkingKeep": "all",
-    "generation": {
-      "temperature": null,
-      "topP": null,
-      "maxCompletionTokens": null
-    }
+    "generation": {}
   },
   "tools": {
     "moonshot_search": { "enabled": false, "default_collapsed": true },
@@ -126,8 +122,7 @@ The JSON config provides user-adjustable knobs the server does not report:
 }
 ```
 
-Edit `~/.pi/pi-provider-kimi-code.json` (home) or `<cwd>/.pi/pi-provider-kimi-code.json`
-(project). Project overrides home via deep merge. Restart pi after editing the model
+Edit `~/.pi/providers/kimi-coding/config.json` and restart pi after editing the model
 block.
 
 ## Optional Moonshot tools
@@ -147,12 +142,8 @@ Inside Pi, run:
 
 That command shows your current Kimi usage summary and lets you edit the home or project config. Changes apply to the active session tool set.
 
-Config files are JSON:
-
-- Home: `~/.pi/pi-provider-kimi-code.json`
-- Project override: `<cwd>/.pi/pi-provider-kimi-code.json`
-
-Project config overrides home config with a deep merge. Missing files or missing keys mean both tools stay off.
+Config files are JSON at `~/.pi/providers/kimi-coding/config.json`. Edit the `tools`
+block and restart pi.
 
 ```json
 {
@@ -183,7 +174,7 @@ Two env vars cover the common cases:
 Moonshot search/fetch tools are configured through `/kimi-settings` or JSON config files, not env vars.
 
 The full env list, including base URL overrides, `kimi-cli` path overrides, upload tuning,
-debug logs, and model metadata overrides, lives in [docs/ENV.md](docs/ENV.md).
+and debug logs, lives in [docs/ENV.md](docs/ENV.md).
 
 ## Notes
 

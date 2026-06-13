@@ -43,21 +43,7 @@ export function resolveReasoningForLevel(
   level: string,
   config: KimiResolvedModelConfig,
 ): ModelReasoningEntry | undefined {
-  // 1. Exact match in the reasoning map.
-  const exact = config.reasoningMap[level];
-  if (exact) return exact;
-
-  // 2. Normalize known aliases (e.g. "off" → "none", "minimal" → "low").
-  //    These values arrive at runtime even though they are not in the
-  //    @earendil-works/pi-ai ThinkingLevel union type.
-  const alias: Record<string, string> = {
-    off: "none",
-    minimal: "low",
-  };
-  const resolved = alias[level];
-  if (resolved) return config.reasoningMap[resolved];
-
-  return undefined;
+  return config.reasoningMap[level];
 }
 
 function parseInlineUploadThreshold(raw: string | undefined): number {

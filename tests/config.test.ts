@@ -30,7 +30,8 @@ function fullConfig(overrides: Record<string, unknown> = {}): Record<string, unk
       input: ["text", "image"],
       reasoning: true,
       reasoningMap: {
-        none: { effort: null, enabled: false },
+        off: { effort: null, enabled: false },
+        minimal: { effort: "low", enabled: true },
         low: { effort: "low", enabled: true },
         medium: { effort: "medium", enabled: true },
         high: { effort: "high", enabled: true },
@@ -50,7 +51,8 @@ function fullConfig(overrides: Record<string, unknown> = {}): Record<string, unk
 }
 
 const REASONING_MAP = {
-  none: { effort: null, enabled: false },
+  off: { effort: null, enabled: false },
+  minimal: { effort: "low", enabled: true },
   low: { effort: "low", enabled: true },
   medium: { effort: "medium", enabled: true },
   high: { effort: "high", enabled: true },
@@ -58,7 +60,7 @@ const REASONING_MAP = {
 };
 
 describe("loadKimiCodeConfig", () => {
-  it("throws ConfigError when no config file exists and bootstrap writes template", () => {
+  it("bootstraps template and loads complete config when file is missing", () => {
     const home = tempDir("kimi-config-home");
 
     const created = ensureKimiCodeConfig(home);
