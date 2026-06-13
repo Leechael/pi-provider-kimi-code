@@ -37,7 +37,7 @@ function fullConfig(overrides: Record<string, unknown> = {}): Record<string, unk
         xhigh: { effort: "high", enabled: true },
       },
       thinkingKeep: "all",
-      generation: { temperature: null, topP: null, maxCompletionTokens: null },
+      generation: {},
     },
     tools: {
       moonshot_search: { enabled: false, default_collapsed: true },

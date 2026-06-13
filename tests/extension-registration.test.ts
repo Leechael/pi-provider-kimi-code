@@ -137,7 +137,7 @@ describe("extension tool registration", () => {
           xhigh: { effort: "high", enabled: true },
         },
         thinkingKeep: "all",
-        generation: { temperature: null, topP: null, maxCompletionTokens: null },
+        generation: {},
       },
       tools: {
         moonshot_search: { enabled: true, default_collapsed: false },
@@ -182,7 +182,7 @@ describe("extension tool registration", () => {
           xhigh: { effort: "high", enabled: true },
         },
         thinkingKeep: "all",
-        generation: { temperature: null, topP: null, maxCompletionTokens: null },
+        generation: {},
       },
       tools: {
         moonshot_search: { enabled: false, default_collapsed: true },
@@ -267,7 +267,7 @@ describe("extension tool registration", () => {
           xhigh: { effort: "high", enabled: true },
         },
         thinkingKeep: "all",
-        generation: { temperature: null, topP: null, maxCompletionTokens: null },
+        generation: {},
       },
       tools: {
         moonshot_search: { enabled: true, default_collapsed: true },

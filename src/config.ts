@@ -32,9 +32,9 @@ export interface ModelReasoningEntry {
 export type ModelReasoningMap = Record<string, ModelReasoningEntry>;
 
 export interface ModelGeneration {
-  temperature?: number | null;
-  topP?: number | null;
-  maxCompletionTokens?: number | null;
+  temperature?: number;
+  topP?: number;
+  maxCompletionTokens?: number;
 }
 
 export interface ModelConfig {
@@ -96,7 +96,7 @@ export const KIMI_CODE_CONFIG_TEMPLATE: KimiCodeConfig = {
       xhigh: { effort: "high", enabled: true },
     },
     thinkingKeep: "all",
-    generation: { temperature: null, topP: null, maxCompletionTokens: null },
+    generation: {},
   },
   tools: {
     moonshot_search: { enabled: false, default_collapsed: true },
@@ -237,15 +237,18 @@ function requireGeneration(raw: unknown, path: string): ModelGeneration {
     throw new ConfigError(`expected an object, got ${typeof raw}`, path);
   }
   const result: ModelGeneration = {};
-  for (const key of ["temperature", "topP", "maxCompletionTokens"]) {
+  const knownKeys = ["temperature", "topP", "maxCompletionTokens"] as const;
+  for (const key of knownKeys) {
     const v = (raw as Record<string, unknown>)[key];
-    if (v !== undefined && v !== null && typeof v !== "number") {
+    // null or absent means "not set" → skip. Only actual numbers pass through.
+    if (v === undefined || v === null) continue;
+    if (typeof v !== "number") {
       throw new ConfigError(
         `${key} must be a number or null, got ${typeof v}`,
         `${path}.${key}`,
       );
     }
-    result[key as keyof ModelGeneration] = (v as number | null) ?? null;
+    result[key] = v;
   }
   return result;
 }
