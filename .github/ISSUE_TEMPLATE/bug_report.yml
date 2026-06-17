@@ -1,0 +1,72 @@
+name: Bug Report
+description: Report a bug with pi-provider-kimi-code
+labels: ["bug"]
+body:
+  - type: input
+    id: provider-version
+    attributes:
+      label: Provider version
+      description: "Run `/kimi-settings` and copy the version shown in the title, e.g. `0.6.0`."
+      placeholder: "0.6.0"
+    validations:
+      required: true
+
+  - type: input
+    id: pi-version
+    attributes:
+      label: Pi version
+      description: "Run `pi --version` in your terminal."
+      placeholder: "0.79.3"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: auth-method
+    attributes:
+      label: Auth method
+      options:
+        - API key (KIMI_API_KEY)
+        - OAuth (/login kimi-coding)
+    validations:
+      required: true
+
+  - type: dropdown
+    id: os
+    attributes:
+      label: Operating system
+      options:
+        - macOS
+        - Linux
+        - Windows (WSL)
+        - Windows
+    validations:
+      required: true
+
+  - type: textarea
+    id: description
+    attributes:
+      label: What happened?
+      description: Describe the bug. Include the full error message if available.
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Steps to reproduce
+      description: Minimal steps to trigger the bug.
+      placeholder: |
+        1. Start Pi with `pi -e path/to/extension`
+        2. Send "hello"
+        3. See error
+    validations:
+      required: true
+
+  - type: textarea
+    id: env
+    attributes:
+      label: Environment details
+      description: "Any relevant env vars (names only, not values), Node.js version, or other context."
+      placeholder: |
+        Node.js: v22.0.0
+        KIMI_MODEL_* env vars: none

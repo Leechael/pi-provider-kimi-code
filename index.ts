@@ -43,6 +43,7 @@ import {
 import {
   DEFAULT_KIMI_MODEL_INPUT,
   KIMI_API_TYPE,
+  KIMI_CODE_VERSION,
   PROVIDER_ID,
   getBaseUrl,
 } from "./src/constants.ts";
@@ -352,7 +353,7 @@ function saveScopeKimiCodeConfig(
 function buildKimiMainTitle(config: KimiCodeConfig, cwd: string): string {
   const sources = loadKimiCodeConfigSources({ cwd, home: os.homedir() });
   return [
-    "Kimi settings",
+    `Kimi settings (provider v${KIMI_CODE_VERSION})`,
     "",
     "Effective tools:",
     ...KIMI_TOOL_NAMES.map((toolName) => {
