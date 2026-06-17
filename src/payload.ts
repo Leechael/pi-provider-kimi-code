@@ -435,7 +435,9 @@ export async function applyKimiPayloadMutations(
 
   // 4. Request usage stats on streaming responses.
   if (payload.stream === true) {
-    payload.stream_options = { include_usage: true };
+    payload.stream_options = isRecord(payload.stream_options)
+      ? { ...(payload.stream_options as JsonRecord), include_usage: true }
+      : { include_usage: true };
   }
 
   // 5. Normalize deprecated max_tokens and apply env-level hyperparameter
@@ -472,6 +474,8 @@ export async function applyKimiPayloadMutations(
     if (mapped) {
       if (mapped.effort !== undefined) {
         payload.reasoning_effort = mapped.effort;
+      } else {
+        delete payload.reasoning_effort;
       }
       const oldThinking = isRecord(payload.thinking) ? payload.thinking : {};
       payload.thinking = {
