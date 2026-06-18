@@ -6,6 +6,7 @@ import type { CacheRetention, ThinkingLevel } from "@earendil-works/pi-ai";
 
 import { getBaseUrl } from "./constants.ts";
 import { getCommonHeaders } from "./device.ts";
+import { optimizeToolSchemas } from "./schema-dedup.ts";
 
 // =============================================================================
 // Shared types + small utilities
@@ -418,6 +419,9 @@ export async function applyKimiPayloadMutations(
   if (ctx.api === "openai-completions") {
     normalizeOpenAIAssistantToolCalls(payload);
     normalizeOpenAIToolSchemas(payload);
+  }
+  if (Array.isArray(payload.tools)) {
+    payload.tools = optimizeToolSchemas(payload.tools);
   }
 
   // 3. prompt_cache_key injection. Respect any key already on the payload,
