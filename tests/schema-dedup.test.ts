@@ -200,6 +200,34 @@ describe("optimizeToolSchemas", () => {
     assert.doesNotThrow(() => optimizeToolSchemas(tools));
   });
 
+  it("does not throw on entries that JSON.stringify cannot serialize", () => {
+    const cyclic: Record<string, unknown> = {};
+    cyclic.self = cyclic;
+    const throwingToJSON = {
+      toJSON() {
+        throw new Error("boom");
+      },
+    };
+    const cases: Array<{ name: string; value: unknown }> = [
+      { name: "top-level BigInt", value: 1n },
+      { name: "nested BigInt", value: { value: 1n } },
+      { name: "cyclic object", value: cyclic },
+      { name: "throwing toJSON", value: throwingToJSON },
+    ];
+    const failures: string[] = [];
+
+    for (const { name, value } of cases) {
+      resetToolSchemaCache();
+      try {
+        optimizeToolSchemas([value] as unknown[]);
+      } catch (err) {
+        failures.push(`${name}: ${(err as Error).message}`);
+      }
+    }
+
+    assert.deepStrictEqual(failures, [], "all unstringifiable entries should be tolerated");
+  });
+
   it("distinguishes different non-serializable types in cache fingerprint", () => {
     resetToolSchemaCache();
     const result1 = optimizeToolSchemas([undefined] as unknown[]);
@@ -208,6 +236,102 @@ describe("optimizeToolSchemas", () => {
     assert.notStrictEqual(result1, result2, "undefined vs function must not collide");
     assert.notStrictEqual(result2, result3, "function vs symbol must not collide");
     assert.notStrictEqual(result1, result3, "undefined vs symbol must not collide");
+  });
+
+  it("distinguishes different function entries in cache fingerprint", () => {
+    resetToolSchemaCache();
+    const first = () => "first";
+    const second = () => "second";
+    const result1 = optimizeToolSchemas([first] as unknown[]);
+    const result2 = optimizeToolSchemas([second] as unknown[]);
+    assert.notStrictEqual(result1, result2, "different functions must not collide");
+    assert.strictEqual(result2[0], second, "should return the second input function");
+  });
+
+  it("distinguishes different symbol entries in cache fingerprint", () => {
+    resetToolSchemaCache();
+    const first = Symbol("first");
+    const second = Symbol("second");
+    const result1 = optimizeToolSchemas([first] as unknown[]);
+    const result2 = optimizeToolSchemas([second] as unknown[]);
+    assert.notStrictEqual(result1, result2, "different symbols must not collide");
+    assert.strictEqual(result2[0], second, "should return the second input symbol");
+  });
+
+  it("distinguishes different symbols with the same description in cache fingerprint", () => {
+    resetToolSchemaCache();
+    const first = Symbol("same");
+    const second = Symbol("same");
+    const result1 = optimizeToolSchemas([first] as unknown[]);
+    const result2 = optimizeToolSchemas([second] as unknown[]);
+    assert.notStrictEqual(
+      result1,
+      result2,
+      "different symbols with same description must not collide",
+    );
+    assert.strictEqual(result2[0], second, "should return the second input symbol");
+  });
+
+  it("distinguishes object entries with non-serializable properties in cache fingerprint", () => {
+    resetToolSchemaCache();
+    const first = { marker: () => "first" };
+    const second = { marker: () => "second" };
+    const result1 = optimizeToolSchemas([first] as unknown[]);
+    const result2 = optimizeToolSchemas([second] as unknown[]);
+    assert.notStrictEqual(
+      result1,
+      result2,
+      "objects with omitted function properties must not collide",
+    );
+    assert.strictEqual(result2[0], second, "should return the second input object");
+  });
+
+  it("distinguishes JSON.stringify collision cases in cache fingerprint", () => {
+    const cases: Array<{ name: string; first: unknown; second: unknown }> = [
+      {
+        name: "object property undefined vs missing",
+        first: { marker: undefined },
+        second: {},
+      },
+      {
+        name: "array undefined vs null",
+        first: [undefined],
+        second: [null],
+      },
+      {
+        name: "array function vs null",
+        first: [() => "first"],
+        second: [null],
+      },
+      {
+        name: "array symbol vs null",
+        first: [Symbol("first")],
+        second: [null],
+      },
+      {
+        name: "different empty maps",
+        first: new Map([["first", 1]]),
+        second: new Map([["second", 2]]),
+      },
+      {
+        name: "different empty sets",
+        first: new Set(["first"]),
+        second: new Set(["second"]),
+      },
+    ];
+
+    const failures: string[] = [];
+
+    for (const { name, first, second } of cases) {
+      resetToolSchemaCache();
+      const result1 = optimizeToolSchemas([first] as unknown[]);
+      const result2 = optimizeToolSchemas([second] as unknown[]);
+      if (result1 === result2 || result2[0] !== second) {
+        failures.push(name);
+      }
+    }
+
+    assert.deepStrictEqual(failures, [], "JSON.stringify collision cases must not collide");
   });
 
   it("returns original array when no tools exceed threshold", () => {

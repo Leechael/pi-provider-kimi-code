@@ -162,20 +162,26 @@ function opaqueTag(t: unknown): string {
 }
 
 function stableReplacer(_key: string, value: unknown): unknown {
-  if (typeof value === "function" || typeof value === "symbol") {
+  if (value === undefined) return "<undefined>";
+  if (typeof value === "function" || typeof value === "symbol") return opaqueTag(value);
+  if (typeof value === "bigint") return `<bigint:${value}>`;
+  if (value instanceof Map) return `<Map:${opaqueTag(value)}>`;
+  if (value instanceof Set) return `<Set:${opaqueTag(value)}>`;
+  return value;
+}
+
+function safeStringify(value: unknown): string {
+  try {
+    return JSON.stringify(value, stableReplacer);
+  } catch {
     return opaqueTag(value);
   }
-  return value;
 }
 
 function toolsFingerprint(tools: unknown[]): string {
   const hash = createHash("sha256");
   for (const t of tools) {
-    if (t === undefined) {
-      hash.update("<undefined>");
-    } else {
-      hash.update(JSON.stringify(t, stableReplacer));
-    }
+    hash.update(safeStringify(t));
     hash.update("|");
   }
   return hash.digest("hex");
