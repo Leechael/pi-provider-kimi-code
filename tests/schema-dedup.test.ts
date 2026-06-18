@@ -9,17 +9,8 @@ function jsonSize(v: unknown): number {
 }
 
 function loadCapturedTools(): unknown[] {
-  const capturePath = join(
-    import.meta.dirname,
-    "..",
-    "fixtures",
-    "pi-subagents-kimi-schema-repro",
-    "captures",
-    "0001-2026-06-04T23-22-09-516Z-request.json",
-  );
-  const capture = JSON.parse(readFileSync(capturePath, "utf8"));
-  const body = JSON.parse(capture.bodyUtf8);
-  return body.tools;
+  const fixturePath = join(import.meta.dirname, "..", "fixtures", "oversized-tools.json");
+  return JSON.parse(readFileSync(fixturePath, "utf8"));
 }
 
 describe("optimizeToolSchemas", () => {
@@ -92,6 +83,41 @@ describe("optimizeToolSchemas", () => {
     const result1 = optimizeToolSchemas(tools);
     const result2 = optimizeToolSchemas(tools.slice(0, 4));
     assert.notStrictEqual(result1, result2, "different tool set should bust cache");
+  });
+
+  it("invalidates cache when schema content changes for same tool names", () => {
+    resetToolSchemaCache();
+    const toolsV1 = [
+      {
+        type: "function",
+        function: {
+          name: "my_tool",
+          description: "test",
+          parameters: { type: "object", properties: { first: { type: "string" } } },
+        },
+      },
+    ];
+    const toolsV2 = [
+      {
+        type: "function",
+        function: {
+          name: "my_tool",
+          description: "test",
+          parameters: { type: "object", properties: { second: { type: "integer" } } },
+        },
+      },
+    ];
+    const result1 = optimizeToolSchemas(toolsV1);
+    const result2 = optimizeToolSchemas(toolsV2);
+    const params1 = ((result1[0] as Record<string, unknown>).function as Record<string, unknown>)
+      .parameters as Record<string, unknown>;
+    const params2 = ((result2[0] as Record<string, unknown>).function as Record<string, unknown>)
+      .parameters as Record<string, unknown>;
+    assert.notDeepStrictEqual(params1, params2, "different schemas should not return stale cache");
+    assert.ok(
+      (params2.properties as Record<string, unknown>).second,
+      "should have second property from v2",
+    );
   });
 
   it("handles tools without function.parameters gracefully", () => {

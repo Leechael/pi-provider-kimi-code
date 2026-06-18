@@ -119,7 +119,10 @@ function toolsFingerprint(tools: unknown[]): string {
   return tools
     .map((t) => {
       if (!isRecord(t) || !isRecord(t.function)) return "?";
-      return String((t.function as JsonRecord).name ?? "?");
+      const fn = t.function as JsonRecord;
+      const name = String(fn.name ?? "?");
+      const paramLen = isRecord(fn.parameters) ? JSON.stringify(fn.parameters).length : 0;
+      return `${name}:${paramLen}`;
     })
     .join(",");
 }
