@@ -293,16 +293,28 @@ describe("applyKimiPayloadMutations", () => {
     assert.equal(disabledPayload.reasoning_effort, undefined);
   });
 
-  it("renames deprecated max_tokens to max_completion_tokens", async () => {
+  it("renames deprecated max_tokens to max_completion_tokens on OpenAI path", async () => {
     const payload: JsonRecord = {
       messages: [{ role: "user", content: "hi" }],
       max_tokens: 128,
     };
 
-    await applyKimiPayloadMutations(payload, baseCtx());
+    await applyKimiPayloadMutations(payload, baseCtx({ api: "openai-completions" }));
 
     assert.equal(payload.max_tokens, undefined);
     assert.equal(payload.max_completion_tokens, 128);
+  });
+
+  it("preserves max_tokens on Anthropic path", async () => {
+    const payload: JsonRecord = {
+      messages: [{ role: "user", content: "hi" }],
+      max_tokens: 128,
+    };
+
+    await applyKimiPayloadMutations(payload, baseCtx({ api: "anthropic-messages" }));
+
+    assert.equal(payload.max_tokens, 128);
+    assert.equal(payload.max_completion_tokens, undefined);
   });
 
   it("lets max completion token env override win over payload max_tokens", async () => {
@@ -313,7 +325,7 @@ describe("applyKimiPayloadMutations", () => {
 
     await applyKimiPayloadMutations(
       payload,
-      baseCtx({ envOverrides: { maxCompletionTokens: 32000 } }),
+      baseCtx({ api: "openai-completions", envOverrides: { maxCompletionTokens: 32000 } }),
     );
 
     assert.equal(payload.max_tokens, undefined);

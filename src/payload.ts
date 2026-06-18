@@ -433,19 +433,22 @@ export async function applyKimiPayloadMutations(
     if (resolved) payload.prompt_cache_key = resolved;
   }
 
-  // 4. Request usage stats on streaming responses.
-  if (payload.stream === true) {
+  // 4. Request usage stats on streaming responses (OpenAI only —
+  //    Anthropic /messages does not support stream_options).
+  if (ctx.api === "openai-completions" && payload.stream === true) {
     payload.stream_options = isRecord(payload.stream_options)
       ? { ...(payload.stream_options as JsonRecord), include_usage: true }
       : { include_usage: true };
   }
 
-  // 5. Normalize deprecated max_tokens and apply env-level hyperparameter
-  //    overrides (pre-parsed into numbers by caller).
-  if (payload.max_completion_tokens === undefined && typeof payload.max_tokens === "number") {
-    payload.max_completion_tokens = payload.max_tokens;
+  // 5. Normalize deprecated max_tokens (OpenAI path only — Anthropic
+  //    /messages uses max_tokens natively).
+  if (ctx.api === "openai-completions") {
+    if (payload.max_completion_tokens === undefined && typeof payload.max_tokens === "number") {
+      payload.max_completion_tokens = payload.max_tokens;
+    }
+    delete payload.max_tokens;
   }
-  delete payload.max_tokens;
 
   const { temperature, topP, maxCompletionTokens } = ctx.envOverrides;
   if (temperature !== undefined) payload.temperature = temperature;
