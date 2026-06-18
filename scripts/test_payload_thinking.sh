@@ -80,7 +80,10 @@ def send(label, url, headers, payload, expect_thinking=None):
                 for line in raw.splitlines():
                     if not line.startswith("data: ") or line.strip() == "data: [DONE]":
                         continue
-                    chunk = json.loads(line[6:])
+                    try:
+                        chunk = json.loads(line[6:])
+                    except json.JSONDecodeError:
+                        continue
                     if is_anthropic:
                         if chunk.get("type") == "content_block_start":
                             cb = chunk.get("content_block", {})
@@ -264,7 +267,7 @@ test("E2: OpenAI stream + reasoning high + extra_body (old)", lambda: openai("op
 }, expect_thinking=True))
 
 # -------------------------------------------------------------------------
-# Group F: Streaming + fixed combos + stream_options (both endpoints)
+# Group F: Streaming + fixed combos (OpenAI with stream_options, Anthropic without)
 # -------------------------------------------------------------------------
 test("F1: OpenAI stream + thinking disabled (fixed)", lambda: openai("openai", {
     "model": "kimi-for-coding",

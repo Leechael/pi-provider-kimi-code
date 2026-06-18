@@ -41,32 +41,32 @@ Tests payload variants against both OpenAI (`/chat/completions`) and Anthropic (
 
 ### Test Groups
 
-| Group | What it tests |
-|-------|---------------|
-| A | Baselines — no thinking/reasoning fields |
-| B | `reasoning_effort: null` (v0.6.0 bug) |
-| C | `thinking` nested in `extra_body` (v0.6.0 behavior) |
-| D | `thinking` at top level (fixed behavior) |
-| E | Streaming + old payload combos |
-| F | Streaming + fixed payload combos + `stream_options` |
-| G | `prompt_cache_key` |
+| Group | What it tests                                       |
+| ----- | --------------------------------------------------- |
+| A     | Baselines — no thinking/reasoning fields            |
+| B     | `reasoning_effort: null` (v0.6.0 bug)               |
+| C     | `thinking` nested in `extra_body` (v0.6.0 behavior) |
+| D     | `thinking` at top level (fixed behavior)            |
+| E     | Streaming + old payload combos                      |
+| F     | Streaming + fixed payload combos + `stream_options` |
+| G     | `prompt_cache_key`                                  |
 
 ### Results (2026-06-18, Kimi Code API)
 
 **Non-streaming:**
 
-| Test | Endpoint | Payload | thinking in response? | Verdict |
-|------|----------|---------|----------------------|---------|
-| A1 | OpenAI | no thinking fields | yes | default is thinking-on |
-| A2 | Anthropic | no thinking fields | no | default is thinking-off |
-| C1 | OpenAI | `extra_body.thinking: enabled` | yes | but thinking is on by default anyway |
-| C2 | OpenAI | `extra_body.thinking: disabled` | **yes** | **server ignored disable** |
-| C3 | Anthropic | `extra_body.thinking: enabled` | **no** | **server ignored enable** |
-| C4 | Anthropic | `extra_body.thinking: disabled` | no | but thinking is off by default anyway |
-| D1 | OpenAI | top-level `thinking: enabled` | yes | works |
-| D2 | OpenAI | top-level `thinking: disabled` | no | works |
-| D3 | Anthropic | top-level `thinking: enabled` | yes | works |
-| D4 | Anthropic | top-level `thinking: disabled` | no | works |
+| Test | Endpoint  | Payload                         | thinking in response? | Verdict                               |
+| ---- | --------- | ------------------------------- | --------------------- | ------------------------------------- |
+| A1   | OpenAI    | no thinking fields              | yes                   | default is thinking-on                |
+| A2   | Anthropic | no thinking fields              | no                    | default is thinking-off               |
+| C1   | OpenAI    | `extra_body.thinking: enabled`  | yes                   | but thinking is on by default anyway  |
+| C2   | OpenAI    | `extra_body.thinking: disabled` | **yes**               | **server ignored disable**            |
+| C3   | Anthropic | `extra_body.thinking: enabled`  | **no**                | **server ignored enable**             |
+| C4   | Anthropic | `extra_body.thinking: disabled` | no                    | but thinking is off by default anyway |
+| D1   | OpenAI    | top-level `thinking: enabled`   | yes                   | works                                 |
+| D2   | OpenAI    | top-level `thinking: disabled`  | no                    | works                                 |
+| D3   | Anthropic | top-level `thinking: enabled`   | yes                   | works                                 |
+| D4   | Anthropic | top-level `thinking: disabled`  | no                    | works                                 |
 
 **Conclusion:** `extra_body` nesting is silently ignored by the server. Only top-level `thinking` is respected. The fix (spreading `extra_body` to top level) is necessary for thinking config to take effect.
 
