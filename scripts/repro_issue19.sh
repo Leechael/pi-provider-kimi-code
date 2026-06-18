@@ -2,7 +2,11 @@
 set -euo pipefail
 
 # Reproduce https://github.com/Leechael/pi-provider-kimi-code/issues/19
-# Tests each v0.6.0 payload change in isolation to find which one triggers 400.
+#
+# Tests old (v0.6.0) and fixed payload shapes against Kimi's OpenAI and
+# Anthropic endpoints. Covers reasoning_effort null vs omitted,
+# extra_body nesting vs top-level thinking, streaming combos, and
+# stream_options.
 
 API_KEY="${KIMI_API_KEY:-${1:-}}"
 if [ -z "$API_KEY" ]; then
@@ -50,7 +54,7 @@ def send(label, url, headers, payload):
     req = urllib.request.Request(url, data=body, headers=headers, method="POST")
     try:
         with urllib.request.urlopen(req, timeout=60) as resp:
-            data = resp.read().decode("utf-8")
+            resp.read()
             print(f"  [{label}] OK (status=200)")
             return True
     except urllib.error.HTTPError as e:
@@ -68,21 +72,6 @@ def anthropic(label, payload):
     return send(label, anthropic_url, ANTHROPIC_HEADERS, payload)
 
 
-base_openai = {
-    "model": "kimi-for-coding",
-    "messages": [{"role": "user", "content": "Say hello in one word."}],
-    "max_completion_tokens": 32,
-    "stream": False,
-}
-
-base_anthropic = {
-    "model": "kimi-for-coding",
-    "messages": [{"role": "user", "content": [
-        {"type": "text", "text": "Say hello in one word."}
-    ]}],
-    "max_tokens": 32,
-}
-
 results = []
 
 
@@ -93,16 +82,16 @@ def test(name, fn):
 
 
 # -------------------------------------------------------------------------
-# T1: baseline (v0.4.0 style payload, no new fields)
+# Group A: Baselines
 # -------------------------------------------------------------------------
-test("T1a: OpenAI baseline", lambda: openai("openai", {
+test("A1: OpenAI baseline (no reasoning fields)", lambda: openai("openai", {
     "model": "kimi-for-coding",
     "messages": [{"role": "user", "content": "Say hello in one word."}],
     "max_completion_tokens": 32,
     "stream": False,
 }))
 
-test("T1b: Anthropic baseline", lambda: anthropic("anthropic", {
+test("A2: Anthropic baseline (no reasoning fields)", lambda: anthropic("anthropic", {
     "model": "kimi-for-coding",
     "messages": [{"role": "user", "content": [
         {"type": "text", "text": "Say hello in one word."}
@@ -111,9 +100,9 @@ test("T1b: Anthropic baseline", lambda: anthropic("anthropic", {
 }))
 
 # -------------------------------------------------------------------------
-# T2: reasoning_effort: null (v0.6.0 sends this when thinking=none/off)
+# Group B: OLD behavior — reasoning_effort: null (v0.6.0 bug)
 # -------------------------------------------------------------------------
-test("T2a: OpenAI reasoning_effort=null", lambda: openai("openai", {
+test("B1: OpenAI reasoning_effort=null", lambda: openai("openai", {
     "model": "kimi-for-coding",
     "messages": [{"role": "user", "content": "Say hello in one word."}],
     "max_completion_tokens": 32,
@@ -121,106 +110,99 @@ test("T2a: OpenAI reasoning_effort=null", lambda: openai("openai", {
     "reasoning_effort": None,
 }))
 
-test("T2b: Anthropic reasoning_effort=null", lambda: anthropic("anthropic", {
-    "model": "kimi-for-coding",
-    "messages": [{"role": "user", "content": [
-        {"type": "text", "text": "Say hello in one word."}
-    ]}],
-    "max_tokens": 32,
-    "reasoning_effort": None,
-}))
-
-# -------------------------------------------------------------------------
-# T3: extra_body.thinking.type=disabled (v0.6.0 sends this when off)
-# -------------------------------------------------------------------------
-test("T3a: OpenAI thinking disabled", lambda: openai("openai", {
-    "model": "kimi-for-coding",
-    "messages": [{"role": "user", "content": "Say hello in one word."}],
-    "max_completion_tokens": 32,
-    "stream": False,
-    "extra_body": {"thinking": {"type": "disabled"}},
-}))
-
-test("T3b: Anthropic thinking disabled", lambda: anthropic("anthropic", {
-    "model": "kimi-for-coding",
-    "messages": [{"role": "user", "content": [
-        {"type": "text", "text": "Say hello in one word."}
-    ]}],
-    "max_tokens": 32,
-    "extra_body": {"thinking": {"type": "disabled"}},
-}))
-
-# -------------------------------------------------------------------------
-# T4: both reasoning_effort=null + thinking disabled (combined v0.6.0 off)
-# -------------------------------------------------------------------------
-test("T4a: OpenAI combined off payload", lambda: openai("openai", {
-    "model": "kimi-for-coding",
-    "messages": [{"role": "user", "content": "Say hello in one word."}],
-    "max_completion_tokens": 32,
-    "stream": False,
-    "reasoning_effort": None,
-    "extra_body": {"thinking": {"type": "disabled"}},
-}))
-
-test("T4b: Anthropic combined off payload", lambda: anthropic("anthropic", {
+test("B2: Anthropic reasoning_effort=null", lambda: anthropic("anthropic", {
     "model": "kimi-for-coding",
     "messages": [{"role": "user", "content": [
         {"type": "text", "text": "Say hello in one word."}
     ]}],
     "max_tokens": 32,
     "reasoning_effort": None,
-    "extra_body": {"thinking": {"type": "disabled"}},
 }))
 
 # -------------------------------------------------------------------------
-# T5: reasoning_effort=low + thinking enabled (v0.6.0 on payload)
+# Group C: OLD behavior — thinking nested in extra_body (v0.6.0 bug)
 # -------------------------------------------------------------------------
-test("T5a: OpenAI thinking enabled", lambda: openai("openai", {
-    "model": "kimi-for-coding",
-    "messages": [{"role": "user", "content": "Say hello in one word."}],
-    "max_completion_tokens": 32,
-    "stream": False,
-    "reasoning_effort": "low",
-    "extra_body": {"thinking": {"type": "enabled"}},
-}))
-
-test("T5b: Anthropic thinking enabled", lambda: anthropic("anthropic", {
-    "model": "kimi-for-coding",
-    "messages": [{"role": "user", "content": [
-        {"type": "text", "text": "Say hello in one word."}
-    ]}],
-    "max_tokens": 32,
-    "reasoning_effort": "low",
-    "extra_body": {"thinking": {"type": "enabled"}},
-}))
-
-# -------------------------------------------------------------------------
-# T6: reasoning_effort=high + thinking enabled + keep
-# -------------------------------------------------------------------------
-test("T6a: OpenAI thinking high+keep", lambda: openai("openai", {
+test("C1: OpenAI thinking in extra_body (old)", lambda: openai("openai", {
     "model": "kimi-for-coding",
     "messages": [{"role": "user", "content": "Say hello in one word."}],
     "max_completion_tokens": 32,
     "stream": False,
     "reasoning_effort": "high",
-    "extra_body": {"thinking": {"type": "enabled", "keep": "all"}},
+    "extra_body": {"thinking": {"type": "enabled"}},
 }))
 
-test("T6b: Anthropic thinking high+keep", lambda: anthropic("anthropic", {
+test("C2: OpenAI thinking disabled in extra_body (old)", lambda: openai("openai", {
+    "model": "kimi-for-coding",
+    "messages": [{"role": "user", "content": "Say hello in one word."}],
+    "max_completion_tokens": 32,
+    "stream": False,
+    "reasoning_effort": None,
+    "extra_body": {"thinking": {"type": "disabled"}},
+}))
+
+test("C3: Anthropic thinking in extra_body (old)", lambda: anthropic("anthropic", {
     "model": "kimi-for-coding",
     "messages": [{"role": "user", "content": [
         {"type": "text", "text": "Say hello in one word."}
     ]}],
     "max_tokens": 32,
     "reasoning_effort": "high",
-    "extra_body": {"thinking": {"type": "enabled", "keep": "all"}},
+    "extra_body": {"thinking": {"type": "enabled"}},
+}))
+
+test("C4: Anthropic thinking disabled in extra_body (old)", lambda: anthropic("anthropic", {
+    "model": "kimi-for-coding",
+    "messages": [{"role": "user", "content": [
+        {"type": "text", "text": "Say hello in one word."}
+    ]}],
+    "max_tokens": 32,
+    "reasoning_effort": None,
+    "extra_body": {"thinking": {"type": "disabled"}},
 }))
 
 # -------------------------------------------------------------------------
-# T7: stream=true (v0.6.0 uses streaming; check if any field combo +
-#     streaming triggers the error)
+# Group D: FIXED behavior — thinking at top level, no null effort
 # -------------------------------------------------------------------------
-test("T7a: OpenAI stream + reasoning null", lambda: openai("openai", {
+test("D1: OpenAI thinking enabled at top level (fixed)", lambda: openai("openai", {
+    "model": "kimi-for-coding",
+    "messages": [{"role": "user", "content": "Say hello in one word."}],
+    "max_completion_tokens": 32,
+    "stream": False,
+    "reasoning_effort": "high",
+    "thinking": {"type": "enabled"},
+}))
+
+test("D2: OpenAI thinking disabled at top level (fixed)", lambda: openai("openai", {
+    "model": "kimi-for-coding",
+    "messages": [{"role": "user", "content": "Say hello in one word."}],
+    "max_completion_tokens": 32,
+    "stream": False,
+    "thinking": {"type": "disabled"},
+}))
+
+test("D3: Anthropic thinking enabled at top level (fixed)", lambda: anthropic("anthropic", {
+    "model": "kimi-for-coding",
+    "messages": [{"role": "user", "content": [
+        {"type": "text", "text": "Say hello in one word."}
+    ]}],
+    "max_tokens": 32,
+    "reasoning_effort": "high",
+    "thinking": {"type": "enabled"},
+}))
+
+test("D4: Anthropic thinking disabled at top level (fixed)", lambda: anthropic("anthropic", {
+    "model": "kimi-for-coding",
+    "messages": [{"role": "user", "content": [
+        {"type": "text", "text": "Say hello in one word."}
+    ]}],
+    "max_tokens": 32,
+    "thinking": {"type": "disabled"},
+}))
+
+# -------------------------------------------------------------------------
+# Group E: Streaming + old combos
+# -------------------------------------------------------------------------
+test("E1: OpenAI stream + reasoning null + extra_body (old)", lambda: openai("openai", {
     "model": "kimi-for-coding",
     "messages": [{"role": "user", "content": "Say hello in one word."}],
     "max_completion_tokens": 32,
@@ -229,7 +211,7 @@ test("T7a: OpenAI stream + reasoning null", lambda: openai("openai", {
     "extra_body": {"thinking": {"type": "disabled"}},
 }))
 
-test("T7b: OpenAI stream + reasoning high", lambda: openai("openai", {
+test("E2: OpenAI stream + reasoning high + extra_body (old)", lambda: openai("openai", {
     "model": "kimi-for-coding",
     "messages": [{"role": "user", "content": "Say hello in one word."}],
     "max_completion_tokens": 32,
@@ -239,9 +221,31 @@ test("T7b: OpenAI stream + reasoning high", lambda: openai("openai", {
 }))
 
 # -------------------------------------------------------------------------
-# T8: prompt_cache_key present (v0.6.0 injects this on OpenAI path)
+# Group F: Streaming + fixed combos + stream_options
 # -------------------------------------------------------------------------
-test("T8: OpenAI with prompt_cache_key", lambda: openai("openai", {
+test("F1: OpenAI stream + thinking disabled at top level (fixed)", lambda: openai("openai", {
+    "model": "kimi-for-coding",
+    "messages": [{"role": "user", "content": "Say hello in one word."}],
+    "max_completion_tokens": 32,
+    "stream": True,
+    "thinking": {"type": "disabled"},
+    "stream_options": {"include_usage": True},
+}))
+
+test("F2: OpenAI stream + thinking enabled at top level (fixed)", lambda: openai("openai", {
+    "model": "kimi-for-coding",
+    "messages": [{"role": "user", "content": "Say hello in one word."}],
+    "max_completion_tokens": 32,
+    "stream": True,
+    "reasoning_effort": "high",
+    "thinking": {"type": "enabled", "keep": "all"},
+    "stream_options": {"include_usage": True},
+}))
+
+# -------------------------------------------------------------------------
+# Group G: prompt_cache_key
+# -------------------------------------------------------------------------
+test("G1: OpenAI with prompt_cache_key", lambda: openai("openai", {
     "model": "kimi-for-coding",
     "messages": [{"role": "user", "content": "Say hello in one word."}],
     "max_completion_tokens": 32,
@@ -255,17 +259,45 @@ test("T8: OpenAI with prompt_cache_key", lambda: openai("openai", {
 print("\n" + "=" * 60)
 print("SUMMARY")
 print("=" * 60)
-for name, ok in results:
-    status = "PASS" if ok else "FAIL <---"
-    print(f"  {status}  {name}")
 
-fails = [name for name, ok in results if not ok]
-if not fails:
-    print("\nAll tests passed. The 400 may be triggered by a different condition.")
-    print("Possible next steps:")
-    print("  - Try with a tool_use message in the conversation")
-    print("  - Try with an image attachment")
-    print("  - Check if Pi sends additional fields not covered here")
+old_tests = [n for n, _ in results if n.startswith(("B", "C", "E"))]
+new_tests = [n for n, _ in results if n.startswith(("D", "F"))]
+result_map = {n: ok for n, ok in results}
+
+print("\nBaselines:")
+for name, ok in results:
+    if name.startswith("A"):
+        print(f"  {'PASS' if ok else 'FAIL':>4}  {name}")
+
+print("\nOld (v0.6.0) payloads:")
+for name in old_tests:
+    ok = result_map[name]
+    print(f"  {'PASS' if ok else 'FAIL':>4}  {name}")
+
+print("\nFixed payloads:")
+for name in new_tests:
+    ok = result_map[name]
+    print(f"  {'PASS' if ok else 'FAIL':>4}  {name}")
+
+print("\nOther:")
+for name, ok in results:
+    if name.startswith("G"):
+        print(f"  {'PASS' if ok else 'FAIL':>4}  {name}")
+
+old_fails = [n for n in old_tests if not result_map[n]]
+new_fails = [n for n in new_tests if not result_map[n]]
+all_fails = [n for n, ok in results if not ok]
+
+print()
+if old_fails and not new_fails:
+    print(f"Old payloads broke: {', '.join(old_fails)}")
+    print("Fixed payloads all pass. The fix addresses the issue.")
+elif not all_fails:
+    print("All tests passed. Kimi accepts both old and new payloads.")
+    print("The 400 may depend on Pi version, auth method, or conversation state.")
+elif new_fails:
+    print(f"Fixed payloads FAILED: {', '.join(new_fails)}")
+    print("Investigate — the fix may be wrong or incomplete.")
 else:
-    print(f"\n{len(fails)} test(s) failed. These payload changes likely cause issue #19.")
+    print(f"Failures: {', '.join(all_fails)}")
 PY
