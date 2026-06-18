@@ -21,12 +21,18 @@ function jsonSize(v: unknown): number {
   return Buffer.byteLength(JSON.stringify(v));
 }
 
-type FragmentMap = Map<string, string[]>;
+type PathSegment = string | number;
+type FragmentMap = Map<string, PathSegment[][]>;
 
-function collectFragments(node: unknown, path: string, map: FragmentMap, minSize: number): void {
+function collectFragments(
+  node: unknown,
+  path: PathSegment[],
+  map: FragmentMap,
+  minSize: number,
+): void {
   if (node === null || typeof node !== "object") return;
   if (Array.isArray(node)) {
-    node.forEach((item, i) => collectFragments(item, `${path}[${i}]`, map, minSize));
+    node.forEach((item, i) => collectFragments(item, [...path, i], map, minSize));
     return;
   }
   const serialized = JSON.stringify(node);
@@ -39,20 +45,27 @@ function collectFragments(node: unknown, path: string, map: FragmentMap, minSize
     paths.push(path);
   }
   for (const [key, value] of Object.entries(node as JsonRecord)) {
-    collectFragments(value, path ? `${path}.${key}` : key, map, minSize);
+    collectFragments(value, [...path, key], map, minSize);
   }
 }
 
-function setAtPath(root: JsonRecord, path: string, value: unknown): void {
-  const parts = path.replace(/\[(\d+)\]/g, ".$1").split(".");
+function setAtPath(root: JsonRecord, path: PathSegment[], value: unknown): void {
   let current: unknown = root;
-  for (let i = 0; i < parts.length - 1; i++) {
+  for (let i = 0; i < path.length - 1; i++) {
     if (!isRecord(current) && !Array.isArray(current)) return;
-    current = (current as Record<string, unknown>)[parts[i]];
+    current = (current as Record<string, unknown>)[path[i]];
   }
   if (isRecord(current) || Array.isArray(current)) {
-    (current as Record<string, unknown>)[parts[parts.length - 1]] = value;
+    (current as Record<string, unknown>)[path[path.length - 1]] = value;
   }
+}
+
+function isDescendant(child: PathSegment[], ancestor: PathSegment[]): boolean {
+  if (child.length <= ancestor.length) return false;
+  for (let i = 0; i < ancestor.length; i++) {
+    if (child[i] !== ancestor[i]) return false;
+  }
+  return true;
 }
 
 function nextDefKey(existing: Set<string>, index: number): string {
@@ -70,11 +83,11 @@ function deduplicateSchema(schema: JsonRecord): JsonRecord {
   const defs: JsonRecord = isRecord(result.$defs) ? (result.$defs as JsonRecord) : {};
   const existingKeys = new Set(Object.keys(defs));
   let defIndex = 0;
-  const replaced = new Set<string>();
+  const replaced: PathSegment[][] = [];
 
   for (let pass = 0; pass < MAX_DEDUP_PASSES; pass++) {
     const fragments: FragmentMap = new Map();
-    collectFragments(result, "", fragments, MIN_FRAGMENT_SIZE);
+    collectFragments(result, [], fragments, MIN_FRAGMENT_SIZE);
 
     const candidates = [...fragments.entries()]
       .filter(([, paths]) => paths.length >= 2)
@@ -82,9 +95,7 @@ function deduplicateSchema(schema: JsonRecord): JsonRecord {
 
     let progress = false;
     for (const [serialized, paths] of candidates) {
-      const active = paths.filter(
-        (p) => ![...replaced].some((r) => p.startsWith(`${r}.`) || p.startsWith(`${r}[`)),
-      );
+      const active = paths.filter((p) => !replaced.some((r) => isDescendant(p, r)));
       if (active.length < 2) continue;
 
       const size = Buffer.byteLength(serialized);
@@ -97,7 +108,7 @@ function deduplicateSchema(schema: JsonRecord): JsonRecord {
 
       for (const p of active) {
         setAtPath(result, p, { $ref: `#/$defs/${key}` });
-        replaced.add(p);
+        replaced.push(p);
       }
       progress = true;
     }

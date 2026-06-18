@@ -262,4 +262,43 @@ describe("optimizeToolSchemas", () => {
     assert.ok(defs.existing, "pre-existing $defs entry should be preserved");
     assert.ok(Object.keys(defs).length > 1, "should have added new $defs entries");
   });
+
+  it("deduplicates correctly when property names contain dots", () => {
+    resetToolSchemaCache();
+    const repeated = {
+      type: "object",
+      properties: {
+        name: { type: "string" },
+        value: { type: "integer" },
+        extra: { type: "string", description: "x".repeat(200) },
+      },
+    };
+    const schema: Record<string, unknown> = {
+      type: "object",
+      properties: {} as Record<string, unknown>,
+    };
+    const props = schema.properties as Record<string, unknown>;
+    for (let i = 0; i < 80; i++) {
+      props[`field.${i}`] = JSON.parse(JSON.stringify(repeated));
+    }
+    const originalSize = Buffer.byteLength(JSON.stringify(schema));
+
+    const tools = [
+      {
+        type: "function",
+        function: { name: "dotted", description: "test", parameters: schema },
+      },
+    ];
+    const result = optimizeToolSchemas(tools);
+    const params = ((result[0] as Record<string, unknown>).function as Record<string, unknown>)
+      .parameters as Record<string, unknown>;
+    const optimizedSize = Buffer.byteLength(JSON.stringify(params));
+
+    assert.ok(optimizedSize < originalSize, `should shrink: ${optimizedSize} < ${originalSize}`);
+    const defs = params.$defs as Record<string, unknown> | undefined;
+    assert.ok(defs && Object.keys(defs).length > 0, "should have $defs from dedup");
+
+    const serialized = JSON.stringify(params);
+    assert.ok(serialized.includes('"$ref"'), "should contain $ref references");
+  });
 });
