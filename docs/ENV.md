@@ -41,7 +41,7 @@ These mirror the same-name environment variables in upstream `kimi-code`. When s
 | `KIMI_MODEL_TEMPERATURE`           | Force temperature on outbound requests.                                                                                                                                                                                              |
 | `KIMI_MODEL_TOP_P`                 | Force top-p on outbound requests.                                                                                                                                                                                                    |
 | `KIMI_MODEL_MAX_COMPLETION_TOKENS` | Force max completion tokens on outbound requests.                                                                                                                                                                                    |
-| `KIMI_MODEL_THINKING_KEEP`         | When thinking is enabled, forwarded verbatim as `extra_body.thinking.keep`. Moonshot-specific switch for preserving thinking content across turns (e.g. `"all"`). Has no effect when reasoning is off. Mirrors upstream `kimi-code`. |
+| `KIMI_MODEL_THINKING_KEEP`         | When thinking is enabled, forwarded verbatim as top-level `thinking.keep`. Moonshot-specific switch for preserving thinking content across turns (e.g. `"all"`). Has no effect when reasoning is off. Mirrors upstream `kimi-code`. |
 
 ## Diagnostics
 

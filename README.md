@@ -7,7 +7,7 @@
 
 Pi already has a basic `kimi-coding` provider. This extension is for the parts that start to matter once Kimi Code becomes part of your real Pi workflow: account login reuse, file uploads, measured cache behavior, live model metadata, and optional Moonshot search/fetch/datasource tools.
 
-> **Kimi K2.7 supported.** The provider automatically discovers the current model from Kimi's `/v1/models` endpoint at login time, so new rollouts (including K2.7) are picked up immediately without a package update.
+> **Kimi K2.7 supported.** The provider automatically discovers the current model from Kimi's `/v1/models` endpoint at login, refresh, and `/kimi-settings` time, so new rollouts (including K2.7) are picked up immediately without a package update.
 
 ## Why this exists
 
@@ -26,9 +26,10 @@ Kimi's API surface goes beyond the LLM itself. It includes file uploads, web sea
 - Kimi account login in Pi, plus `KIMI_API_KEY` for CI or pay-per-token use.
 - `kimi-code` credential reuse from `~/.kimi/credentials/kimi-code.json`.
 - Kimi Files API uploads for large inline images.
-- Live model metadata from Kimi at login / refresh time.
+- Live model metadata from Kimi at login, refresh, and `/kimi-settings` time.
 - OpenAI-compatible mode by default, Anthropic-compatible mode on request.
-- Kimi K2.6 reasoning level mapping for Pi's reasoning controls.
+- Kimi K2.7 reasoning level mapping for Pi's reasoning controls.
+- Tool schema dedup to stay under Moonshot's 15 KB per-tool-schema limit.
 - Stream cleanup for Kimi's thinking-only placeholder text.
 - Optional `moonshot_search`, `moonshot_fetch`, and unified datasource `kimi_datasource` tools via `/kimi-settings`.
 - No build step; Pi loads the TypeScript extension directly.
@@ -103,7 +104,7 @@ Fallback values:
 - Input: text and image
 - Reasoning: enabled
 
-The provider maps Pi's reasoning levels to Kimi's reasoning-effort controls. The exact mapping depends on the model returned by the server at login time, and the provider refreshes it automatically on every credential refresh.
+The provider maps Pi's reasoning levels to Kimi's reasoning-effort controls. The mapping is config-driven and refreshes automatically on credential refresh. Opening `/kimi-settings` also re-discovers the latest model metadata.
 
 ## Optional tools
 
@@ -115,7 +116,9 @@ Inside Pi, run:
 /kimi-settings
 ```
 
-That command shows your current Kimi usage summary and lets you edit the home or project config. Changes apply to the active session tool set.
+That command shows the current server-side model name (e.g. "K2.7 Code High Speed"), your Kimi usage summary, and lets you edit the home or project config. Changes apply to the active session tool set.
+
+Configurable settings include protocol mode, upload threshold, and per-tool enable/collapse.
 
 Config files are JSON:
 
@@ -136,6 +139,8 @@ Project config overrides home config with a deep merge. Missing files or missing
 
 ```json
 {
+  "protocol": "openai",
+  "uploads": { "thresholdBytes": 1048576 },
   "tools": {
     "moonshot_search": { "enabled": true, "default_collapsed": true },
     "moonshot_fetch": { "enabled": true, "default_collapsed": true },
@@ -176,9 +181,9 @@ If you already use another search or fetch tool, pick one path for a session. Ov
 Most users do not need environment variables. Two are worth knowing:
 
 - `KIMI_API_KEY` — static API key for CI or pay-per-token use.
-- `KIMI_CODE_PROTOCOL` — `openai` by default; set to `anthropic` if your Pi setup needs Anthropic-compatible requests.
+- `KIMI_CODE_PROTOCOL` — `openai` by default; set to `anthropic` if your Pi setup needs Anthropic-compatible requests. Can also be set through `/kimi-settings` or JSON config.
 
-Moonshot search/fetch tools are configured through `/kimi-settings` or JSON config files, not env vars.
+Tools, protocol, and upload threshold are all configurable through `/kimi-settings` or JSON config files.
 
 The full env list, including base URL overrides, `kimi-code` path overrides, upload tuning, debug logs, and model metadata overrides, lives in [docs/ENV.md](docs/ENV.md).
 

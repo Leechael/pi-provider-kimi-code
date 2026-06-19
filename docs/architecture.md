@@ -21,7 +21,7 @@ streaming to:
 - upload large inline base64 images to Kimi's `/v1/files` endpoint as `ms://` references
 - inject Kimi's proprietary `prompt_cache_key` alongside Anthropic `cache_control`
 - apply env-level hyperparameter overrides (`temperature`, `top_p`, `max_completion_tokens`)
-- map Pi's `reasoning` level to Kimi's `reasoning_effort` + `extra_body.thinking`
+- map Pi's `reasoning` level to Kimi's `reasoning_effort` + top-level `thinking`
 - suppress Kimi's `(Empty response: ...)` placeholder text blocks from the response stream
 
 ## File Structure
@@ -357,7 +357,7 @@ and (if the step needs new inputs) a new field on `KimiPayloadContext`.
 Kimi Code's backend speaks both formats. Different Pi users and downstream tools
 prefer different protocols — some want strict Anthropic compatibility for
 `cache_control` + thinking blocks, others need OpenAI's `reasoning_effort` and
-`extra_body` semantics. Selecting via `KIMI_CODE_PROTOCOL` at module load lets a
+top-level `thinking` semantics. Selecting via `KIMI_CODE_PROTOCOL` at module load lets a
 single extension cover both audiences without duplication, and the protocol-
 specific payload transform lives in its own function
 (`transformOpenAIPayloadFiles` / `transformAnthropicPayloadFiles`) behind a
