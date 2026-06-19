@@ -72,6 +72,53 @@ Tests payload variants against both OpenAI (`/chat/completions`) and Anthropic (
 
 **Streaming:** F2/F4 (thinking enabled, streaming) did not return thinking content in the response. This may be a token limit issue (`max_completion_tokens=128`) or a difference in how streaming surfaces reasoning content. Non-streaming results are definitive.
 
+## Request Capture (capture_proxy)
+
+Intercepts live `pi -> Kimi` HTTP traffic, writes request/response pairs to disk for inspection and replay.
+
+### 1. Start the proxy
+
+```bash
+mkdir -p /tmp/kimi-captures
+CAPTURE_PORT=8787 \
+CAPTURE_TARGET_ORIGIN=https://api.kimi.com \
+CAPTURE_DIR=/tmp/kimi-captures \
+node scripts/kimi-compat/capture_proxy.mjs
+```
+
+### 2. Send a request through the proxy
+
+The key is `KIMI_CODE_BASE_URL` must include the `/coding/v1` path prefix, not just the origin. The proxy forwards the full request path to `CAPTURE_TARGET_ORIGIN`, so without the prefix the upstream paths resolve to 404.
+
+```bash
+KIMI_CODE_BASE_URL=http://127.0.0.1:8787/coding/v1 \
+pi -ne -e . --model kimi-coding/kimi-for-coding -p "Say hi." --mode print
+```
+
+Wrong: `KIMI_CODE_BASE_URL=http://127.0.0.1:8787` (requests go to `/chat/completions` instead of `/coding/v1/chat/completions`).
+
+### 3. Inspect captures
+
+```bash
+CAPTURE_DIR=/tmp/kimi-captures node scripts/kimi-compat/inspect_captures.mjs
+CAPTURE_DIR=/tmp/kimi-captures node scripts/kimi-compat/dump_raw_request.mjs
+```
+
+### 4. Replay a capture
+
+```bash
+CAPTURE_DIR=/tmp/kimi-captures node scripts/kimi-compat/replay_capture.mjs
+```
+
+Replays the latest captured request. Specify a filename to replay a specific one.
+
+### 5. Cleanup
+
+```bash
+pkill -f capture_proxy.mjs
+rm -rf /tmp/kimi-captures
+```
+
 ## Proxy / Networking
 
 If `curl` can reach Kimi but `pi` reports `fetch failed`, check your `http_proxy` / `https_proxy` / `all_proxy` environment. `pi` uses Node's `fetch` / undici stack, which may behave differently from `curl`.
