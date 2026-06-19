@@ -39,7 +39,7 @@ import {
   saveProjectKimiCodeConfig,
   type KimiToolName,
 } from "./src/config.ts";
-import { KIMI_CODE_VERSION, PROVIDER_ID, getBaseUrl, getKimiApiType } from "./src/constants.ts";
+import { KIMI_CODE_VERSION, PROVIDER_ID, getBaseUrl, getApiProtocol } from "./src/constants.ts";
 import { getCommonHeaders } from "./src/device.ts";
 import {
   type KimiOAuthCredentials,
@@ -572,7 +572,7 @@ export default async function (pi: ExtensionAPI) {
   pi.registerProvider(PROVIDER_ID, {
     baseUrl: getBaseUrl(config.protocol),
     apiKey: "$KIMI_API_KEY",
-    api: getKimiApiType(config.protocol),
+    api: getApiProtocol(config.protocol),
     streamSimple: streamSimpleKimi,
 
     models: [model],
