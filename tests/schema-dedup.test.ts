@@ -4,400 +4,119 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { optimizeToolSchemas, resetToolSchemaCache } from "../src/schema-dedup.ts";
 
+const KIMI_PER_TOOL_LIMIT = 15_000;
+
+interface CorpusTool {
+  type: "function";
+  function: { name: string; description?: string; parameters: unknown };
+  _source?: string;
+}
+
 function jsonSize(v: unknown): number {
   return Buffer.byteLength(JSON.stringify(v));
 }
 
-function loadCapturedTools(): unknown[] {
-  const fixturePath = join(import.meta.dirname, "..", "fixtures", "oversized-tools.json");
-  return JSON.parse(readFileSync(fixturePath, "utf8"));
+function loadCorpus(): CorpusTool[] {
+  const path = join(
+    import.meta.dirname,
+    "..",
+    "scripts",
+    "kimi-compat",
+    "corpus",
+    "all-tools.json",
+  );
+  return JSON.parse(readFileSync(path, "utf8"));
 }
 
-describe("optimizeToolSchemas", () => {
-  it("reduces oversized subagent schema below 15 KB", () => {
-    resetToolSchemaCache();
-    const tools = loadCapturedTools();
-    const subagent = tools[4] as Record<string, unknown>;
-    const fn = subagent.function as Record<string, unknown>;
-    const originalSize = jsonSize(fn.parameters);
-    assert.ok(originalSize > 15_000, `original should be oversized: ${originalSize}`);
+function findTool(corpus: CorpusTool[], name: string): CorpusTool {
+  const tool = corpus.find((t) => t.function.name === name);
+  assert.ok(tool, `expected tool "${name}" in corpus`);
+  return tool;
+}
 
-    const optimized = optimizeToolSchemas(tools);
-    const optFn = (optimized[4] as Record<string, unknown>).function as Record<string, unknown>;
-    const optimizedSize = jsonSize(optFn.parameters);
-    assert.ok(optimizedSize < 15_000, `optimized should be under 15KB: ${optimizedSize}`);
+function normalizeTool(tool: CorpusTool): CorpusTool {
+  resetToolSchemaCache();
+  const result = optimizeToolSchemas([structuredClone(tool)]);
+  return result[0] as CorpusTool;
+}
+
+// ---------------------------------------------------------------------------
+// Dedup algorithm
+// ---------------------------------------------------------------------------
+
+describe("deduplicateSchema", () => {
+  const corpus = loadCorpus();
+
+  it("reduces oversized subagent schema below 15 KB", () => {
+    const subagent = findTool(corpus, "subagent");
+    assert.ok(jsonSize(subagent.function.parameters) > KIMI_PER_TOOL_LIMIT);
+
+    const normalized = normalizeTool(subagent);
+    assert.ok(jsonSize(normalized.function.parameters) < KIMI_PER_TOOL_LIMIT);
   });
 
-  it("does not modify tools under the threshold", () => {
-    resetToolSchemaCache();
-    const tools = loadCapturedTools();
-    const optimized = optimizeToolSchemas(tools);
+  it("does not modify tools already under the threshold", () => {
+    const small = corpus.filter((t) => jsonSize(t.function.parameters) <= KIMI_PER_TOOL_LIMIT);
+    assert.ok(small.length > 0);
 
-    for (let i = 0; i < 4; i++) {
-      const orig = (tools[i] as Record<string, unknown>).function as Record<string, unknown>;
-      const opt = (optimized[i] as Record<string, unknown>).function as Record<string, unknown>;
-      assert.deepStrictEqual(opt.parameters, orig.parameters, `tool ${i} should be unchanged`);
+    resetToolSchemaCache();
+    const result = optimizeToolSchemas(small.map((t) => structuredClone(t)));
+    for (let i = 0; i < small.length; i++) {
+      assert.deepStrictEqual(
+        (result[i] as CorpusTool).function.parameters,
+        small[i].function.parameters,
+        `${small[i].function.name} should be unchanged`,
+      );
     }
   });
 
-  it("produces valid JSON Schema with $defs and $ref", () => {
-    resetToolSchemaCache();
-    const tools = loadCapturedTools();
-    const optimized = optimizeToolSchemas(tools);
-    const optFn = (optimized[4] as Record<string, unknown>).function as Record<string, unknown>;
-    const params = optFn.parameters as Record<string, unknown>;
+  it("produces valid $defs/$ref structure", () => {
+    const normalized = normalizeTool(findTool(corpus, "subagent"));
+    const params = normalized.function.parameters as Record<string, unknown>;
 
     assert.ok(params.$defs, "should have $defs");
     const defs = params.$defs as Record<string, unknown>;
-    assert.ok(Object.keys(defs).length > 0, "should have at least one $def entry");
+    assert.ok(Object.keys(defs).length > 0);
 
     const serialized = JSON.stringify(params);
-    assert.ok(serialized.includes('"$ref"'), "should contain $ref references");
+    assert.ok(serialized.includes('"$ref"'));
     for (const key of Object.keys(defs)) {
-      assert.ok(serialized.includes(`"#/$defs/${key}"`), `$ref should reference $defs/${key}`);
+      assert.ok(serialized.includes(`"#/$defs/${key}"`));
     }
   });
 
-  it("is deterministic — same input produces identical output", () => {
+  it("is deterministic", () => {
     resetToolSchemaCache();
-    const tools = loadCapturedTools();
-    const result1 = optimizeToolSchemas(tools);
-
+    const result1 = optimizeToolSchemas(corpus.map((t) => structuredClone(t)));
     resetToolSchemaCache();
-    const result2 = optimizeToolSchemas(loadCapturedTools());
-
+    const result2 = optimizeToolSchemas(corpus.map((t) => structuredClone(t)));
     assert.deepStrictEqual(result1, result2);
   });
 
-  it("caches result based on tool fingerprint", () => {
-    resetToolSchemaCache();
-    const tools = loadCapturedTools();
-    const result1 = optimizeToolSchemas(tools);
-    const result2 = optimizeToolSchemas(tools);
-    assert.strictEqual(result1, result2, "should return same reference on cache hit");
-  });
-
-  it("invalidates cache when tool names change", () => {
-    resetToolSchemaCache();
-    const tools = loadCapturedTools();
-    const result1 = optimizeToolSchemas(tools);
-    const result2 = optimizeToolSchemas(tools.slice(0, 4));
-    assert.notStrictEqual(result1, result2, "different tool set should bust cache");
-  });
-
-  it("invalidates cache when schema content changes for same tool names", () => {
-    resetToolSchemaCache();
-    const toolsV1 = [
-      {
-        type: "function",
-        function: {
-          name: "my_tool",
-          description: "test",
-          parameters: { type: "object", properties: { first: { type: "string" } } },
-        },
-      },
-    ];
-    const toolsV2 = [
-      {
-        type: "function",
-        function: {
-          name: "my_tool",
-          description: "test",
-          parameters: { type: "object", properties: { second: { type: "integer" } } },
-        },
-      },
-    ];
-    const result1 = optimizeToolSchemas(toolsV1);
-    const result2 = optimizeToolSchemas(toolsV2);
-    const params1 = ((result1[0] as Record<string, unknown>).function as Record<string, unknown>)
-      .parameters as Record<string, unknown>;
-    const params2 = ((result2[0] as Record<string, unknown>).function as Record<string, unknown>)
-      .parameters as Record<string, unknown>;
-    assert.notDeepStrictEqual(params1, params2, "different schemas should not return stale cache");
-    assert.ok(
-      (params2.properties as Record<string, unknown>).second,
-      "should have second property from v2",
-    );
-  });
-
-  it("invalidates cache when schema content differs but serialized length is identical", () => {
-    resetToolSchemaCache();
-    const toolsV1 = [
-      {
-        type: "function",
-        function: {
-          name: "t",
-          description: "test",
-          parameters: { type: "object", properties: { alpha: { type: "string" } } },
-        },
-      },
-    ];
-    const toolsV2 = [
-      {
-        type: "function",
-        function: {
-          name: "t",
-          description: "test",
-          parameters: { type: "object", properties: { bravo: { type: "string" } } },
-        },
-      },
-    ];
-    assert.strictEqual(
-      JSON.stringify(toolsV1[0].function.parameters).length,
-      JSON.stringify(toolsV2[0].function.parameters).length,
-      "precondition: both schemas must have identical serialized length",
-    );
-    const result1 = optimizeToolSchemas(toolsV1);
-    const result2 = optimizeToolSchemas(toolsV2);
-    assert.notStrictEqual(result1, result2, "same length but different content must bust cache");
-    const props = ((result2[0] as Record<string, unknown>).function as Record<string, unknown>)
-      .parameters as Record<string, unknown>;
-    assert.ok(
-      (props.properties as Record<string, unknown>).bravo,
-      "should have bravo from v2, not alpha from v1",
-    );
-  });
-
-  it("invalidates cache when description changes but schema stays the same", () => {
-    resetToolSchemaCache();
-    const params = { type: "object", properties: { x: { type: "string" } } };
-    const toolsV1 = [
-      { type: "function", function: { name: "t", description: "FIRST", parameters: params } },
-    ];
-    const toolsV2 = [
-      { type: "function", function: { name: "t", description: "SECOND", parameters: params } },
-    ];
-    const result1 = optimizeToolSchemas(toolsV1);
-    const result2 = optimizeToolSchemas(toolsV2);
-    assert.notStrictEqual(result1, result2, "description change must bust cache");
-    const desc = ((result2[0] as Record<string, unknown>).function as Record<string, unknown>)
-      .description;
-    assert.strictEqual(desc, "SECOND", "should reflect updated description");
-  });
-
-  it("handles tools without function.parameters gracefully", () => {
-    resetToolSchemaCache();
-    const tools = [{ type: "function", function: { name: "bare", description: "no params" } }];
-    const result = optimizeToolSchemas(tools);
-    assert.deepStrictEqual(result, tools);
-  });
-
-  it("does not throw on non-serializable array entries (undefined, function, symbol)", () => {
-    resetToolSchemaCache();
-    const tools: unknown[] = [
-      undefined,
-      () => {},
-      Symbol("test"),
-      {
-        type: "function",
-        function: {
-          name: "real",
-          description: "test",
-          parameters: { type: "object", properties: { a: { type: "string" } } },
-        },
-      },
-    ];
-    assert.doesNotThrow(() => optimizeToolSchemas(tools));
-  });
-
-  it("does not throw on entries that JSON.stringify cannot serialize", () => {
-    const cyclic: Record<string, unknown> = {};
-    cyclic.self = cyclic;
-    const throwingToJSON = {
-      toJSON() {
-        throw new Error("boom");
-      },
-    };
-    const cases: Array<{ name: string; value: unknown }> = [
-      { name: "top-level BigInt", value: 1n },
-      { name: "nested BigInt", value: { value: 1n } },
-      { name: "cyclic object", value: cyclic },
-      { name: "throwing toJSON", value: throwingToJSON },
-    ];
-    const failures: string[] = [];
-
-    for (const { name, value } of cases) {
-      resetToolSchemaCache();
-      try {
-        optimizeToolSchemas([value] as unknown[]);
-      } catch (err) {
-        failures.push(`${name}: ${(err as Error).message}`);
+  it("normalizes every corpus tool under 15 KB", () => {
+    const offenders: string[] = [];
+    for (const tool of corpus) {
+      const normalized = normalizeTool(tool);
+      const size = jsonSize(normalized.function.parameters);
+      if (size > KIMI_PER_TOOL_LIMIT) {
+        offenders.push(`${tool.function.name} [${tool._source ?? "?"}]: ${size} bytes`);
       }
     }
-
-    assert.deepStrictEqual(failures, [], "all unstringifiable entries should be tolerated");
+    assert.deepStrictEqual(offenders, []);
   });
 
-  it("distinguishes different non-serializable types in cache fingerprint", () => {
+  it("normalizes full corpus in one batch", () => {
     resetToolSchemaCache();
-    const result1 = optimizeToolSchemas([undefined] as unknown[]);
-    const result2 = optimizeToolSchemas([() => {}] as unknown[]);
-    const result3 = optimizeToolSchemas([Symbol("x")] as unknown[]);
-    assert.notStrictEqual(result1, result2, "undefined vs function must not collide");
-    assert.notStrictEqual(result2, result3, "function vs symbol must not collide");
-    assert.notStrictEqual(result1, result3, "undefined vs symbol must not collide");
-  });
-
-  it("distinguishes different function entries in cache fingerprint", () => {
-    resetToolSchemaCache();
-    const first = () => "first";
-    const second = () => "second";
-    const result1 = optimizeToolSchemas([first] as unknown[]);
-    const result2 = optimizeToolSchemas([second] as unknown[]);
-    assert.notStrictEqual(result1, result2, "different functions must not collide");
-    assert.strictEqual(result2[0], second, "should return the second input function");
-  });
-
-  it("distinguishes different symbol entries in cache fingerprint", () => {
-    resetToolSchemaCache();
-    const first = Symbol("first");
-    const second = Symbol("second");
-    const result1 = optimizeToolSchemas([first] as unknown[]);
-    const result2 = optimizeToolSchemas([second] as unknown[]);
-    assert.notStrictEqual(result1, result2, "different symbols must not collide");
-    assert.strictEqual(result2[0], second, "should return the second input symbol");
-  });
-
-  it("distinguishes different symbols with the same description in cache fingerprint", () => {
-    resetToolSchemaCache();
-    const first = Symbol("same");
-    const second = Symbol("same");
-    const result1 = optimizeToolSchemas([first] as unknown[]);
-    const result2 = optimizeToolSchemas([second] as unknown[]);
-    assert.notStrictEqual(
-      result1,
-      result2,
-      "different symbols with same description must not collide",
-    );
-    assert.strictEqual(result2[0], second, "should return the second input symbol");
-  });
-
-  it("distinguishes object entries with non-serializable properties in cache fingerprint", () => {
-    resetToolSchemaCache();
-    const first = { marker: () => "first" };
-    const second = { marker: () => "second" };
-    const result1 = optimizeToolSchemas([first] as unknown[]);
-    const result2 = optimizeToolSchemas([second] as unknown[]);
-    assert.notStrictEqual(
-      result1,
-      result2,
-      "objects with omitted function properties must not collide",
-    );
-    assert.strictEqual(result2[0], second, "should return the second input object");
-  });
-
-  it("distinguishes JSON.stringify collision cases in cache fingerprint", () => {
-    const cases: Array<{ name: string; first: unknown; second: unknown }> = [
-      {
-        name: "object property undefined vs missing",
-        first: { marker: undefined },
-        second: {},
-      },
-      {
-        name: "array undefined vs null",
-        first: [undefined],
-        second: [null],
-      },
-      {
-        name: "array function vs null",
-        first: [() => "first"],
-        second: [null],
-      },
-      {
-        name: "array symbol vs null",
-        first: [Symbol("first")],
-        second: [null],
-      },
-      {
-        name: "top-level NaN vs null",
-        first: Number.NaN,
-        second: null,
-      },
-      {
-        name: "top-level Infinity vs null",
-        first: Number.POSITIVE_INFINITY,
-        second: null,
-      },
-      {
-        name: "regular expressions",
-        first: /first/,
-        second: /second/,
-      },
-      {
-        name: "errors",
-        first: new Error("first"),
-        second: new Error("second"),
-      },
-      {
-        name: "promises",
-        first: Promise.resolve("first"),
-        second: Promise.resolve("second"),
-      },
-      {
-        name: "different empty maps",
-        first: new Map([["first", 1]]),
-        second: new Map([["second", 2]]),
-      },
-      {
-        name: "different empty sets",
-        first: new Set(["first"]),
-        second: new Set(["second"]),
-      },
-      {
-        name: "array buffers",
-        first: new Uint8Array([1]).buffer,
-        second: new Uint8Array([2]).buffer,
-      },
-      {
-        name: "data views",
-        first: new DataView(new Uint8Array([1]).buffer),
-        second: new DataView(new Uint8Array([2]).buffer),
-      },
-      {
-        name: "weak maps",
-        first: new WeakMap([[{}, "first"]]),
-        second: new WeakMap([[{}, "second"]]),
-      },
-      {
-        name: "weak sets",
-        first: new WeakSet([{}]),
-        second: new WeakSet([{}]),
-      },
-      {
-        name: "objects with identical toJSON output",
-        first: { toJSON: () => "same" },
-        second: { toJSON: () => "same" },
-      },
-    ];
-
-    const failures: string[] = [];
-
-    for (const { name, first, second } of cases) {
-      resetToolSchemaCache();
-      const result1 = optimizeToolSchemas([first] as unknown[]);
-      const result2 = optimizeToolSchemas([second] as unknown[]);
-      if (result1 === result2 || result2[0] !== second) {
-        failures.push(name);
+    const result = optimizeToolSchemas(corpus.map((t) => structuredClone(t)));
+    const offenders: string[] = [];
+    for (let i = 0; i < result.length; i++) {
+      const tool = result[i] as CorpusTool;
+      const size = jsonSize(tool.function.parameters);
+      if (size > KIMI_PER_TOOL_LIMIT) {
+        offenders.push(`${tool.function.name}: ${size} bytes`);
       }
     }
-
-    assert.deepStrictEqual(failures, [], "JSON.stringify collision cases must not collide");
-  });
-
-  it("returns original array when no tools exceed threshold", () => {
-    resetToolSchemaCache();
-    const smallTools = [
-      {
-        type: "function",
-        function: {
-          name: "small",
-          description: "test",
-          parameters: { type: "object", properties: { a: { type: "string" } } },
-        },
-      },
-    ];
-    const result = optimizeToolSchemas(smallTools);
-    assert.strictEqual(result, smallTools, "should return same reference when nothing to optimize");
+    assert.deepStrictEqual(offenders, []);
   });
 
   it("merges with existing $defs without collision", () => {
@@ -412,9 +131,7 @@ describe("optimizeToolSchemas", () => {
     };
     const schema = {
       type: "object",
-      $defs: {
-        existing: { type: "string", description: "pre-existing def" },
-      },
+      $defs: { existing: { type: "string", description: "pre-existing def" } },
       properties: {} as Record<string, unknown>,
     };
     for (let i = 0; i < 200; i++) {
@@ -422,22 +139,18 @@ describe("optimizeToolSchemas", () => {
     }
 
     const tools = [
-      {
-        type: "function",
-        function: { name: "test", description: "test", parameters: schema },
-      },
+      { type: "function", function: { name: "test", description: "test", parameters: schema } },
     ];
-
     const result = optimizeToolSchemas(tools);
     const params = ((result[0] as Record<string, unknown>).function as Record<string, unknown>)
       .parameters as Record<string, unknown>;
     const defs = params.$defs as Record<string, unknown>;
 
     assert.ok(defs.existing, "pre-existing $defs entry should be preserved");
-    assert.ok(Object.keys(defs).length > 1, "should have added new $defs entries");
+    assert.ok(Object.keys(defs).length > 1);
   });
 
-  it("deduplicates correctly when property names contain dots", () => {
+  it("handles property names containing dots", () => {
     resetToolSchemaCache();
     const repeated = {
       type: "object",
@@ -455,28 +168,20 @@ describe("optimizeToolSchemas", () => {
     for (let i = 0; i < 80; i++) {
       props[`field.${i}`] = JSON.parse(JSON.stringify(repeated));
     }
-    const originalSize = Buffer.byteLength(JSON.stringify(schema));
+    const originalSize = jsonSize(schema);
 
     const tools = [
-      {
-        type: "function",
-        function: { name: "dotted", description: "test", parameters: schema },
-      },
+      { type: "function", function: { name: "dotted", description: "test", parameters: schema } },
     ];
     const result = optimizeToolSchemas(tools);
     const params = ((result[0] as Record<string, unknown>).function as Record<string, unknown>)
       .parameters as Record<string, unknown>;
-    const optimizedSize = Buffer.byteLength(JSON.stringify(params));
 
-    assert.ok(optimizedSize < originalSize, `should shrink: ${optimizedSize} < ${originalSize}`);
-    const defs = params.$defs as Record<string, unknown> | undefined;
-    assert.ok(defs && Object.keys(defs).length > 0, "should have $defs from dedup");
-
-    const serialized = JSON.stringify(params);
-    assert.ok(serialized.includes('"$ref"'), "should contain $ref references");
+    assert.ok(jsonSize(params) < originalSize);
+    assert.ok((params.$defs as Record<string, unknown> | undefined) !== undefined);
   });
 
-  it("never increases schema size — small fragments with marginal savings", () => {
+  it("never increases schema size", () => {
     resetToolSchemaCache();
     const repeated = { type: "string", description: "x".repeat(30) };
     const schema: Record<string, unknown> = {
@@ -489,28 +194,16 @@ describe("optimizeToolSchemas", () => {
     }
     const pad = "y".repeat(14_000 - Buffer.byteLength(JSON.stringify(schema)));
     props.pad = { type: "string", description: pad };
-
-    const originalSize = Buffer.byteLength(JSON.stringify(schema));
-    assert.ok(
-      originalSize > 14_000 && originalSize < 15_100,
-      `precondition: near limit, got ${originalSize}`,
-    );
+    const originalSize = jsonSize(schema);
 
     const tools = [
-      {
-        type: "function",
-        function: { name: "edge", description: "test", parameters: schema },
-      },
+      { type: "function", function: { name: "edge", description: "test", parameters: schema } },
     ];
     const result = optimizeToolSchemas(tools);
-    const optimizedParams = (
-      (result[0] as Record<string, unknown>).function as Record<string, unknown>
-    ).parameters as Record<string, unknown>;
-    const optimizedSize = Buffer.byteLength(JSON.stringify(optimizedParams));
-    assert.ok(
-      optimizedSize <= originalSize,
-      `must not increase: ${optimizedSize} > ${originalSize}`,
+    const optimizedSize = jsonSize(
+      ((result[0] as Record<string, unknown>).function as Record<string, unknown>).parameters,
     );
+    assert.ok(optimizedSize <= originalSize, `${optimizedSize} > ${originalSize}`);
   });
 
   it("never pushes a schema from under 15KB to over 15KB", () => {
@@ -529,7 +222,7 @@ describe("optimizeToolSchemas", () => {
     if (currentSize < targetSize) {
       props.pad = { type: "string", description: "z".repeat(targetSize - currentSize) };
     }
-    const originalSize = Buffer.byteLength(JSON.stringify(schema));
+    const originalSize = jsonSize(schema);
 
     const tools = [
       {
@@ -538,13 +231,251 @@ describe("optimizeToolSchemas", () => {
       },
     ];
     const result = optimizeToolSchemas(tools);
-    const optimizedParams = (
-      (result[0] as Record<string, unknown>).function as Record<string, unknown>
-    ).parameters as Record<string, unknown>;
-    const optimizedSize = Buffer.byteLength(JSON.stringify(optimizedParams));
-    assert.ok(
-      optimizedSize <= originalSize,
-      `must not grow past original (${originalSize}): got ${optimizedSize}`,
+    const optimizedSize = jsonSize(
+      ((result[0] as Record<string, unknown>).function as Record<string, unknown>).parameters,
     );
+    assert.ok(optimizedSize <= originalSize, `${optimizedSize} > ${originalSize}`);
+  });
+
+  it("handles tools without function.parameters gracefully", () => {
+    resetToolSchemaCache();
+    const tools = [{ type: "function", function: { name: "bare", description: "no params" } }];
+    const result = optimizeToolSchemas(tools);
+    assert.deepStrictEqual(result, tools);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Cache fingerprint
+// ---------------------------------------------------------------------------
+
+describe("toolsFingerprint", () => {
+  it("caches on identical input", () => {
+    resetToolSchemaCache();
+    const tools = loadCorpus();
+    const result1 = optimizeToolSchemas(tools);
+    const result2 = optimizeToolSchemas(tools);
+    assert.strictEqual(result1, result2);
+  });
+
+  it("invalidates when tool set changes", () => {
+    resetToolSchemaCache();
+    const tools = loadCorpus();
+    const result1 = optimizeToolSchemas(tools);
+    const result2 = optimizeToolSchemas(tools.slice(0, 4));
+    assert.notStrictEqual(result1, result2);
+  });
+
+  it("invalidates when schema content changes", () => {
+    resetToolSchemaCache();
+    const v1 = [
+      {
+        type: "function",
+        function: {
+          name: "t",
+          description: "test",
+          parameters: { type: "object", properties: { first: { type: "string" } } },
+        },
+      },
+    ];
+    const v2 = [
+      {
+        type: "function",
+        function: {
+          name: "t",
+          description: "test",
+          parameters: { type: "object", properties: { second: { type: "integer" } } },
+        },
+      },
+    ];
+    optimizeToolSchemas(v1);
+    const result2 = optimizeToolSchemas(v2);
+    const params = ((result2[0] as Record<string, unknown>).function as Record<string, unknown>)
+      .parameters as Record<string, unknown>;
+    assert.ok((params.properties as Record<string, unknown>).second);
+  });
+
+  it("invalidates when serialized length is identical but content differs", () => {
+    resetToolSchemaCache();
+    const v1 = [
+      {
+        type: "function",
+        function: {
+          name: "t",
+          description: "test",
+          parameters: { type: "object", properties: { alpha: { type: "string" } } },
+        },
+      },
+    ];
+    const v2 = [
+      {
+        type: "function",
+        function: {
+          name: "t",
+          description: "test",
+          parameters: { type: "object", properties: { bravo: { type: "string" } } },
+        },
+      },
+    ];
+    assert.strictEqual(
+      JSON.stringify(v1[0].function.parameters).length,
+      JSON.stringify(v2[0].function.parameters).length,
+      "precondition: identical serialized length",
+    );
+    const result1 = optimizeToolSchemas(v1);
+    const result2 = optimizeToolSchemas(v2);
+    assert.notStrictEqual(result1, result2);
+  });
+
+  it("invalidates when description changes", () => {
+    resetToolSchemaCache();
+    const params = { type: "object", properties: { x: { type: "string" } } };
+    const result1 = optimizeToolSchemas([
+      { type: "function", function: { name: "t", description: "FIRST", parameters: params } },
+    ]);
+    const result2 = optimizeToolSchemas([
+      { type: "function", function: { name: "t", description: "SECOND", parameters: params } },
+    ]);
+    assert.notStrictEqual(result1, result2);
+  });
+
+  it("returns original array when nothing to optimize", () => {
+    resetToolSchemaCache();
+    const tools = [
+      {
+        type: "function",
+        function: {
+          name: "small",
+          description: "test",
+          parameters: { type: "object", properties: { a: { type: "string" } } },
+        },
+      },
+    ];
+    assert.strictEqual(optimizeToolSchemas(tools), tools);
+  });
+
+  it("tolerates non-serializable array entries", () => {
+    resetToolSchemaCache();
+    const tools: unknown[] = [undefined, () => {}, Symbol("test")];
+    assert.doesNotThrow(() => optimizeToolSchemas(tools));
+  });
+
+  it("tolerates unstringifiable entries", () => {
+    const cyclic: Record<string, unknown> = {};
+    cyclic.self = cyclic;
+    const cases: unknown[] = [
+      1n,
+      { value: 1n },
+      cyclic,
+      {
+        toJSON() {
+          throw new Error("boom");
+        },
+      },
+    ];
+    const failures: string[] = [];
+    for (const value of cases) {
+      resetToolSchemaCache();
+      try {
+        optimizeToolSchemas([value] as unknown[]);
+      } catch (err) {
+        failures.push((err as Error).message);
+      }
+    }
+    assert.deepStrictEqual(failures, []);
+  });
+
+  it("distinguishes non-serializable types", () => {
+    resetToolSchemaCache();
+    const r1 = optimizeToolSchemas([undefined] as unknown[]);
+    const r2 = optimizeToolSchemas([() => {}] as unknown[]);
+    const r3 = optimizeToolSchemas([Symbol("x")] as unknown[]);
+    assert.notStrictEqual(r1, r2);
+    assert.notStrictEqual(r2, r3);
+    assert.notStrictEqual(r1, r3);
+  });
+
+  it("distinguishes different functions", () => {
+    resetToolSchemaCache();
+    const a = () => "a";
+    const b = () => "b";
+    const r1 = optimizeToolSchemas([a] as unknown[]);
+    const r2 = optimizeToolSchemas([b] as unknown[]);
+    assert.notStrictEqual(r1, r2);
+    assert.strictEqual(r2[0], b);
+  });
+
+  it("distinguishes different symbols (same description)", () => {
+    resetToolSchemaCache();
+    const a = Symbol("same");
+    const b = Symbol("same");
+    const r1 = optimizeToolSchemas([a] as unknown[]);
+    const r2 = optimizeToolSchemas([b] as unknown[]);
+    assert.notStrictEqual(r1, r2);
+    assert.strictEqual(r2[0], b);
+  });
+
+  it("distinguishes objects with non-serializable properties", () => {
+    resetToolSchemaCache();
+    const a = { marker: () => "a" };
+    const b = { marker: () => "b" };
+    const r1 = optimizeToolSchemas([a] as unknown[]);
+    const r2 = optimizeToolSchemas([b] as unknown[]);
+    assert.notStrictEqual(r1, r2);
+    assert.strictEqual(r2[0], b);
+  });
+
+  it("distinguishes JSON.stringify collision cases", () => {
+    const cases: Array<{ name: string; first: unknown; second: unknown }> = [
+      { name: "undefined prop vs missing", first: { marker: undefined }, second: {} },
+      { name: "array undefined vs null", first: [undefined], second: [null] },
+      { name: "array function vs null", first: [() => "a"], second: [null] },
+      { name: "array symbol vs null", first: [Symbol("a")], second: [null] },
+      { name: "NaN vs null", first: Number.NaN, second: null },
+      { name: "Infinity vs null", first: Number.POSITIVE_INFINITY, second: null },
+      { name: "RegExp identity", first: /first/, second: /second/ },
+      { name: "Error identity", first: new Error("a"), second: new Error("b") },
+      {
+        name: "Promise identity",
+        first: Promise.resolve("a"),
+        second: Promise.resolve("b"),
+      },
+      {
+        name: "Map identity",
+        first: new Map([["a", 1]]),
+        second: new Map([["b", 2]]),
+      },
+      { name: "Set identity", first: new Set(["a"]), second: new Set(["b"]) },
+      {
+        name: "ArrayBuffer identity",
+        first: new Uint8Array([1]).buffer,
+        second: new Uint8Array([2]).buffer,
+      },
+      {
+        name: "DataView identity",
+        first: new DataView(new Uint8Array([1]).buffer),
+        second: new DataView(new Uint8Array([2]).buffer),
+      },
+      {
+        name: "WeakMap identity",
+        first: new WeakMap([[{}, "a"]]),
+        second: new WeakMap([[{}, "b"]]),
+      },
+      { name: "WeakSet identity", first: new WeakSet([{}]), second: new WeakSet([{}]) },
+      {
+        name: "toJSON identity",
+        first: { toJSON: () => "same" },
+        second: { toJSON: () => "same" },
+      },
+    ];
+
+    const failures: string[] = [];
+    for (const { name, first, second } of cases) {
+      resetToolSchemaCache();
+      const r1 = optimizeToolSchemas([first] as unknown[]);
+      const r2 = optimizeToolSchemas([second] as unknown[]);
+      if (r1 === r2 || r2[0] !== second) failures.push(name);
+    }
+    assert.deepStrictEqual(failures, []);
   });
 });

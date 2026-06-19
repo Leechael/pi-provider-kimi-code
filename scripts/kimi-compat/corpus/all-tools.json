@@ -1,0 +1,3790 @@
+[
+  {
+    "type": "function",
+    "function": {
+      "name": "ffgrep",
+      "description": "Grep file contents. Smart-case, auto-detects regex vs literal, git-aware. Results are ranked by frecency (most-accessed files first); matches within a file stay in source order. Default limit 20.",
+      "parameters": {
+        "type": "object",
+        "required": ["pattern"],
+        "properties": {
+          "pattern": {
+            "description": "Search pattern (literal text or regex)",
+            "type": "string"
+          },
+          "path": {
+            "description": "Repo-relative path constraint. Directory prefix (src/ or src/foo/), bare filename with extension (main.rs), or glob (*.ts, src/**/*.cc, {src,lib}/**). Applied to the full repo-relative path.",
+            "type": "string"
+          },
+          "exclude": {
+            "description": "Exclude paths (comma/space-separated or array). Same syntax as path: directory prefix ('test/'), filename with extension ('config.json'), or glob ('*.min.js', '**/*.{rs,go}'). A leading '!' is optional and ignored — both 'test/' and '!test/' work. Example: 'test/,*.min.js,!vendor/'.",
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              }
+            ]
+          },
+          "caseSensitive": {
+            "description": "Force case-sensitive matching. Default uses smart-case (case-insensitive when pattern is all lowercase).",
+            "type": "boolean"
+          },
+          "context": {
+            "description": "Context lines before+after each match",
+            "type": "number"
+          },
+          "limit": {
+            "description": "Max matches (default 20)",
+            "type": "number"
+          },
+          "cursor": {
+            "description": "Pagination cursor from previous result",
+            "type": "string"
+          }
+        }
+      }
+    },
+    "_source": "pi-fff"
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "fffind",
+      "description": "Fuzzy path search and glob search. Matches against the whole repo-relative path, not just the filename. Frecency-ranked, git-aware. Multi-word = narrower (AND). Default limit 30.",
+      "parameters": {
+        "type": "object",
+        "required": ["pattern"],
+        "properties": {
+          "pattern": {
+            "description": "Fuzzy filename search and glob search. Frecency-ranked, git-aware. Multi-word = narrower (AND) not bound to order, use for multi word related concept search. Prefer this over ls/find/bash as the first exploration step whenever the user names a concept, feature, or symbol — it surfaces the relevant files in one call. Only use ls/read on a directory when you specifically need the alphabetical layout of an unknown repo, or when a concept search returned nothing.",
+            "type": "string"
+          },
+          "path": {
+            "description": "Repo-relative path constraint. Directory prefix (src/ or src/foo/), bare filename with extension (main.rs), or glob (*.ts, src/**/*.cc, {src,lib}/**). Applied to the full repo-relative path.",
+            "type": "string"
+          },
+          "exclude": {
+            "description": "Exclude paths (comma/space-separated or array). Same syntax as path: directory prefix ('test/'), filename with extension ('config.json'), or glob ('*.min.js', '**/*.{rs,go}'). A leading '!' is optional and ignored — both 'test/' and '!test/' work. Example: 'test/,*.min.js,!vendor/'.",
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              }
+            ]
+          },
+          "limit": {
+            "description": "Max results per page (default 30)",
+            "type": "number"
+          },
+          "cursor": {
+            "description": "Pagination cursor from previous result",
+            "type": "string"
+          }
+        }
+      }
+    },
+    "_source": "pi-fff"
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "plannotator_submit_plan",
+      "description": "Submit your Plannotator plan for user review. Call this only while Plannotator planning mode is active, after writing your plan as a markdown file anywhere inside the working directory. Pass the path to the plan file (e.g. PLAN.md or plans/auth.md). The user will review the plan in a visual browser UI and can approve, deny with feedback, or annotate it. If denied, edit the same file in place, then call this again with the same path.",
+      "parameters": {
+        "type": "object",
+        "required": ["filePath"],
+        "properties": {
+          "filePath": {
+            "type": "string",
+            "description": "Path to the markdown plan file, relative to the working directory. Must end in .md or .mdx and resolve inside cwd."
+          }
+        }
+      }
+    },
+    "_source": "plannotator"
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "mem_search",
+      "description": "Engram memory tool: search. Compact UI is provided by gentle-engram; persistence is handled by Engram when installed and running.",
+      "parameters": {
+        "type": "object",
+        "required": ["query"],
+        "properties": {
+          "query": {
+            "type": "string",
+            "description": "Search query — natural language or keywords"
+          },
+          "type": {
+            "type": "string",
+            "description": "Filter by observation type"
+          },
+          "project": {
+            "type": "string",
+            "description": "Filter by project name"
+          },
+          "scope": {
+            "type": "string",
+            "description": "Filter by scope: project or personal"
+          },
+          "limit": {
+            "type": "number",
+            "description": "Max results"
+          }
+        }
+      }
+    },
+    "_source": "gentle-engram"
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "mem_save",
+      "description": "Engram memory tool: save. Compact UI is provided by gentle-engram; persistence is handled by Engram when installed and running.",
+      "parameters": {
+        "type": "object",
+        "required": ["title", "content"],
+        "properties": {
+          "title": {
+            "type": "string",
+            "description": "Short, searchable title"
+          },
+          "content": {
+            "type": "string",
+            "description": "Structured memory content"
+          },
+          "type": {
+            "type": "string",
+            "description": "Observation type/category"
+          },
+          "session_id": {
+            "type": "string",
+            "description": "Session ID to associate with"
+          },
+          "scope": {
+            "type": "string",
+            "description": "Scope: project or personal"
+          },
+          "topic_key": {
+            "type": "string",
+            "description": "Stable topic key for upserts"
+          },
+          "project": {
+            "type": "string",
+            "description": "Optional explicit project"
+          },
+          "capture_prompt": {
+            "type": "boolean",
+            "description": "Capture current prompt when available"
+          }
+        }
+      }
+    },
+    "_source": "gentle-engram"
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "mem_update",
+      "description": "Engram memory tool: update. Compact UI is provided by gentle-engram; persistence is handled by Engram when installed and running.",
+      "parameters": {
+        "type": "object",
+        "required": ["id"],
+        "properties": {
+          "id": {
+            "type": "number",
+            "description": "Observation ID to update"
+          },
+          "title": {
+            "type": "string",
+            "description": "New title"
+          },
+          "content": {
+            "type": "string",
+            "description": "New content"
+          },
+          "type": {
+            "type": "string",
+            "description": "New type/category"
+          },
+          "scope": {
+            "type": "string",
+            "description": "New scope"
+          },
+          "topic_key": {
+            "type": "string",
+            "description": "New topic key"
+          }
+        }
+      }
+    },
+    "_source": "gentle-engram"
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "mem_delete",
+      "description": "Engram memory tool: delete. Compact UI is provided by gentle-engram; persistence is handled by Engram when installed and running.",
+      "parameters": {
+        "type": "object",
+        "required": ["id"],
+        "properties": {
+          "id": {
+            "type": "number",
+            "description": "Observation ID to delete"
+          },
+          "hard_delete": {
+            "type": "boolean",
+            "description": "Permanently delete the observation"
+          }
+        }
+      }
+    },
+    "_source": "gentle-engram"
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "mem_suggest_topic_key",
+      "description": "Engram memory tool: suggest topic. Compact UI is provided by gentle-engram; persistence is handled by Engram when installed and running.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "type": {
+            "type": "string",
+            "description": "Observation type/category"
+          },
+          "title": {
+            "type": "string",
+            "description": "Observation title"
+          },
+          "content": {
+            "type": "string",
+            "description": "Observation content"
+          }
+        }
+      }
+    },
+    "_source": "gentle-engram"
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "mem_save_prompt",
+      "description": "Engram memory tool: save prompt. Compact UI is provided by gentle-engram; persistence is handled by Engram when installed and running.",
+      "parameters": {
+        "type": "object",
+        "required": ["content"],
+        "properties": {
+          "content": {
+            "type": "string",
+            "description": "The user's prompt text"
+          },
+          "session_id": {
+            "type": "string",
+            "description": "Session ID to associate with"
+          },
+          "project": {
+            "type": "string",
+            "description": "Optional project"
+          }
+        }
+      }
+    },
+    "_source": "gentle-engram"
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "mem_session_summary",
+      "description": "Engram memory tool: session summary. Compact UI is provided by gentle-engram; persistence is handled by Engram when installed and running.",
+      "parameters": {
+        "type": "object",
+        "required": ["content"],
+        "properties": {
+          "content": {
+            "type": "string",
+            "description": "Full session summary"
+          },
+          "session_id": {
+            "type": "string",
+            "description": "Session ID"
+          },
+          "project": {
+            "type": "string",
+            "description": "Optional project to use when automatic detection is unavailable"
+          }
+        }
+      }
+    },
+    "_source": "gentle-engram"
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "mem_context",
+      "description": "Engram memory tool: context. Compact UI is provided by gentle-engram; persistence is handled by Engram when installed and running.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "project": {
+            "type": "string",
+            "description": "Filter by project"
+          },
+          "scope": {
+            "type": "string",
+            "description": "Filter observations by scope"
+          }
+        }
+      }
+    },
+    "_source": "gentle-engram"
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "mem_stats",
+      "description": "Engram memory tool: stats. Compact UI is provided by gentle-engram; persistence is handled by Engram when installed and running.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "project": {
+            "type": "string",
+            "description": "Project to echo in UI chrome"
+          }
+        }
+      }
+    },
+    "_source": "gentle-engram"
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "mem_timeline",
+      "description": "Engram memory tool: timeline. Compact UI is provided by gentle-engram; persistence is handled by Engram when installed and running.",
+      "parameters": {
+        "type": "object",
+        "required": ["observation_id"],
+        "properties": {
+          "observation_id": {
+            "type": "number",
+            "description": "Observation ID to center on"
+          },
+          "before": {
+            "type": "number",
+            "description": "Number of observations before"
+          },
+          "after": {
+            "type": "number",
+            "description": "Number of observations after"
+          },
+          "project": {
+            "type": "string",
+            "description": "Filter by project name"
+          }
+        }
+      }
+    },
+    "_source": "gentle-engram"
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "mem_get_observation",
+      "description": "Engram memory tool: get observation. Compact UI is provided by gentle-engram; persistence is handled by Engram when installed and running.",
+      "parameters": {
+        "type": "object",
+        "required": ["id"],
+        "properties": {
+          "id": {
+            "type": "number",
+            "description": "Observation ID to retrieve"
+          }
+        }
+      }
+    },
+    "_source": "gentle-engram"
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "mem_session_start",
+      "description": "Engram memory tool: start session. Compact UI is provided by gentle-engram; persistence is handled by Engram when installed and running.",
+      "parameters": {
+        "type": "object",
+        "required": ["id"],
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Unique session identifier"
+          },
+          "directory": {
+            "type": "string",
+            "description": "Working directory"
+          }
+        }
+      }
+    },
+    "_source": "gentle-engram"
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "mem_session_end",
+      "description": "Engram memory tool: end session. Compact UI is provided by gentle-engram; persistence is handled by Engram when installed and running.",
+      "parameters": {
+        "type": "object",
+        "required": ["id"],
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Session identifier to close"
+          },
+          "summary": {
+            "type": "string",
+            "description": "Summary of what was accomplished"
+          }
+        }
+      }
+    },
+    "_source": "gentle-engram"
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "mem_current_project",
+      "description": "Engram memory tool: current project. Compact UI is provided by gentle-engram; persistence is handled by Engram when installed and running.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "cwd": {
+            "type": "string",
+            "description": "Working directory to inspect; defaults to Engram server cwd"
+          }
+        }
+      }
+    },
+    "_source": "gentle-engram"
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "mem_doctor",
+      "description": "Engram memory tool: doctor. Compact UI is provided by gentle-engram; persistence is handled by Engram when installed and running.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "check": {
+            "type": "string",
+            "description": "Optional diagnostic check code to run"
+          },
+          "project": {
+            "type": "string",
+            "description": "Project to diagnose; defaults to current project"
+          }
+        }
+      }
+    },
+    "_source": "gentle-engram"
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "mem_capture_passive",
+      "description": "Engram memory tool: capture passive. Compact UI is provided by gentle-engram; persistence is handled by Engram when installed and running.",
+      "parameters": {
+        "type": "object",
+        "required": ["content"],
+        "properties": {
+          "content": {
+            "type": "string",
+            "description": "Text output containing a ## Key Learnings section"
+          },
+          "session_id": {
+            "type": "string",
+            "description": "Session ID to associate with"
+          },
+          "source": {
+            "type": "string",
+            "description": "Source identifier, e.g. subagent-stop or session-end"
+          }
+        }
+      }
+    },
+    "_source": "gentle-engram"
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "mem_review",
+      "description": "Engram memory tool: review. Compact UI is provided by gentle-engram; persistence is handled by Engram when installed and running.",
+      "parameters": {
+        "type": "object",
+        "required": ["action"],
+        "properties": {
+          "action": {
+            "type": "string",
+            "description": "Action: list | mark_reviewed"
+          },
+          "project": {
+            "type": "string",
+            "description": "Optional project filter for action=list"
+          },
+          "limit": {
+            "type": "number",
+            "description": "Max results for action=list"
+          },
+          "observation_id": {
+            "type": "number",
+            "description": "Observation id for action=mark_reviewed"
+          },
+          "id": {
+            "type": "number",
+            "description": "Alias for observation_id"
+          }
+        }
+      }
+    },
+    "_source": "gentle-engram"
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "mem_judge",
+      "description": "Engram memory tool: judge. Compact UI is provided by gentle-engram; persistence is handled by Engram when installed and running.",
+      "parameters": {
+        "type": "object",
+        "required": ["judgment_id", "relation"],
+        "properties": {
+          "judgment_id": {
+            "type": "string",
+            "description": "The relation judgment_id returned by mem_save candidates"
+          },
+          "relation": {
+            "type": "string",
+            "description": "Verdict: related | compatible | scoped | conflicts_with | supersedes | not_conflict"
+          },
+          "reason": {
+            "type": "string",
+            "description": "Free-text explanation of the verdict"
+          },
+          "evidence": {
+            "type": "string",
+            "description": "Supporting evidence as JSON or text"
+          },
+          "confidence": {
+            "type": "number",
+            "description": "Confidence score 0.0..1.0"
+          },
+          "session_id": {
+            "type": "string",
+            "description": "Session ID for provenance"
+          }
+        }
+      }
+    },
+    "_source": "gentle-engram"
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "mem_compare",
+      "description": "Engram memory tool: compare. Compact UI is provided by gentle-engram; persistence is handled by Engram when installed and running.",
+      "parameters": {
+        "type": "object",
+        "required": ["memory_id_a", "memory_id_b", "relation", "confidence", "reasoning"],
+        "properties": {
+          "memory_id_a": {
+            "type": "number",
+            "description": "Integer id of the first observation"
+          },
+          "memory_id_b": {
+            "type": "number",
+            "description": "Integer id of the second observation"
+          },
+          "relation": {
+            "type": "string",
+            "description": "Verdict: related | compatible | scoped | conflicts_with | supersedes | not_conflict"
+          },
+          "confidence": {
+            "type": "number",
+            "description": "Confidence score 0.0..1.0"
+          },
+          "reasoning": {
+            "type": "string",
+            "description": "Brief explanation of the verdict"
+          },
+          "model": {
+            "type": "string",
+            "description": "Model identifier for provenance"
+          }
+        }
+      }
+    },
+    "_source": "gentle-engram"
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "ctx_shell",
+      "description": "Run shell commands. Prefer over native Bash/shell (auto-compressed output). Runs the system POSIX shell ($SHELL, sh/bash-compatible) non-login, non-interactive and profile-free: no .bash_profile/.zshrc/rc files are sourced, so behavior is deterministic regardless of user shell config. IMPORTANT: Do NOT use ctx_shell to read files (cat/head/tail) — use ctx_read instead. Do NOT use ctx_shell for grep/find/ls — use ctx_grep, ctx_find, ctx_ls. Set raw=true to skip compression when exact output matters. Use timeout (seconds) to prevent hanging commands.",
+      "parameters": {
+        "type": "object",
+        "required": ["command"],
+        "properties": {
+          "command": {
+            "type": "string",
+            "description": "Bash command to execute"
+          },
+          "timeout": {
+            "type": "number",
+            "description": "Timeout in seconds to prevent hanging commands"
+          },
+          "raw": {
+            "type": "boolean",
+            "description": "Skip compression, return full uncompressed output"
+          }
+        }
+      }
+    },
+    "_source": "pi-lean-ctx"
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "ctx_read",
+      "description": "Read a file. Prefer over native Read/cat/head/tail (cached, compressed). Unchanged re-reads cost ~13 tokens. Auto-selects mode: configs (.yaml/.json/.toml/.env) are always full-read. Code files: full (<8KB), map (8-96KB), signatures (>96KB). Add mode=full to get complete file content. Use offset and limit to read specific line ranges.",
+      "parameters": {
+        "type": "object",
+        "required": ["path"],
+        "properties": {
+          "path": {
+            "type": "string",
+            "description": "Path to the file to read (relative or absolute)"
+          },
+          "mode": {
+            "anyOf": [
+              {
+                "type": "string",
+                "const": "full"
+              },
+              {
+                "type": "string",
+                "const": "map"
+              },
+              {
+                "type": "string",
+                "const": "signatures"
+              }
+            ],
+            "description": "Override auto-selection: full (complete content), map (deps+API signatures), signatures (AST only)"
+          },
+          "start_line": {
+            "type": "number",
+            "description": "1-based line to start reading from (alias: offset)"
+          },
+          "offset": {
+            "type": "number",
+            "description": "Alias for start_line — 1-based line to start reading from"
+          },
+          "limit": {
+            "type": "number",
+            "description": "Maximum number of lines to read"
+          },
+          "fresh": {
+            "type": "boolean",
+            "description": "Force a fresh disk re-read, bypassing the session cache"
+          }
+        }
+      }
+    },
+    "_source": "pi-lean-ctx"
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "ctx_ls",
+      "description": "List a directory. Prefer over native ls (compact, summarized). `path` is required — pass the directory you are working in. Use limit to reduce output size.",
+      "parameters": {
+        "type": "object",
+        "required": ["path"],
+        "properties": {
+          "path": {
+            "type": "string",
+            "description": "Directory to list. Pass the directory you are working in — there is no cwd fallback."
+          },
+          "limit": {
+            "type": "number",
+            "description": "Maximum number of entries to return (default: 500)"
+          }
+        }
+      }
+    },
+    "_source": "pi-lean-ctx"
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "ctx_find",
+      "description": "Find files by glob. Prefer over native find/fd (gitignore-aware). `path` is required — pass the directory you are working in. Use limit to reduce output size.",
+      "parameters": {
+        "type": "object",
+        "required": ["pattern", "path"],
+        "properties": {
+          "pattern": {
+            "type": "string",
+            "description": "Glob pattern to match files"
+          },
+          "path": {
+            "type": "string",
+            "description": "Directory to search in. Pass the directory you are working in — there is no cwd fallback."
+          },
+          "limit": {
+            "type": "number",
+            "description": "Maximum number of results (default: 1000)"
+          }
+        }
+      }
+    },
+    "_source": "pi-lean-ctx"
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "ctx_grep",
+      "description": "Search code. Prefer over native Grep/ripgrep (compact, ranked). `path` is required — pass the directory you are working in. Use limit to cap matches, context for surrounding lines.",
+      "parameters": {
+        "type": "object",
+        "required": ["pattern", "path"],
+        "properties": {
+          "pattern": {
+            "type": "string",
+            "description": "Search pattern (regex or literal string)"
+          },
+          "path": {
+            "type": "string",
+            "description": "Directory or file to search. Pass the directory you are working in — there is no cwd fallback."
+          },
+          "glob": {
+            "type": "string",
+            "description": "Filter files by glob pattern, e.g. '*.ts'"
+          },
+          "ignoreCase": {
+            "type": "boolean",
+            "description": "Case-insensitive search (default: false)"
+          },
+          "literal": {
+            "type": "boolean",
+            "description": "Treat pattern as literal string (default: false)"
+          },
+          "context": {
+            "type": "number",
+            "description": "Lines of context around each match (default: 0)"
+          },
+          "limit": {
+            "type": "number",
+            "description": "Maximum number of matches (default: 100)"
+          }
+        }
+      }
+    },
+    "_source": "pi-lean-ctx"
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "lean_ctx",
+      "description": "Run lean-ctx CLI directly (CLI-first; no MCP required). Use this for advanced commands like session/knowledge/overview/gain/stats/index/pack.",
+      "parameters": {
+        "type": "object",
+        "required": ["args"],
+        "properties": {
+          "args": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "description": "Arguments after 'lean-ctx'. Example: ['overview'] or ['knowledge','recall','Pi']"
+            }
+          }
+        }
+      }
+    },
+    "_source": "pi-lean-ctx"
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "subagent",
+      "description": "Delegate to subagents or manage agent definitions.\n\nEXECUTION (use exactly ONE mode):\n• Before executing, use { action: \"list\" } to inspect configured agents/chains. Only execute agents listed as executable/non-disabled.\n• SINGLE: { agent, task? } - one task; omit task for self-contained agents\n• CHAIN: { chain: [{agent:\"agent-a\"}, {parallel:[{agent:\"agent-b\",count:3}]}] } - sequential pipeline with optional parallel fan-out\n• PARALLEL: { tasks: [{agent,task,count?,output?,reads?,progress?}, ...], concurrency?: number, worktree?: true } - concurrent execution (worktree: isolate each task in a git worktree)\n• Optional context: { context: \"fresh\" | \"fork\" } (default: if any requested agent has defaultContext: \"fork\", the whole invocation uses fork; otherwise \"fresh\"; inspect agent defaults via { action: \"list\" })\n• Goal-style requests: when the user says “/goal”, “goal”, “active goal”, “work until evidence says done”, or “verify against a goal”, model that as explicit acceptance. Use acceptance.criteria for the target, acceptance.evidence/verify for proof, acceptance.stopRules for constraints, and acceptance.maxFinalizationTurns for the bounded loop.\n\nCHAIN TEMPLATE VARIABLES (use in task strings):\n• {task} - The original task/request from the user\n• {previous} - Text response from the previous step (empty for first step)\n• {chain_dir} - Shared directory for chain files (e.g., <tmpdir>/pi-subagents-<scope>/chain-runs/abc123/)\n\nExample: { chain: [{agent:\"agent-a\", task:\"Analyze {task}\"}, {agent:\"agent-b\", task:\"Plan based on {previous}\"}] }\n\nMANAGEMENT (use action field, omit agent/task/chain/tasks):\n• { action: \"list\" } - discover executable agents/chains\n• { action: \"get\", agent: \"name\" } - full detail; packaged agents use dotted runtime names like \"package.agent\"\n• { action: \"create\", config: { name: \"custom-agent\", package: \"code-analysis\", systemPrompt, systemPromptMode, inheritProjectContext, inheritSkills, defaultContext, ... } }\n• { action: \"update\", agent: \"code-analysis.custom-agent\", config: { package: \"analysis\", ... } } - merge\n• { action: \"delete\", agent: \"code-analysis.custom-agent\" }\n• Use chainName for chain operations; packaged chains also use dotted runtime names\n\nCONTROL:\n• { action: \"status\", id: \"...\" } - inspect an async/background run by id or prefix\n• { action: \"interrupt\", id?: \"...\" } - soft-interrupt the current child turn and leave the run paused\n• { action: \"resume\", id: \"...\", message: \"...\", index?: 0 } - follow up with a live async child or revive a completed async/foreground child from its session\n\nDIAGNOSTICS:\n• { action: \"doctor\" } - read-only report for runtime paths, discovery, sessions, and intercom",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "agent": {
+            "type": "string",
+            "description": "Agent name (SINGLE mode) or target for management get/update/delete"
+          },
+          "task": {
+            "type": "string",
+            "description": "Task (SINGLE mode, optional for self-contained agents)"
+          },
+          "action": {
+            "type": "string",
+            "enum": [
+              "list",
+              "get",
+              "create",
+              "update",
+              "delete",
+              "status",
+              "interrupt",
+              "resume",
+              "doctor"
+            ],
+            "description": "Management/control action. Omit for execution mode."
+          },
+          "id": {
+            "type": "string",
+            "description": "Run id or prefix for action='status', action='interrupt', or action='resume'."
+          },
+          "runId": {
+            "type": "string",
+            "description": "Target run ID for action='interrupt' or action='resume'. Defaults to the most recently active controllable run for interrupt. Prefer id for new calls."
+          },
+          "dir": {
+            "type": "string",
+            "description": "Async run directory for action='status' or action='resume'."
+          },
+          "index": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "Zero-based child index for actions that target a specific child."
+          },
+          "message": {
+            "type": "string",
+            "description": "Follow-up message for action='resume'. Use index to choose a child from multi-child runs."
+          },
+          "chainName": {
+            "type": "string",
+            "description": "Chain name for get/update/delete management actions"
+          },
+          "config": {
+            "anyOf": [
+              {
+                "type": "object",
+                "additionalProperties": true
+              },
+              {
+                "type": "string"
+              }
+            ],
+            "description": "Agent or chain config for create/update. Agent: name, package (optional namespace; runtime name becomes package.name), description, scope ('user'|'project', default 'user'), systemPrompt, systemPromptMode, inheritProjectContext, inheritSkills, defaultContext ('fresh'|'fork'), model, tools (comma-separated), extensions (comma-separated), skills (comma-separated), thinking, output, reads, progress, maxSubagentDepth. Chain: name, package, description, scope, steps (array of {agent, task?, output?, outputMode?, reads?, model?, skill?, progress?}). Presence of 'steps' creates a chain instead of an agent. String values must be valid JSON."
+          },
+          "tasks": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": ["agent", "task"],
+              "properties": {
+                "agent": {
+                  "type": "string"
+                },
+                "task": {
+                  "type": "string"
+                },
+                "cwd": {
+                  "type": "string"
+                },
+                "count": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "description": "Repeat this parallel task N times with the same settings."
+                },
+                "output": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "boolean"
+                    }
+                  ],
+                  "description": "Output filename/path (string), or false to disable file output"
+                },
+                "outputMode": {
+                  "type": "string",
+                  "enum": ["inline", "file-only"],
+                  "description": "Return saved output inline (default) or only a concise file reference. file-only requires output to be a path."
+                },
+                "reads": {
+                  "anyOf": [
+                    {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    },
+                    {
+                      "type": "boolean"
+                    }
+                  ],
+                  "description": "Files to read before running (array of filenames), or false to disable"
+                },
+                "progress": {
+                  "type": "boolean",
+                  "description": "Enable progress.md tracking for this task"
+                },
+                "model": {
+                  "type": "string",
+                  "description": "Override model for this task (e.g. 'google/gemini-3-pro')"
+                },
+                "skill": {
+                  "anyOf": [
+                    {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    },
+                    {
+                      "type": "boolean"
+                    },
+                    {
+                      "type": "string"
+                    }
+                  ],
+                  "description": "Skill name(s) to inject (comma-separated), array of strings, or boolean (false disables, true uses default)"
+                },
+                "acceptance": {
+                  "type": "object",
+                  "properties": {
+                    "criteria": {
+                      "type": "array",
+                      "items": {
+                        "anyOf": [
+                          {
+                            "type": "string"
+                          },
+                          {
+                            "type": "object",
+                            "required": ["id", "must"],
+                            "properties": {
+                              "id": {
+                                "type": "string"
+                              },
+                              "must": {
+                                "type": "string"
+                              },
+                              "evidence": {
+                                "type": "array",
+                                "items": {
+                                  "type": "string",
+                                  "enum": [
+                                    "changed-files",
+                                    "tests-added",
+                                    "commands-run",
+                                    "validation-output",
+                                    "residual-risks",
+                                    "no-staged-files",
+                                    "diff-summary",
+                                    "review-findings",
+                                    "manual-notes"
+                                  ]
+                                }
+                              },
+                              "severity": {
+                                "type": "string",
+                                "enum": ["required", "recommended"]
+                              }
+                            },
+                            "additionalProperties": false
+                          }
+                        ]
+                      }
+                    },
+                    "evidence": {
+                      "type": "array",
+                      "items": {
+                        "type": "string",
+                        "enum": [
+                          "changed-files",
+                          "tests-added",
+                          "commands-run",
+                          "validation-output",
+                          "residual-risks",
+                          "no-staged-files",
+                          "diff-summary",
+                          "review-findings",
+                          "manual-notes"
+                        ]
+                      }
+                    },
+                    "verify": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "required": ["id", "command"],
+                        "properties": {
+                          "id": {
+                            "type": "string"
+                          },
+                          "command": {
+                            "type": "string"
+                          },
+                          "timeoutMs": {
+                            "type": "integer",
+                            "minimum": 1
+                          },
+                          "cwd": {
+                            "type": "string"
+                          },
+                          "env": {
+                            "type": "object",
+                            "additionalProperties": {
+                              "type": "string"
+                            }
+                          },
+                          "allowFailure": {
+                            "type": "boolean"
+                          }
+                        },
+                        "additionalProperties": false
+                      }
+                    },
+                    "review": {
+                      "type": "object",
+                      "properties": {
+                        "agent": {
+                          "type": "string"
+                        },
+                        "focus": {
+                          "type": "string"
+                        },
+                        "required": {
+                          "type": "boolean"
+                        }
+                      },
+                      "additionalProperties": false
+                    },
+                    "stopRules": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    },
+                    "maxFinalizationTurns": {
+                      "type": "integer",
+                      "minimum": 1,
+                      "maximum": 10
+                    }
+                  },
+                  "additionalProperties": false,
+                  "allOf": [
+                    {
+                      "anyOf": [
+                        {
+                          "required": ["criteria"]
+                        },
+                        {
+                          "required": ["evidence"]
+                        },
+                        {
+                          "required": ["verify"]
+                        },
+                        {
+                          "required": ["review"]
+                        },
+                        {
+                          "required": ["stopRules"]
+                        }
+                      ]
+                    }
+                  ],
+                  "description": "Optional acceptance contract. Use this for goal-style requests such as /goal, goal, active goal, or work until evidence says done: criteria define the target, evidence/verify define proof, stopRules define constraints, and maxFinalizationTurns defines the bounded loop. When present, the child must complete a same-session self-review/repair loop before acceptance is evaluated."
+                }
+              }
+            },
+            "description": "PARALLEL mode: [{agent, task, count?, output?, outputMode?, reads?, progress?}, ...]"
+          },
+          "concurrency": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "Top-level PARALLEL mode only: max concurrent tasks. Defaults to config.parallel.concurrency or 4."
+          },
+          "worktree": {
+            "type": "boolean",
+            "description": "Create isolated git worktrees for each parallel task. Prevents filesystem conflicts. Requires clean git state. Per-worktree diffs included in output."
+          },
+          "chain": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "agent": {
+                  "type": "string",
+                  "description": "Sequential step agent name"
+                },
+                "task": {
+                  "type": "string",
+                  "description": "Task template with variables: {task}=original request, {previous}=prior step's text response, {chain_dir}=shared folder, {outputs.name}=prior named output. Required for first step, defaults to '{previous}' for subsequent steps."
+                },
+                "phase": {
+                  "type": "string",
+                  "description": "Optional phase/group label for status and graph rendering."
+                },
+                "label": {
+                  "type": "string",
+                  "description": "Optional user-facing label for this chain step."
+                },
+                "as": {
+                  "type": "string",
+                  "description": "Optional safe identifier used as {outputs.name} in later chain steps."
+                },
+                "outputSchema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "description": "JSON Schema object for strict structured output. Non-object roots are rejected."
+                },
+                "cwd": {
+                  "type": "string"
+                },
+                "output": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "boolean"
+                    }
+                  ],
+                  "description": "Output filename/path (string), or false to disable file output"
+                },
+                "outputMode": {
+                  "type": "string",
+                  "enum": ["inline", "file-only"],
+                  "description": "Return saved output inline (default) or only a concise file reference. file-only requires output to be a path."
+                },
+                "reads": {
+                  "anyOf": [
+                    {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    },
+                    {
+                      "type": "boolean"
+                    }
+                  ],
+                  "description": "Files to read before running (array of filenames), or false to disable"
+                },
+                "progress": {
+                  "type": "boolean",
+                  "description": "Enable progress.md tracking in {chain_dir}"
+                },
+                "skill": {
+                  "anyOf": [
+                    {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    },
+                    {
+                      "type": "boolean"
+                    },
+                    {
+                      "type": "string"
+                    }
+                  ],
+                  "description": "Skill name(s) to inject (comma-separated), array of strings, or boolean (false disables, true uses default)"
+                },
+                "model": {
+                  "type": "string",
+                  "description": "Override model for this step"
+                },
+                "acceptance": {
+                  "type": "object",
+                  "properties": {
+                    "criteria": {
+                      "type": "array",
+                      "items": {
+                        "anyOf": [
+                          {
+                            "type": "string"
+                          },
+                          {
+                            "type": "object",
+                            "required": ["id", "must"],
+                            "properties": {
+                              "id": {
+                                "type": "string"
+                              },
+                              "must": {
+                                "type": "string"
+                              },
+                              "evidence": {
+                                "type": "array",
+                                "items": {
+                                  "type": "string",
+                                  "enum": [
+                                    "changed-files",
+                                    "tests-added",
+                                    "commands-run",
+                                    "validation-output",
+                                    "residual-risks",
+                                    "no-staged-files",
+                                    "diff-summary",
+                                    "review-findings",
+                                    "manual-notes"
+                                  ]
+                                }
+                              },
+                              "severity": {
+                                "type": "string",
+                                "enum": ["required", "recommended"]
+                              }
+                            },
+                            "additionalProperties": false
+                          }
+                        ]
+                      }
+                    },
+                    "evidence": {
+                      "type": "array",
+                      "items": {
+                        "type": "string",
+                        "enum": [
+                          "changed-files",
+                          "tests-added",
+                          "commands-run",
+                          "validation-output",
+                          "residual-risks",
+                          "no-staged-files",
+                          "diff-summary",
+                          "review-findings",
+                          "manual-notes"
+                        ]
+                      }
+                    },
+                    "verify": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "required": ["id", "command"],
+                        "properties": {
+                          "id": {
+                            "type": "string"
+                          },
+                          "command": {
+                            "type": "string"
+                          },
+                          "timeoutMs": {
+                            "type": "integer",
+                            "minimum": 1
+                          },
+                          "cwd": {
+                            "type": "string"
+                          },
+                          "env": {
+                            "type": "object",
+                            "additionalProperties": {
+                              "type": "string"
+                            }
+                          },
+                          "allowFailure": {
+                            "type": "boolean"
+                          }
+                        },
+                        "additionalProperties": false
+                      }
+                    },
+                    "review": {
+                      "type": "object",
+                      "properties": {
+                        "agent": {
+                          "type": "string"
+                        },
+                        "focus": {
+                          "type": "string"
+                        },
+                        "required": {
+                          "type": "boolean"
+                        }
+                      },
+                      "additionalProperties": false
+                    },
+                    "stopRules": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    },
+                    "maxFinalizationTurns": {
+                      "type": "integer",
+                      "minimum": 1,
+                      "maximum": 10
+                    }
+                  },
+                  "additionalProperties": false,
+                  "allOf": [
+                    {
+                      "anyOf": [
+                        {
+                          "required": ["criteria"]
+                        },
+                        {
+                          "required": ["evidence"]
+                        },
+                        {
+                          "required": ["verify"]
+                        },
+                        {
+                          "required": ["review"]
+                        },
+                        {
+                          "required": ["stopRules"]
+                        }
+                      ]
+                    }
+                  ],
+                  "description": "Optional acceptance contract. Use this for goal-style requests such as /goal, goal, active goal, or work until evidence says done: criteria define the target, evidence/verify define proof, stopRules define constraints, and maxFinalizationTurns defines the bounded loop. When present, the child must complete a same-session self-review/repair loop before acceptance is evaluated."
+                },
+                "parallel": {
+                  "anyOf": [
+                    {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "required": ["agent"],
+                        "properties": {
+                          "agent": {
+                            "type": "string"
+                          },
+                          "task": {
+                            "type": "string",
+                            "description": "Task template with {task}, {previous}, {chain_dir} variables. Defaults to {previous}."
+                          },
+                          "phase": {
+                            "type": "string",
+                            "description": "Optional phase/group label for status and graph rendering."
+                          },
+                          "label": {
+                            "type": "string",
+                            "description": "Optional user-facing label for this parallel task."
+                          },
+                          "as": {
+                            "type": "string",
+                            "description": "Optional safe identifier used as {outputs.name} in later chain steps."
+                          },
+                          "outputSchema": {
+                            "type": "object",
+                            "additionalProperties": true,
+                            "description": "JSON Schema object for strict structured output. Non-object roots are rejected."
+                          },
+                          "cwd": {
+                            "type": "string"
+                          },
+                          "count": {
+                            "type": "integer",
+                            "minimum": 1,
+                            "description": "Repeat this parallel task N times with the same settings."
+                          },
+                          "output": {
+                            "anyOf": [
+                              {
+                                "type": "string"
+                              },
+                              {
+                                "type": "boolean"
+                              }
+                            ],
+                            "description": "Output filename/path (string), or false to disable file output"
+                          },
+                          "outputMode": {
+                            "type": "string",
+                            "enum": ["inline", "file-only"],
+                            "description": "Return saved output inline (default) or only a concise file reference. file-only requires output to be a path."
+                          },
+                          "reads": {
+                            "anyOf": [
+                              {
+                                "type": "array",
+                                "items": {
+                                  "type": "string"
+                                }
+                              },
+                              {
+                                "type": "boolean"
+                              }
+                            ],
+                            "description": "Files to read before running (array of filenames), or false to disable"
+                          },
+                          "progress": {
+                            "type": "boolean",
+                            "description": "Enable progress.md tracking in {chain_dir}"
+                          },
+                          "skill": {
+                            "anyOf": [
+                              {
+                                "type": "array",
+                                "items": {
+                                  "type": "string"
+                                }
+                              },
+                              {
+                                "type": "boolean"
+                              },
+                              {
+                                "type": "string"
+                              }
+                            ],
+                            "description": "Skill name(s) to inject (comma-separated), array of strings, or boolean (false disables, true uses default)"
+                          },
+                          "model": {
+                            "type": "string",
+                            "description": "Override model for this task"
+                          },
+                          "acceptance": {
+                            "type": "object",
+                            "properties": {
+                              "criteria": {
+                                "type": "array",
+                                "items": {
+                                  "anyOf": [
+                                    {
+                                      "type": "string"
+                                    },
+                                    {
+                                      "type": "object",
+                                      "required": ["id", "must"],
+                                      "properties": {
+                                        "id": {
+                                          "type": "string"
+                                        },
+                                        "must": {
+                                          "type": "string"
+                                        },
+                                        "evidence": {
+                                          "type": "array",
+                                          "items": {
+                                            "type": "string",
+                                            "enum": [
+                                              "changed-files",
+                                              "tests-added",
+                                              "commands-run",
+                                              "validation-output",
+                                              "residual-risks",
+                                              "no-staged-files",
+                                              "diff-summary",
+                                              "review-findings",
+                                              "manual-notes"
+                                            ]
+                                          }
+                                        },
+                                        "severity": {
+                                          "type": "string",
+                                          "enum": ["required", "recommended"]
+                                        }
+                                      },
+                                      "additionalProperties": false
+                                    }
+                                  ]
+                                }
+                              },
+                              "evidence": {
+                                "type": "array",
+                                "items": {
+                                  "type": "string",
+                                  "enum": [
+                                    "changed-files",
+                                    "tests-added",
+                                    "commands-run",
+                                    "validation-output",
+                                    "residual-risks",
+                                    "no-staged-files",
+                                    "diff-summary",
+                                    "review-findings",
+                                    "manual-notes"
+                                  ]
+                                }
+                              },
+                              "verify": {
+                                "type": "array",
+                                "items": {
+                                  "type": "object",
+                                  "required": ["id", "command"],
+                                  "properties": {
+                                    "id": {
+                                      "type": "string"
+                                    },
+                                    "command": {
+                                      "type": "string"
+                                    },
+                                    "timeoutMs": {
+                                      "type": "integer",
+                                      "minimum": 1
+                                    },
+                                    "cwd": {
+                                      "type": "string"
+                                    },
+                                    "env": {
+                                      "type": "object",
+                                      "additionalProperties": {
+                                        "type": "string"
+                                      }
+                                    },
+                                    "allowFailure": {
+                                      "type": "boolean"
+                                    }
+                                  },
+                                  "additionalProperties": false
+                                }
+                              },
+                              "review": {
+                                "type": "object",
+                                "properties": {
+                                  "agent": {
+                                    "type": "string"
+                                  },
+                                  "focus": {
+                                    "type": "string"
+                                  },
+                                  "required": {
+                                    "type": "boolean"
+                                  }
+                                },
+                                "additionalProperties": false
+                              },
+                              "stopRules": {
+                                "type": "array",
+                                "items": {
+                                  "type": "string"
+                                }
+                              },
+                              "maxFinalizationTurns": {
+                                "type": "integer",
+                                "minimum": 1,
+                                "maximum": 10
+                              }
+                            },
+                            "additionalProperties": false,
+                            "allOf": [
+                              {
+                                "anyOf": [
+                                  {
+                                    "required": ["criteria"]
+                                  },
+                                  {
+                                    "required": ["evidence"]
+                                  },
+                                  {
+                                    "required": ["verify"]
+                                  },
+                                  {
+                                    "required": ["review"]
+                                  },
+                                  {
+                                    "required": ["stopRules"]
+                                  }
+                                ]
+                              }
+                            ],
+                            "description": "Optional acceptance contract. Use this for goal-style requests such as /goal, goal, active goal, or work until evidence says done: criteria define the target, evidence/verify define proof, stopRules define constraints, and maxFinalizationTurns defines the bounded loop. When present, the child must complete a same-session self-review/repair loop before acceptance is evaluated."
+                          }
+                        }
+                      },
+                      "minItems": 1,
+                      "description": "Tasks to run in parallel"
+                    },
+                    {
+                      "type": "object",
+                      "required": ["agent"],
+                      "properties": {
+                        "agent": {
+                          "type": "string"
+                        },
+                        "task": {
+                          "type": "string",
+                          "description": "Task template with {item}, {item.path}, {task}, {previous}, {chain_dir}, and {outputs.name} variables."
+                        },
+                        "phase": {
+                          "type": "string",
+                          "description": "Optional phase/group label for status and graph rendering."
+                        },
+                        "label": {
+                          "type": "string",
+                          "description": "Optional user-facing label; item templates are supported."
+                        },
+                        "outputSchema": {
+                          "type": "object",
+                          "additionalProperties": true,
+                          "description": "JSON Schema object for strict structured output. Non-object roots are rejected."
+                        },
+                        "cwd": {
+                          "type": "string"
+                        },
+                        "output": {
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "boolean"
+                            }
+                          ],
+                          "description": "Output filename/path (string), or false to disable file output"
+                        },
+                        "outputMode": {
+                          "type": "string",
+                          "enum": ["inline", "file-only"],
+                          "description": "Return saved output inline (default) or only a concise file reference. file-only requires output to be a path."
+                        },
+                        "reads": {
+                          "anyOf": [
+                            {
+                              "type": "array",
+                              "items": {
+                                "type": "string"
+                              }
+                            },
+                            {
+                              "type": "boolean"
+                            }
+                          ],
+                          "description": "Files to read before running (array of filenames), or false to disable"
+                        },
+                        "progress": {
+                          "type": "boolean",
+                          "description": "Enable progress.md tracking in {chain_dir}"
+                        },
+                        "skill": {
+                          "anyOf": [
+                            {
+                              "type": "array",
+                              "items": {
+                                "type": "string"
+                              }
+                            },
+                            {
+                              "type": "boolean"
+                            },
+                            {
+                              "type": "string"
+                            }
+                          ],
+                          "description": "Skill name(s) to inject (comma-separated), array of strings, or boolean (false disables, true uses default)"
+                        },
+                        "model": {
+                          "type": "string",
+                          "description": "Override model for this task"
+                        },
+                        "acceptance": {
+                          "type": "object",
+                          "properties": {
+                            "criteria": {
+                              "type": "array",
+                              "items": {
+                                "anyOf": [
+                                  {
+                                    "type": "string"
+                                  },
+                                  {
+                                    "type": "object",
+                                    "required": ["id", "must"],
+                                    "properties": {
+                                      "id": {
+                                        "type": "string"
+                                      },
+                                      "must": {
+                                        "type": "string"
+                                      },
+                                      "evidence": {
+                                        "type": "array",
+                                        "items": {
+                                          "type": "string",
+                                          "enum": [
+                                            "changed-files",
+                                            "tests-added",
+                                            "commands-run",
+                                            "validation-output",
+                                            "residual-risks",
+                                            "no-staged-files",
+                                            "diff-summary",
+                                            "review-findings",
+                                            "manual-notes"
+                                          ]
+                                        }
+                                      },
+                                      "severity": {
+                                        "type": "string",
+                                        "enum": ["required", "recommended"]
+                                      }
+                                    },
+                                    "additionalProperties": false
+                                  }
+                                ]
+                              }
+                            },
+                            "evidence": {
+                              "type": "array",
+                              "items": {
+                                "type": "string",
+                                "enum": [
+                                  "changed-files",
+                                  "tests-added",
+                                  "commands-run",
+                                  "validation-output",
+                                  "residual-risks",
+                                  "no-staged-files",
+                                  "diff-summary",
+                                  "review-findings",
+                                  "manual-notes"
+                                ]
+                              }
+                            },
+                            "verify": {
+                              "type": "array",
+                              "items": {
+                                "type": "object",
+                                "required": ["id", "command"],
+                                "properties": {
+                                  "id": {
+                                    "type": "string"
+                                  },
+                                  "command": {
+                                    "type": "string"
+                                  },
+                                  "timeoutMs": {
+                                    "type": "integer",
+                                    "minimum": 1
+                                  },
+                                  "cwd": {
+                                    "type": "string"
+                                  },
+                                  "env": {
+                                    "type": "object",
+                                    "additionalProperties": {
+                                      "type": "string"
+                                    }
+                                  },
+                                  "allowFailure": {
+                                    "type": "boolean"
+                                  }
+                                },
+                                "additionalProperties": false
+                              }
+                            },
+                            "review": {
+                              "type": "object",
+                              "properties": {
+                                "agent": {
+                                  "type": "string"
+                                },
+                                "focus": {
+                                  "type": "string"
+                                },
+                                "required": {
+                                  "type": "boolean"
+                                }
+                              },
+                              "additionalProperties": false
+                            },
+                            "stopRules": {
+                              "type": "array",
+                              "items": {
+                                "type": "string"
+                              }
+                            },
+                            "maxFinalizationTurns": {
+                              "type": "integer",
+                              "minimum": 1,
+                              "maximum": 10
+                            }
+                          },
+                          "additionalProperties": false,
+                          "allOf": [
+                            {
+                              "anyOf": [
+                                {
+                                  "required": ["criteria"]
+                                },
+                                {
+                                  "required": ["evidence"]
+                                },
+                                {
+                                  "required": ["verify"]
+                                },
+                                {
+                                  "required": ["review"]
+                                },
+                                {
+                                  "required": ["stopRules"]
+                                }
+                              ]
+                            }
+                          ],
+                          "description": "Optional acceptance contract. Use this for goal-style requests such as /goal, goal, active goal, or work until evidence says done: criteria define the target, evidence/verify define proof, stopRules define constraints, and maxFinalizationTurns defines the bounded loop. When present, the child must complete a same-session self-review/repair loop before acceptance is evaluated."
+                        }
+                      },
+                      "additionalProperties": false
+                    }
+                  ],
+                  "description": "Static parallel tasks array, or a single dynamic fanout child template when expand/collect are present."
+                },
+                "expand": {
+                  "type": "object",
+                  "required": ["from"],
+                  "properties": {
+                    "from": {
+                      "type": "object",
+                      "required": ["output", "path"],
+                      "properties": {
+                        "output": {
+                          "type": "string",
+                          "description": "Prior named structured output to expand from."
+                        },
+                        "path": {
+                          "type": "string",
+                          "description": "JSON Pointer into the structured output, e.g. /items."
+                        }
+                      },
+                      "additionalProperties": false
+                    },
+                    "item": {
+                      "type": "string",
+                      "description": "Template variable name for each item. Defaults to item."
+                    },
+                    "key": {
+                      "type": "string",
+                      "description": "JSON Pointer relative to each item for stable child ids."
+                    },
+                    "maxItems": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "description": "Required fanout bound unless configured globally."
+                    },
+                    "onEmpty": {
+                      "type": "string",
+                      "enum": ["skip", "fail"],
+                      "description": "Empty input behavior. Defaults to skip."
+                    }
+                  },
+                  "additionalProperties": false
+                },
+                "collect": {
+                  "type": "object",
+                  "required": ["as"],
+                  "properties": {
+                    "as": {
+                      "type": "string",
+                      "description": "Safe output name for the ordered collected result array."
+                    },
+                    "outputSchema": {
+                      "type": "object",
+                      "additionalProperties": true,
+                      "description": "JSON Schema object for strict structured output. Non-object roots are rejected."
+                    }
+                  },
+                  "additionalProperties": false
+                },
+                "concurrency": {
+                  "type": "number",
+                  "description": "Max concurrent tasks (default: 4)"
+                },
+                "failFast": {
+                  "type": "boolean",
+                  "description": "Stop on first failure (default: false)"
+                },
+                "worktree": {
+                  "type": "boolean",
+                  "description": "Create isolated git worktrees for each parallel task."
+                }
+              },
+              "description": "Chain step: use {agent, task?, ...} for sequential, {parallel: [...]} for static concurrent execution, or {expand, parallel: {...}, collect} for dynamic fanout.",
+              "additionalProperties": false,
+              "allOf": [
+                {
+                  "if": {
+                    "required": ["expand"]
+                  },
+                  "then": {
+                    "required": ["parallel", "collect"],
+                    "properties": {
+                      "parallel": {
+                        "type": "object"
+                      }
+                    }
+                  }
+                },
+                {
+                  "if": {
+                    "required": ["collect"]
+                  },
+                  "then": {
+                    "required": ["expand", "parallel"],
+                    "properties": {
+                      "parallel": {
+                        "type": "object"
+                      }
+                    }
+                  }
+                },
+                {
+                  "not": {
+                    "required": ["expand"],
+                    "properties": {
+                      "parallel": {
+                        "type": "array",
+                        "items": {}
+                      }
+                    }
+                  }
+                }
+              ]
+            },
+            "description": "CHAIN mode: sequential pipeline where each step's response becomes {previous} for the next. Use {task}, {previous}, {chain_dir} in task templates."
+          },
+          "context": {
+            "type": "string",
+            "enum": ["fresh", "fork"],
+            "description": "'fresh' or 'fork' to branch from parent session. If omitted, any requested agent with defaultContext: 'fork' makes the whole invocation forked; otherwise the default is 'fresh'."
+          },
+          "chainDir": {
+            "type": "string",
+            "description": "Persistent directory for chain artifacts. Default: a user-scoped temp directory under <tmpdir>/ (auto-cleaned after 24h)"
+          },
+          "async": {
+            "type": "boolean",
+            "description": "Run in background (default: false, or per config)"
+          },
+          "agentScope": {
+            "type": "string",
+            "description": "Agent discovery scope: 'user', 'project', or 'both' (default: 'both'; project wins on name collisions)"
+          },
+          "cwd": {
+            "type": "string"
+          },
+          "artifacts": {
+            "type": "boolean",
+            "description": "Write debug artifacts (default: true)"
+          },
+          "includeProgress": {
+            "type": "boolean",
+            "description": "Include full progress in result (default: false)"
+          },
+          "share": {
+            "type": "boolean",
+            "description": "Upload session to GitHub Gist for sharing (default: false)"
+          },
+          "sessionDir": {
+            "type": "string",
+            "description": "Directory to store session logs (default: temp; enables sessions even if share=false)"
+          },
+          "clarify": {
+            "type": "boolean",
+            "description": "Show TUI to preview/edit before execution. Explicit clarify: true keeps the run foreground for the clarify UI; omitted clarify can still run in the background when async: true is set."
+          },
+          "control": {
+            "type": "object",
+            "properties": {
+              "enabled": {
+                "type": "boolean",
+                "description": "Enable/disable subagent control attention tracking for this run"
+              },
+              "needsAttentionAfterMs": {
+                "type": "integer",
+                "minimum": 1,
+                "description": "No-observed-activity window before a run needs attention"
+              },
+              "activeNoticeAfterMs": {
+                "type": "integer",
+                "minimum": 1,
+                "description": "Active-long-running notice threshold by elapsed ms (default: 240000)"
+              },
+              "activeNoticeAfterTurns": {
+                "type": "integer",
+                "minimum": 1,
+                "description": "Optional active-long-running notice threshold by assistant turns (disabled by default)"
+              },
+              "activeNoticeAfterTokens": {
+                "type": "integer",
+                "minimum": 1,
+                "description": "Optional active-long-running notice threshold by total tokens (disabled by default)"
+              },
+              "failedToolAttemptsBeforeAttention": {
+                "type": "integer",
+                "minimum": 1,
+                "description": "Consecutive mutating-tool failures before escalating to needs_attention (default: 3)"
+              },
+              "notifyOn": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "enum": ["active_long_running", "needs_attention"]
+                },
+                "description": "Control event types that should notify the parent/orchestrator. Defaults to active_long_running and needs_attention."
+              },
+              "notifyChannels": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "enum": ["event", "async", "intercom"]
+                },
+                "description": "Notification channels to use when available. Defaults to event, async, and intercom."
+              }
+            }
+          },
+          "output": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "boolean"
+              }
+            ],
+            "description": "Output file for single agent (string), or false to disable. Relative paths resolve against cwd."
+          },
+          "outputMode": {
+            "type": "string",
+            "enum": ["inline", "file-only"],
+            "description": "Return saved output inline (default) or only a concise file reference. file-only requires output to be a path."
+          },
+          "skill": {
+            "anyOf": [
+              {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "string"
+              }
+            ],
+            "description": "Skill name(s) to inject (comma-separated), array of strings, or boolean (false disables, true uses default)"
+          },
+          "model": {
+            "type": "string",
+            "description": "Override model for single agent (e.g. 'anthropic/claude-sonnet-4')"
+          },
+          "acceptance": {
+            "type": "object",
+            "properties": {
+              "criteria": {
+                "type": "array",
+                "items": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "object",
+                      "required": ["id", "must"],
+                      "properties": {
+                        "id": {
+                          "type": "string"
+                        },
+                        "must": {
+                          "type": "string"
+                        },
+                        "evidence": {
+                          "type": "array",
+                          "items": {
+                            "type": "string",
+                            "enum": [
+                              "changed-files",
+                              "tests-added",
+                              "commands-run",
+                              "validation-output",
+                              "residual-risks",
+                              "no-staged-files",
+                              "diff-summary",
+                              "review-findings",
+                              "manual-notes"
+                            ]
+                          }
+                        },
+                        "severity": {
+                          "type": "string",
+                          "enum": ["required", "recommended"]
+                        }
+                      },
+                      "additionalProperties": false
+                    }
+                  ]
+                }
+              },
+              "evidence": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "enum": [
+                    "changed-files",
+                    "tests-added",
+                    "commands-run",
+                    "validation-output",
+                    "residual-risks",
+                    "no-staged-files",
+                    "diff-summary",
+                    "review-findings",
+                    "manual-notes"
+                  ]
+                }
+              },
+              "verify": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "required": ["id", "command"],
+                  "properties": {
+                    "id": {
+                      "type": "string"
+                    },
+                    "command": {
+                      "type": "string"
+                    },
+                    "timeoutMs": {
+                      "type": "integer",
+                      "minimum": 1
+                    },
+                    "cwd": {
+                      "type": "string"
+                    },
+                    "env": {
+                      "type": "object",
+                      "additionalProperties": {
+                        "type": "string"
+                      }
+                    },
+                    "allowFailure": {
+                      "type": "boolean"
+                    }
+                  },
+                  "additionalProperties": false
+                }
+              },
+              "review": {
+                "type": "object",
+                "properties": {
+                  "agent": {
+                    "type": "string"
+                  },
+                  "focus": {
+                    "type": "string"
+                  },
+                  "required": {
+                    "type": "boolean"
+                  }
+                },
+                "additionalProperties": false
+              },
+              "stopRules": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "maxFinalizationTurns": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 10
+              }
+            },
+            "additionalProperties": false,
+            "allOf": [
+              {
+                "anyOf": [
+                  {
+                    "required": ["criteria"]
+                  },
+                  {
+                    "required": ["evidence"]
+                  },
+                  {
+                    "required": ["verify"]
+                  },
+                  {
+                    "required": ["review"]
+                  },
+                  {
+                    "required": ["stopRules"]
+                  }
+                ]
+              }
+            ],
+            "description": "Optional acceptance contract. Use this for goal-style requests such as /goal, goal, active goal, or work until evidence says done: criteria define the target, evidence/verify define proof, stopRules define constraints, and maxFinalizationTurns defines the bounded loop. When present, the child must complete a same-session self-review/repair loop before acceptance is evaluated."
+          }
+        }
+      }
+    },
+    "_source": "pi-subagents"
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "web_search",
+      "description": "Search the web using Perplexity AI, Exa, or Gemini. Returns an AI-synthesized answer with source citations. For comprehensive research, prefer queries (plural) with 2-4 varied angles over a single query — each query gets its own synthesized answer, so varying phrasing and scope gives much broader coverage. When includeContent is true, full page content is fetched in the background. Searches auto-open the interactive browser curator and stream results live; set workflow to \"none\" to skip curation. Provider auto-selects: Exa (direct API with key, MCP fallback without), else Perplexity (needs key), else Gemini API (needs key), else Gemini Web (needs a supported Chromium-based browser login).",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "query": {
+            "type": "string",
+            "description": "Single search query. For research tasks, prefer 'queries' with multiple varied angles instead."
+          },
+          "queries": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Multiple queries searched in sequence, each returning its own synthesized answer. Prefer this for research — vary phrasing, scope, and angle across 2-4 queries to maximize coverage. Good: ['React vs Vue performance benchmarks 2026', 'React vs Vue developer experience comparison', 'React ecosystem size vs Vue ecosystem']. Bad: ['React vs Vue', 'React vs Vue comparison', 'React vs Vue review'] (too similar, redundant results)."
+          },
+          "numResults": {
+            "type": "number",
+            "description": "Results per query (default: 5, max: 20)"
+          },
+          "includeContent": {
+            "type": "boolean",
+            "description": "Fetch full page content (async)"
+          },
+          "recencyFilter": {
+            "type": "string",
+            "enum": ["day", "week", "month", "year"],
+            "description": "Filter by recency"
+          },
+          "domainFilter": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Limit to domains (prefix with - to exclude)"
+          },
+          "provider": {
+            "type": "string",
+            "enum": ["auto", "perplexity", "gemini", "exa"],
+            "description": "Search provider (default: auto)"
+          },
+          "workflow": {
+            "type": "string",
+            "enum": ["none", "summary-review"],
+            "description": "Search workflow mode: none = no curator, summary-review = open curator with auto summary draft (default)"
+          }
+        }
+      }
+    },
+    "_source": "pi-web-access"
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "code_search",
+      "description": "Search for code examples, documentation, and API references. Returns relevant code snippets and docs from GitHub, Stack Overflow, and official documentation. Use for any programming question — API usage, library examples, debugging help.",
+      "parameters": {
+        "type": "object",
+        "required": ["query"],
+        "properties": {
+          "query": {
+            "type": "string",
+            "description": "Programming question, API, library, or debugging topic to search for"
+          },
+          "maxTokens": {
+            "type": "integer",
+            "minimum": 1000,
+            "maximum": 50000,
+            "description": "Maximum tokens of code/documentation context to return (default: 5000)"
+          }
+        }
+      }
+    },
+    "_source": "pi-web-access"
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "fetch_content",
+      "description": "Fetch URL(s) and extract readable content as markdown. Supports YouTube video transcripts (with thumbnail), GitHub repository contents, and local video files (with frame thumbnail). Video frames can be extracted via timestamp/range or sampled across the entire video with frames alone. Falls back to Gemini for pages that block bots or fail Readability extraction. For YouTube and video files: ALWAYS pass the user's specific question via the prompt parameter — this directs the AI to focus on that aspect of the video, producing much better results than a generic extraction. Content is always stored and can be retrieved with get_search_content.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "url": {
+            "type": "string",
+            "description": "Single URL to fetch"
+          },
+          "urls": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Multiple URLs (parallel)"
+          },
+          "forceClone": {
+            "type": "boolean",
+            "description": "Force cloning large GitHub repositories that exceed the size threshold"
+          },
+          "prompt": {
+            "type": "string",
+            "description": "Question or instruction for video analysis (YouTube and video files). Pass the user's specific question here — e.g. 'describe the book shown at the advice for beginners section'. Without this, a generic transcript extraction is used which may miss what the user is asking about."
+          },
+          "timestamp": {
+            "type": "string",
+            "description": "Extract video frame(s) at a timestamp or time range. Single: '1:23:45', '23:45', or '85' (seconds). Range: '23:41-25:00' extracts evenly-spaced frames across that span (default 6). Use frames with ranges to control density; single+frames uses a fixed 5s interval. YouTube requires yt-dlp + ffmpeg; local videos require ffmpeg. Use a range when you know the approximate area but not the exact moment — you'll get a contact sheet to visually identify the right frame."
+          },
+          "frames": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 12,
+            "description": "Number of frames to extract. Use with timestamp range for custom density, with single timestamp to get N frames at 5s intervals, or alone to sample across the entire video. Requires yt-dlp + ffmpeg for YouTube, ffmpeg for local video."
+          },
+          "model": {
+            "type": "string",
+            "description": "Override the Gemini model for video/YouTube analysis (e.g. 'gemini-2.5-flash', 'gemini-3-flash-preview'). Defaults to config or gemini-3-flash-preview."
+          }
+        }
+      }
+    },
+    "_source": "pi-web-access"
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "get_search_content",
+      "description": "Retrieve full content from a previous web_search or fetch_content call.",
+      "parameters": {
+        "type": "object",
+        "required": ["responseId"],
+        "properties": {
+          "responseId": {
+            "type": "string",
+            "description": "The responseId from web_search or fetch_content"
+          },
+          "query": {
+            "type": "string",
+            "description": "Get content for this query (web_search)"
+          },
+          "queryIndex": {
+            "type": "number",
+            "description": "Get content for query at index"
+          },
+          "url": {
+            "type": "string",
+            "description": "Get content for this URL"
+          },
+          "urlIndex": {
+            "type": "number",
+            "description": "Get content for URL at index"
+          }
+        }
+      }
+    },
+    "_source": "pi-web-access"
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "Agent",
+      "description": "Launch a new agent to handle complex, multi-step tasks autonomously. Each agent type has specific capabilities and tools available to it.\n\nAvailable agent types and the tools they have access to:\n- general-purpose: General-purpose agent for researching complex questions, searching for code, and executing multi-step tasks. When you are searching for a keyword or file and are not confident that you will find the right match in the first few tries use this agent to perform the search for you. (Tools: *)\n- Explore: Fast read-only search agent for locating code. Use it to find files by pattern (eg. \"src/components/**/*.tsx\"), grep for symbols or keywords (eg. \"API endpoints\"), or answer \"where is X defined / which files reference Y.\" Do NOT use it for code review, design-doc auditing, cross-file consistency checks, or open-ended analysis — it reads excerpts rather than whole files and will miss content past its read window. When calling, specify search breadth: \"quick\" for a single targeted lookup, \"medium\" for moderate exploration, or \"very thorough\" to search across multiple locations and naming conventions. (claude-haiku-4-5) (Tools: read, bash, grep, find, ls)\n- Plan: Software architect agent for designing implementation plans. Use this when you need to plan the implementation strategy for a task. Returns step-by-step plans, identifies critical files, and considers architectural trade-offs. (Tools: read, bash, grep, find, ls)\n\nCustom agents can be defined in .pi/agents/<name>.md (project) or /Users/leechael/.pi/agent/agents/<name>.md (global) — they are picked up automatically. Project-level agents override global ones. Creating a .md file with the same name as a default agent overrides it.\n\nWhen using the Agent tool, specify a subagent_type parameter to select which agent type to use.\n\n## When not to use\n\nIf the target is already known, use a direct tool — `read` for a known path, `grep`/`find` for a specific symbol or string. Reserve this tool for open-ended questions that span the codebase, or tasks that match an available agent type.\n\n## Usage notes\n\n- Always include a short (3-5 word) description summarizing what the agent will do (shown in UI).\n- When you launch multiple agents for independent work, send them in a single message with multiple tool uses, with run_in_background: true on each, so they run concurrently. If the user specifies that they want agents run \"in parallel\", you MUST send a single message with multiple tool calls. Foreground calls run sequentially — only one executes at a time.\n- When the agent is done, it returns a single message back to you. The result is not visible to the user — to show the user, send a text message with a concise summary.\n- Trust but verify: an agent's summary describes what it intended to do, not necessarily what it did. When an agent writes or edits code, check the actual changes before reporting work as done.\n- Use run_in_background for work you don't need immediately. You will be notified when it completes — do NOT poll or sleep waiting for it. Continue with other work or respond to the user instead.\n- Foreground vs background: use foreground (default) when you need the agent's results before you can proceed. Use background when you have genuinely independent work to do in parallel.\n- Use resume with an agent ID to continue a previous agent's work. A new (non-resume) Agent call starts a fresh agent with no memory of prior runs, so the prompt must be self-contained.\n- Use steer_subagent to send mid-run messages to a running background agent.\n- Clearly tell the agent whether you expect it to write code or just to do research (search, file reads, etc.), since it is not aware of the user's intent.\n- If an agent's description says it should be used proactively, try to use it without the user having to ask for it first.\n- Use model to specify a different model (as \"provider/modelId\", or fuzzy e.g. \"haiku\", \"sonnet\").\n- Use thinking to control extended thinking level.\n- Use inherit_context if the agent needs the parent conversation history.\n- Use isolation: \"worktree\" to run the agent in an isolated git worktree (safe parallel file modifications). The worktree is automatically cleaned up if the agent makes no changes; otherwise the path and branch are returned in the result.\n- Use `schedule` only when the user explicitly asked for scheduled / recurring / delayed execution (e.g. \"every Monday\", \"in an hour\"). Don't auto-schedule from vague intent like \"monitor X\" — run once now or ask.\n\n## Writing the prompt\n\nProvide clear, detailed prompts so the agent can work autonomously. Brief it like a smart colleague who just walked into the room — it hasn't seen this conversation, doesn't know what you've tried, doesn't understand why this task matters.\n- Explain what you're trying to accomplish and why.\n- Describe what you've already learned or ruled out.\n- Give enough context about the surrounding problem that the agent can make judgment calls rather than just following a narrow instruction.\n- If you need a short response, say so (\"report in under 200 words\").\n- Lookups: hand over the exact command. Investigations: hand over the question — prescribed steps become dead weight when the premise is wrong.\n\nTerse command-style prompts produce shallow, generic work.\n\n**Never delegate understanding.** Don't write \"based on your findings, fix the bug\" or \"based on the research, implement it.\" Those phrases push synthesis onto the agent instead of doing it yourself. Write prompts that prove you understood: include file paths, line numbers, what specifically to change.",
+      "parameters": {
+        "type": "object",
+        "required": ["prompt", "description", "subagent_type"],
+        "properties": {
+          "prompt": {
+            "description": "The task for the agent to perform.",
+            "type": "string"
+          },
+          "description": {
+            "description": "A short (3-5 word) description of the task (shown in UI).",
+            "type": "string"
+          },
+          "subagent_type": {
+            "description": "The type of specialized agent to use. Available types: general-purpose, Explore, Plan. Custom agents from .pi/agents/*.md (project) or /Users/leechael/.pi/agent/agents/*.md (global) are also available.",
+            "type": "string"
+          },
+          "model": {
+            "description": "Optional model override. Accepts \"provider/modelId\" or fuzzy name (e.g. \"haiku\", \"sonnet\"). Omit to use the agent type's default.",
+            "type": "string"
+          },
+          "thinking": {
+            "description": "Thinking level: off, minimal, low, medium, high, xhigh. Overrides agent default.",
+            "type": "string"
+          },
+          "max_turns": {
+            "description": "Maximum number of agentic turns before stopping. Omit for unlimited (default).",
+            "minimum": 1,
+            "type": "number"
+          },
+          "run_in_background": {
+            "description": "Set to true to run in background. Returns agent ID immediately. You will be notified on completion.",
+            "type": "boolean"
+          },
+          "resume": {
+            "description": "Optional agent ID to resume from. Continues from previous context.",
+            "type": "string"
+          },
+          "isolated": {
+            "description": "If true, agent gets no extension/MCP tools — only built-in tools.",
+            "type": "boolean"
+          },
+          "inherit_context": {
+            "description": "If true, fork parent conversation into the agent. Default: false (fresh context).",
+            "type": "boolean"
+          },
+          "isolation": {
+            "description": "Set to \"worktree\" to run the agent in a temporary git worktree (isolated copy of the repo). Changes are saved to a branch on completion.",
+            "const": "worktree",
+            "type": "string"
+          },
+          "schedule": {
+            "description": "Opt-in only — fire later instead of now. Omit to run immediately (the default, almost always correct). Formats: 6-field cron (\"0 0 9 * * 1\" = 9am Mon), interval (\"5m\"/\"1h\"), one-shot (\"+10m\" or ISO). Forces run_in_background; incompatible with inherit_context and resume. Returns job ID.",
+            "type": "string"
+          }
+        }
+      }
+    },
+    "_source": "tintinweb-subagents"
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "get_subagent_result",
+      "description": "Check status and retrieve results from a background agent. Use the agent ID returned by Agent with run_in_background.",
+      "parameters": {
+        "type": "object",
+        "required": ["agent_id"],
+        "properties": {
+          "agent_id": {
+            "description": "The agent ID to check.",
+            "type": "string"
+          },
+          "wait": {
+            "description": "If true, wait for the agent to complete before returning. Default: false.",
+            "type": "boolean"
+          },
+          "verbose": {
+            "description": "If true, include the agent's full conversation (messages + tool calls). Default: false.",
+            "type": "boolean"
+          }
+        }
+      }
+    },
+    "_source": "tintinweb-subagents"
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "steer_subagent",
+      "description": "Send a steering message to a running agent. The message will interrupt the agent after its current tool execution and be injected into its conversation, allowing you to redirect its work mid-run. Only works on running agents.",
+      "parameters": {
+        "type": "object",
+        "required": ["agent_id", "message"],
+        "properties": {
+          "agent_id": {
+            "description": "The agent ID to steer (must be currently running).",
+            "type": "string"
+          },
+          "message": {
+            "description": "The steering message to send. This will appear as a user message in the agent's conversation.",
+            "type": "string"
+          }
+        }
+      }
+    },
+    "_source": "tintinweb-subagents"
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "web_search",
+      "description": "Search the web for information. Returns a list of results with titles, URLs, and snippets. Use when you need current information not in your training data.",
+      "parameters": {
+        "type": "object",
+        "required": ["query"],
+        "properties": {
+          "query": {
+            "type": "string",
+            "description": "The search query. Be specific and use natural language."
+          },
+          "max_results": {
+            "type": "number",
+            "description": "Maximum number of results to return (1-10). Default: 5.",
+            "default": 5,
+            "minimum": 1,
+            "maximum": 10
+          }
+        }
+      }
+    },
+    "_source": "rpiv-web-tools"
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "web_fetch",
+      "description": "Fetch the content of a specific URL. Returns text content for HTML pages (tags stripped), raw text for plain text or JSON. Supports http and https only. Content is truncated to avoid overwhelming the context window.",
+      "parameters": {
+        "type": "object",
+        "required": ["url"],
+        "properties": {
+          "url": {
+            "type": "string",
+            "description": "The URL to fetch. Must be http or https."
+          },
+          "raw": {
+            "type": "boolean",
+            "description": "If true, return the raw HTML instead of extracted text. Default: false.",
+            "default": false
+          }
+        }
+      }
+    },
+    "_source": "rpiv-web-tools"
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "todo",
+      "description": "Manage a task list for tracking multi-step progress. Actions: create (new task), update (change status/fields/dependencies), list (all tasks, optionally filtered by status), get (single task details), delete (tombstone), clear (reset all). Status: pending → in_progress → completed, plus deleted tombstone. Use this to plan and track multi-step work like research, design, and implementation.",
+      "parameters": {
+        "type": "object",
+        "required": ["action"],
+        "properties": {
+          "action": {
+            "type": "string",
+            "enum": ["create", "update", "list", "get", "delete", "clear"]
+          },
+          "subject": {
+            "type": "string",
+            "description": "Task subject line (required for create)"
+          },
+          "description": {
+            "type": "string",
+            "description": "Long-form task description"
+          },
+          "activeForm": {
+            "type": "string",
+            "description": "Present-continuous spinner label shown while status is in_progress (e.g. 'writing tests')"
+          },
+          "status": {
+            "type": "string",
+            "enum": ["pending", "in_progress", "completed", "deleted"],
+            "description": "Target status (update) or list filter (list)"
+          },
+          "blockedBy": {
+            "type": "array",
+            "items": {
+              "type": "number"
+            },
+            "description": "Initial blockedBy ids (create only)"
+          },
+          "addBlockedBy": {
+            "type": "array",
+            "items": {
+              "type": "number"
+            },
+            "description": "Task ids to add to blockedBy (update only, additive merge)"
+          },
+          "removeBlockedBy": {
+            "type": "array",
+            "items": {
+              "type": "number"
+            },
+            "description": "Task ids to remove from blockedBy (update only, additive merge)"
+          },
+          "owner": {
+            "type": "string",
+            "description": "Agent/owner assigned to this task"
+          },
+          "metadata": {
+            "type": "object",
+            "patternProperties": {
+              "^.*$": {}
+            },
+            "description": "Arbitrary metadata; pass null value for a key to delete that key on update"
+          },
+          "id": {
+            "type": "number",
+            "description": "Task id (required for update, get, delete)"
+          },
+          "includeDeleted": {
+            "type": "boolean",
+            "description": "If true, list action returns deleted (tombstoned) tasks as well. Default: false."
+          }
+        }
+      }
+    },
+    "_source": "rpiv-todo"
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "ask_user_question",
+      "description": "Ask the user one or more structured questions during execution. Use when you need to:\n1. Gather user preferences or requirements\n2. Clarify ambiguous instructions\n3. Get decisions on implementation choices as you work\n4. Offer choices to the user about what direction to take\n\nUsage notes:\n- Users will always be able to type a custom answer (\"Type something.\" row is appended automatically to every single-select question) or pick \"Chat about this\" to abandon the questionnaire and continue in free-form conversation. Do NOT author \"Other\" / \"Type something.\" / \"Chat about this\" labels yourself — duplicates are rejected at runtime.\n- Use multiSelect: true to allow multiple answers to be selected for a question. The \"Type something.\" row is suppressed on multi-select questions, and is ALSO suppressed on single-select questions where any option carries a `preview` (the side-by-side layout has no room for inline custom text — \"Chat about this\" remains as the free-form escape hatch).\n- If you recommend a specific option, make that the first option in the list and add \"(Recommended)\" at the end of the label.\n\nPreview feature:\nUse the optional `preview` field on options when presenting concrete artifacts that users need to visually compare:\n- ASCII mockups of UI layouts or components\n- Code snippets showing different implementations\n- Diagram variations\n- Configuration examples\n\nPreview content is rendered as markdown in a monospace box. Multi-line text with newlines is supported. When any option has a preview, the UI switches to a side-by-side layout with a vertical option list on the left and preview on the right. Do not use previews for simple preference questions where labels and descriptions suffice. Note: previews are only supported for single-select questions (not multiSelect).",
+      "parameters": {
+        "type": "object",
+        "required": ["questions"],
+        "properties": {
+          "questions": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": ["question", "header", "options"],
+              "properties": {
+                "question": {
+                  "type": "string",
+                  "description": "The complete question to ask the user. Should be clear, specific, and end with a question mark. Example: \"Which library should we use for date formatting?\" If multiSelect is true, phrase it accordingly, e.g. \"Which features do you want to enable?\""
+                },
+                "header": {
+                  "type": "string",
+                  "maxLength": 16,
+                  "description": "MAX 16 CHARACTERS — hard limit, requests over the limit are rejected. Very short chip/tag shown next to the question. Examples: \"Auth method\", \"Library\", \"Approach\"."
+                },
+                "options": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "required": ["label", "description"],
+                    "properties": {
+                      "label": {
+                        "type": "string",
+                        "maxLength": 60,
+                        "description": "MAX 60 CHARACTERS — hard limit, requests over the limit are rejected. The display text for this option that the user will see and select. Should be concise (1-5 words) and clearly describe the choice."
+                      },
+                      "description": {
+                        "type": "string",
+                        "description": "Explanation of what this option means or what will happen if chosen. Useful for providing context about trade-offs or implications."
+                      },
+                      "preview": {
+                        "type": "string",
+                        "description": "Optional preview content rendered when this option is focused. Use for mockups, code snippets, or visual comparisons that help users compare options. See the tool description for the expected content format."
+                      }
+                    }
+                  },
+                  "minItems": 2,
+                  "maxItems": 4,
+                  "description": "The available choices for this question. Must have 2-4 options. Each option should be a distinct, mutually exclusive choice (unless multiSelect is enabled). The 'Type something.' row is appended automatically — do NOT author it."
+                },
+                "multiSelect": {
+                  "type": "boolean",
+                  "default": false,
+                  "description": "Set to true to allow the user to select multiple options instead of just one. Use when choices are not mutually exclusive."
+                }
+              }
+            },
+            "minItems": 1,
+            "maxItems": 4,
+            "description": "Questions to ask the user (1-4 questions)"
+          }
+        }
+      }
+    },
+    "_source": "rpiv-ask-user"
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "advisor",
+      "description": "Escalate to a stronger reviewer model for guidance. When you need stronger judgment — a complex decision, an ambiguous failure, a problem you're circling without progress — escalate to the advisor model for guidance, then resume. Takes NO parameters — when you call advisor(), your entire conversation history is automatically forwarded. The advisor sees the task, every tool call you've made, every result you've seen.",
+      "parameters": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    "_source": "rpiv-advisor"
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "cursor_ask_question",
+      "description": "Ask the user a clarifying question from Cursor. Use when user preferences materially affect the next step; provide options when possible.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "question": {
+            "type": "string",
+            "description": "Question to ask the user"
+          },
+          "prompt": {
+            "type": "string",
+            "description": "Alias for question"
+          },
+          "options": {
+            "type": "array",
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "object",
+                  "required": ["label"],
+                  "properties": {
+                    "label": {
+                      "type": "string",
+                      "description": "User-facing option label"
+                    },
+                    "value": {
+                      "type": "string",
+                      "description": "Optional value returned to Cursor; defaults to label"
+                    },
+                    "description": {
+                      "type": "string",
+                      "description": "Optional helper text shown by compatible pi UIs"
+                    }
+                  }
+                }
+              ]
+            },
+            "description": "Choices the user can select"
+          },
+          "choices": {
+            "type": "array",
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "object",
+                  "required": ["label"],
+                  "properties": {
+                    "label": {
+                      "type": "string",
+                      "description": "User-facing option label"
+                    },
+                    "value": {
+                      "type": "string",
+                      "description": "Optional value returned to Cursor; defaults to label"
+                    },
+                    "description": {
+                      "type": "string",
+                      "description": "Optional helper text shown by compatible pi UIs"
+                    }
+                  }
+                }
+              ]
+            },
+            "description": "Alias for options"
+          },
+          "allowCustom": {
+            "type": "boolean",
+            "description": "Allow a typed answer in addition to listed options; defaults to true"
+          },
+          "questions": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "description": "Stable question identifier"
+                },
+                "question": {
+                  "type": "string",
+                  "description": "Question to ask the user"
+                },
+                "prompt": {
+                  "type": "string",
+                  "description": "Alias for question"
+                },
+                "options": {
+                  "type": "array",
+                  "items": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "object",
+                        "required": ["label"],
+                        "properties": {
+                          "label": {
+                            "type": "string",
+                            "description": "User-facing option label"
+                          },
+                          "value": {
+                            "type": "string",
+                            "description": "Optional value returned to Cursor; defaults to label"
+                          },
+                          "description": {
+                            "type": "string",
+                            "description": "Optional helper text shown by compatible pi UIs"
+                          }
+                        }
+                      }
+                    ]
+                  },
+                  "description": "Choices the user can select"
+                },
+                "choices": {
+                  "type": "array",
+                  "items": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "object",
+                        "required": ["label"],
+                        "properties": {
+                          "label": {
+                            "type": "string",
+                            "description": "User-facing option label"
+                          },
+                          "value": {
+                            "type": "string",
+                            "description": "Optional value returned to Cursor; defaults to label"
+                          },
+                          "description": {
+                            "type": "string",
+                            "description": "Optional helper text shown by compatible pi UIs"
+                          }
+                        }
+                      }
+                    ]
+                  },
+                  "description": "Alias for options"
+                },
+                "allowCustom": {
+                  "type": "boolean",
+                  "description": "Allow a typed answer in addition to listed options; defaults to true"
+                }
+              }
+            },
+            "description": "Ask multiple questions sequentially"
+          }
+        }
+      }
+    },
+    "_source": "pi-cursor-sdk"
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "cursor_activate_skill",
+      "description": "Load full pi Agent Skill instructions for Cursor. Use with a skill name from the current <available_skills> catalog before applying that skill.",
+      "parameters": {
+        "type": "object",
+        "required": ["name"],
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "Skill name from the current <available_skills> catalog"
+          }
+        }
+      }
+    },
+    "_source": "pi-cursor-sdk"
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "ast_grep_search",
+      "description": "Search code using AST-aware pattern matching. IMPORTANT: Use specific AST patterns, NOT text search.\n\n✅ GOOD patterns (single AST node):\n  - function $NAME() { $$$BODY }     (function declaration)\n  - fetchMetrics($ARGS)               (function call)\n  - import { $NAMES } from \"$PATH\"   (import statement)\n  - console.log($MSG)                  (method call)\n\n❌ BAD patterns (multiple nodes / raw text):\n  - it\"test name\"                    (missing parens - use it($TEST))\n  - console.log without args          (incomplete code)\n  - arbitrary text without code structure\n\nAlways prefer specific patterns with context over bare identifiers. Use 'paths' to scope to specific files/folders. Avoid 'selector' unless you know the exact AST node kind; it narrows search roots and does not extract fields. Use 'context' to show surrounding lines. If zero matches, retry once with a simpler AST pattern before falling back to grep.",
+      "parameters": {
+        "type": "object",
+        "required": ["pattern", "lang"],
+        "properties": {
+          "pattern": {
+            "type": "string",
+            "description": "AST pattern (use function/class/call context, not text)"
+          },
+          "lang": {
+            "type": "string",
+            "enum": [
+              "bash",
+              "c",
+              "cpp",
+              "csharp",
+              "css",
+              "elixir",
+              "go",
+              "haskell",
+              "html",
+              "java",
+              "javascript",
+              "json",
+              "kotlin",
+              "lua",
+              "nix",
+              "php",
+              "python",
+              "ruby",
+              "rust",
+              "scala",
+              "solidity",
+              "swift",
+              "tsx",
+              "typescript",
+              "yaml"
+            ],
+            "description": "Target language"
+          },
+          "paths": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Specific files/folders to search"
+          },
+          "selector": {
+            "type": "string",
+            "description": "Advanced: restrict search to a specific AST node kind (for example 'call_expression' or 'function_declaration'). This narrows matching; it does not extract fields from matches."
+          },
+          "context": {
+            "type": "number",
+            "description": "Show N lines before/after each match for context"
+          },
+          "insideKind": {
+            "type": "string",
+            "description": "Restrict matches to nodes inside an ancestor of this AST node kind. Example: `insideKind: \"function_declaration\"` finds the pattern only when it appears inside a function body. Searches all ancestors (stopBy: end), not just the immediate parent. Synthesizes a YAML rule — takes precedence over `selector` and `strictness`."
+          },
+          "hasKind": {
+            "type": "string",
+            "description": "Restrict matches to nodes that contain a descendant of this AST node kind. Example: `hasKind: \"await_expression\"` finds the pattern only when it contains an await inside it."
+          },
+          "follows": {
+            "type": "string",
+            "description": "Restrict matches to nodes that immediately follow a sibling matching this pattern. Example: `follows: \"return $X\"` finds the pattern only when preceded by a return statement."
+          },
+          "precedes": {
+            "type": "string",
+            "description": "Restrict matches to nodes that immediately precede a sibling matching this pattern."
+          },
+          "rule": {
+            "type": "string",
+            "description": "Raw ast-grep YAML rule. When provided, routes through `sg scan --config` instead of `sg run -p`, unlocking the full rule DSL. Takes precedence over `pattern` and structural-intent params. The YAML must include `id` and `language` fields."
+          },
+          "skip": {
+            "type": "number",
+            "description": "Match offset for pagination. Skip the first N matches and return the next page. Use when results are truncated — increment by the page size to retrieve subsequent pages."
+          },
+          "strictness": {
+            "type": "string",
+            "enum": ["smart", "relaxed", "ast", "cst", "signature", "template"],
+            "description": "Pattern matching strictness. 'smart' (default) ignores comments and whitespace. 'relaxed' also ignores unnamed nodes like punctuation — useful when optional trailing commas cause misses. 'ast' ignores all whitespace. 'signature' matches only structural shape, ignoring bodies."
+          }
+        }
+      }
+    },
+    "_source": "pi-lens"
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "ast_grep_replace",
+      "description": "Replace code using AST-aware pattern matching. IMPORTANT: Use specific AST patterns, not text. Dry-run by default (use apply=true to apply).\n\n✅ GOOD patterns (single AST node):\n  - pattern='console.log($MSG)' rewrite='logger.info($MSG)'\n  - pattern='var $X' rewrite='let $X'\n  - pattern='function $NAME() { }' rewrite='' (delete)\n\n❌ BAD patterns (will error):\n  - Raw text without code structure\n  - Missing parentheses: use it($TEST) not it\"text\"\n  - Incomplete code fragments\n\nAlways use 'paths' to scope to specific files/folders. Dry-run first to preview changes.",
+      "parameters": {
+        "type": "object",
+        "required": ["pattern", "rewrite", "lang"],
+        "properties": {
+          "pattern": {
+            "type": "string",
+            "description": "AST pattern to match (be specific with context)"
+          },
+          "rewrite": {
+            "type": "string",
+            "description": "Replacement using meta-variables from pattern"
+          },
+          "lang": {
+            "type": "string",
+            "enum": [
+              "bash",
+              "c",
+              "cpp",
+              "csharp",
+              "css",
+              "elixir",
+              "go",
+              "haskell",
+              "html",
+              "java",
+              "javascript",
+              "json",
+              "kotlin",
+              "lua",
+              "nix",
+              "php",
+              "python",
+              "ruby",
+              "rust",
+              "scala",
+              "solidity",
+              "swift",
+              "tsx",
+              "typescript",
+              "yaml"
+            ],
+            "description": "Target language"
+          },
+          "paths": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Specific files/folders"
+          },
+          "insideKind": {
+            "type": "string",
+            "description": "Restrict matches to nodes inside an ancestor of this AST node kind. Synthesizes a YAML rule."
+          },
+          "hasKind": {
+            "type": "string",
+            "description": "Restrict matches to nodes that contain a descendant of this AST node kind."
+          },
+          "follows": {
+            "type": "string",
+            "description": "Restrict matches to nodes that immediately follow a sibling matching this pattern."
+          },
+          "precedes": {
+            "type": "string",
+            "description": "Restrict matches to nodes that immediately precede a sibling matching this pattern."
+          },
+          "apply": {
+            "type": "boolean",
+            "description": "Apply changes (default: false)"
+          },
+          "strictness": {
+            "type": "string",
+            "enum": ["smart", "relaxed", "ast", "cst", "signature", "template"],
+            "description": "Pattern matching strictness. 'smart' (default) ignores comments and whitespace. 'relaxed' also ignores unnamed nodes like punctuation. 'ast' ignores all whitespace."
+          }
+        }
+      }
+    },
+    "_source": "pi-lens"
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "ast_dump",
+      "description": "Dump the tree-sitter AST for a source snippet using ast-grep CLI. Use this when ast_grep_search returns zero matches and you need to discover exact node kinds, field names, or nesting. Named nodes only by default; includeAnonymous=true shows punctuation/CST nodes too.",
+      "parameters": {
+        "type": "object",
+        "required": ["source", "lang"],
+        "properties": {
+          "source": {
+            "type": "string",
+            "description": "Source code snippet to parse and dump"
+          },
+          "lang": {
+            "type": "string",
+            "enum": [
+              "bash",
+              "c",
+              "cpp",
+              "csharp",
+              "css",
+              "elixir",
+              "go",
+              "haskell",
+              "html",
+              "java",
+              "javascript",
+              "json",
+              "kotlin",
+              "lua",
+              "nix",
+              "php",
+              "python",
+              "ruby",
+              "rust",
+              "scala",
+              "solidity",
+              "swift",
+              "tsx",
+              "typescript",
+              "yaml"
+            ],
+            "description": "Target language"
+          },
+          "includeAnonymous": {
+            "type": "boolean",
+            "description": "Show anonymous punctuation/CST nodes too (default false)"
+          }
+        }
+      }
+    },
+    "_source": "pi-lens"
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "lens_diagnostics",
+      "description": "Query pi-lens's diagnostic state. mode=delta/all are cache-only and instant; mode=full is an expensive active project-wide LSP scan merged with cached runner state.\n\nIMPORTANT: unlike lsp_diagnostics (LSP only), this tool covers ALL dispatch runners: LSP errors, tree-sitter structural rules, ast-grep security rules, biome/ruff/eslint lint findings, complexity violations, and more.\n\nmode=delta (default): all warnings for the current agent turn — fixable warnings (actionable-warnings cache) AND code quality/style/complexity issues (code-quality-warnings cache). Same scope as the turn-end advisory, current turn only.\n\nmode=all: blocking errors and warnings — with the actual messages (line, rule, text), not just counts — for every file the agent has EDITED this session (files that went through the dispatch pipeline). NOTE: unedited files with pre-existing errors do NOT appear here — this is not a full project scan. Use before declaring work done; stale blocking errors from earlier turns are visible even if they dropped from turn-end context.\n\nmode=full: EXPENSIVE active scan. Runs project-wide LSP diagnostics for all supported files (including unedited files), then merges/deduplicates that with mode=all cached runner state. Optional refreshRunners=cheap also scans cheap project runners (tree-sitter + fact-rules) and caches them.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "mode": {
+            "type": "string",
+            "enum": ["delta", "all", "full"],
+            "description": "delta = current turn's fixable warnings (default). all = session diagnostics for edited/dispatched files. full = expensive active project-wide LSP scan plus cached runner diagnostics."
+          },
+          "refreshRunners": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "string",
+                "enum": ["cached", "cheap", "all", "none"]
+              }
+            ],
+            "description": "mode=full only: false/none = LSP + widget state only. cached = include cached project-runner snapshot. cheap = refresh tree-sitter + fact-rules first. all currently aliases cheap and is reserved for future heavyweight runners."
+          },
+          "maxProjectFiles": {
+            "type": "number",
+            "description": "mode=full refreshRunners=cheap/all only: cap project files scanned by cheap runners."
+          },
+          "severity": {
+            "type": "string",
+            "enum": ["error", "warning", "all"],
+            "description": "Filter by severity (default: all)."
+          }
+        }
+      }
+    },
+    "_source": "pi-lens"
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "lsp_diagnostics",
+      "description": "Get errors, warnings, and hints from language servers for a file or directory. Use BEFORE running builds to proactively check for issues. Works on directories by auto-detecting file extensions and scanning all matching files.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "filePath": {
+            "type": "string",
+            "description": "File or directory path to check. For directories, all matching source files are scanned."
+          },
+          "filePaths": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "minItems": 1,
+            "maxItems": 100,
+            "description": "Explicit files to check as a bounded-concurrency batch. When provided, filePath is ignored."
+          },
+          "severity": {
+            "type": "string",
+            "enum": ["error", "warning", "information", "hint", "all"],
+            "description": "Filter by severity level (default: all)"
+          },
+          "concurrency": {
+            "type": "number",
+            "description": "Batch/directory concurrency for opening files and collecting diagnostics. Default 8, max 16."
+          },
+          "waitMs": {
+            "type": "number",
+            "description": "Optional per-file LSP wait budget for batch diagnostics. Uses server defaults when omitted."
+          }
+        }
+      }
+    },
+    "_source": "pi-lens"
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "lsp_navigation",
+      "description": "Navigate code using LSP (Language Server Protocol). LSP is enabled by default; disable with --no-lsp.\nOperations:\n- definition: Jump to where a symbol is defined\n- references: Find all usages of a symbol\n- hover: Get type/doc info at a position\n- signatureHelp: Show callable signatures at cursor\n- documentSymbol: List all symbols (functions/classes/vars) in a file\n- findSymbol: Search document symbols in a file by name/detail with optional kind/top-level/exact filters\n- workspaceSymbol: Search symbols across the whole project (best with filePath context)\n- codeAction: Find available quick fixes/refactors at a range\n- rename: Compute or apply workspace edits for renaming a symbol\n- rename_file: Preview/apply LSP-aware source file rename notifications\n- implementation: Jump to interface implementations\n- prepareCallHierarchy: Get callable item at position (for incoming/outgoing)\n- incomingCalls: Find all functions/methods that CALL this function\n- outgoingCalls: Find all functions/methods CALLED by this function\n- workspaceDiagnostics: List all diagnostics tracked by active LSP clients\n- capabilities: Show cached operation support for active LSP servers\n\nLine and character are 1-based (as shown in editors). For position-based operations, prefer passing symbol when you know the line but not the exact character; character can be omitted or -1 and pi-lens will resolve the symbol column. Use symbol#N for repeated symbols on the same line (1-based occurrence).",
+      "parameters": {
+        "type": "object",
+        "required": ["operation"],
+        "properties": {
+          "operation": {
+            "type": "string",
+            "description": "LSP operation to perform. Valid values: definition, references, hover, signatureHelp, documentSymbol, findSymbol, workspaceSymbol, codeAction, rename, rename_file, implementation, prepareCallHierarchy, incomingCalls, outgoingCalls, workspaceDiagnostics, capabilities"
+          },
+          "filePath": {
+            "type": "string",
+            "description": "Absolute or relative file path. Required for file-scoped operations; optional for workspaceSymbol/workspaceDiagnostics."
+          },
+          "line": {
+            "type": "number",
+            "description": "Line number (1-based). Required for definition/references/hover/implementation"
+          },
+          "character": {
+            "type": "number",
+            "description": "Character offset (1-based). Optional when symbol is provided; use -1 to force symbol-column resolution."
+          },
+          "symbol": {
+            "type": "string",
+            "description": "Symbol name on the target line for automatic character resolution. Use symbol#N to select the Nth occurrence on the line."
+          },
+          "endLine": {
+            "type": "number",
+            "description": "End line (1-based). Optional; used by codeAction range."
+          },
+          "endCharacter": {
+            "type": "number",
+            "description": "End character (1-based). Optional; used by codeAction range."
+          },
+          "newName": {
+            "type": "string",
+            "description": "Required for rename operation."
+          },
+          "newFilePath": {
+            "type": "string",
+            "description": "Required for rename_file operation."
+          },
+          "apply": {
+            "type": "boolean",
+            "description": "rename only: apply the returned workspace edit to disk (default: false; preview only)."
+          },
+          "query": {
+            "type": "string",
+            "description": "Symbol name to search. Used by workspaceSymbol and findSymbol."
+          },
+          "kinds": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "findSymbol only: restrict matches to symbol kind labels such as function, class, method, variable, interface."
+          },
+          "exactMatch": {
+            "type": "boolean",
+            "description": "findSymbol only: match whole symbol names/details exactly instead of substring matching."
+          },
+          "topLevelOnly": {
+            "type": "boolean",
+            "description": "findSymbol only: do not search nested child symbols."
+          },
+          "maxResults": {
+            "type": "number",
+            "description": "findSymbol only: maximum matches to return. Default 20."
+          },
+          "callHierarchyItem": {
+            "type": "object",
+            "required": ["name", "kind", "uri", "range", "selectionRange"],
+            "properties": {
+              "name": {
+                "type": "string"
+              },
+              "kind": {
+                "type": "number"
+              },
+              "uri": {
+                "type": "string"
+              },
+              "range": {
+                "type": "object",
+                "required": ["start", "end"],
+                "properties": {
+                  "start": {
+                    "type": "object",
+                    "required": ["line", "character"],
+                    "properties": {
+                      "line": {
+                        "type": "number"
+                      },
+                      "character": {
+                        "type": "number"
+                      }
+                    }
+                  },
+                  "end": {
+                    "type": "object",
+                    "required": ["line", "character"],
+                    "properties": {
+                      "line": {
+                        "type": "number"
+                      },
+                      "character": {
+                        "type": "number"
+                      }
+                    }
+                  }
+                }
+              },
+              "selectionRange": {
+                "type": "object",
+                "required": ["start", "end"],
+                "properties": {
+                  "start": {
+                    "type": "object",
+                    "required": ["line", "character"],
+                    "properties": {
+                      "line": {
+                        "type": "number"
+                      },
+                      "character": {
+                        "type": "number"
+                      }
+                    }
+                  },
+                  "end": {
+                    "type": "object",
+                    "required": ["line", "character"],
+                    "properties": {
+                      "line": {
+                        "type": "number"
+                      },
+                      "character": {
+                        "type": "number"
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "description": "Call hierarchy item. Required for incomingCalls/outgoingCalls"
+          }
+        }
+      }
+    },
+    "_source": "pi-lens"
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "studio_repl_status",
+      "description": "Inspect Studio-visible tmux REPL sessions and the active Studio REPL session.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "sessionName": {
+            "description": "Exact Studio/pi-repl tmux session name to inspect.",
+            "type": "string"
+          },
+          "target": {
+            "description": "Optional runtime target: shell, python, ipython, julia, r, ghci, or clojure. If omitted, report all Studio-visible REPL sessions.",
+            "type": "string"
+          }
+        }
+      }
+    },
+    "_source": "pi-studio"
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "studio_repl_send",
+      "description": "Execute code in the active or selected Studio tmux-backed REPL session using Studio's safe runtime-specific submission protocol.",
+      "parameters": {
+        "type": "object",
+        "required": ["code"],
+        "properties": {
+          "code": {
+            "description": "Code to execute in the active or selected Studio REPL session.",
+            "type": "string"
+          },
+          "sessionName": {
+            "description": "Exact Studio/pi-repl tmux session name. If omitted, Studio uses the active REPL session, or the first session matching target.",
+            "type": "string"
+          },
+          "target": {
+            "description": "Optional runtime target: shell, python, ipython, julia, r, ghci, or clojure. Used when sessionName is omitted.",
+            "type": "string"
+          },
+          "timeoutMs": {
+            "description": "Maximum time to wait for completion when Studio can detect it (default 20000, max 120000).",
+            "minimum": 1000,
+            "maximum": 120000,
+            "type": "number"
+          }
+        }
+      }
+    },
+    "_source": "pi-studio"
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "studio_export_pdf",
+      "description": "Export Markdown/LaTeX content, a local file, or the last model response to PDF using the Studio PDF pipeline.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "path": {
+            "description": "Local Markdown/LaTeX/code file to export. Omit to export markdown or the last model response.",
+            "type": "string"
+          },
+          "markdown": {
+            "description": "Markdown or LaTeX content to export directly. Omit when exporting a file or the last model response.",
+            "type": "string"
+          },
+          "outputPath": {
+            "description": "Output PDF path. Relative paths resolve against the current working directory.",
+            "type": "string"
+          },
+          "resourceDir": {
+            "description": "Base directory for resolving relative images/assets when exporting direct markdown.",
+            "type": "string"
+          },
+          "title": {
+            "description": "Title/source label for direct markdown exports.",
+            "type": "string"
+          },
+          "inputFormat": {
+            "description": "Optional input format: auto, markdown, or latex. Defaults to auto.",
+            "type": "string"
+          },
+          "open": {
+            "description": "Open the exported PDF locally after writing it. Defaults to false for tool use.",
+            "type": "boolean"
+          },
+          "pdfOptions": {
+            "type": "object",
+            "properties": {
+              "fontsize": {
+                "description": "PDF body font size, e.g. 12pt.",
+                "type": "string"
+              },
+              "margin": {
+                "description": "PDF page margin, e.g. 25mm.",
+                "type": "string"
+              },
+              "marginTop": {
+                "description": "PDF top margin, e.g. 30mm.",
+                "type": "string"
+              },
+              "marginRight": {
+                "description": "PDF right margin, e.g. 25mm.",
+                "type": "string"
+              },
+              "marginBottom": {
+                "description": "PDF bottom margin, e.g. 30mm.",
+                "type": "string"
+              },
+              "marginLeft": {
+                "description": "PDF left margin, e.g. 25mm.",
+                "type": "string"
+              },
+              "footskip": {
+                "description": "PDF footer skip, e.g. 12mm.",
+                "type": "string"
+              },
+              "linestretch": {
+                "description": "PDF line stretch, e.g. 1.2.",
+                "type": "string"
+              },
+              "mainfont": {
+                "description": "PDF main font, e.g. TeX Gyre Pagella.",
+                "type": "string"
+              },
+              "papersize": {
+                "description": "PDF paper size, e.g. a4 or letter.",
+                "type": "string"
+              },
+              "geometry": {
+                "description": "Pandoc geometry spec. Use instead of margin fields.",
+                "type": "string"
+              },
+              "sectionSize": {
+                "description": "PDF section heading size, e.g. 24pt.",
+                "type": "string"
+              },
+              "subsectionSize": {
+                "description": "PDF subsection heading size, e.g. 18pt.",
+                "type": "string"
+              },
+              "subsubsectionSize": {
+                "description": "PDF subsubsection heading size, e.g. 14pt.",
+                "type": "string"
+              },
+              "sectionSpaceBefore": {
+                "description": "Space before section headings, e.g. 10mm.",
+                "type": "string"
+              },
+              "sectionSpaceAfter": {
+                "description": "Space after section headings, e.g. 6mm.",
+                "type": "string"
+              },
+              "subsectionSpaceBefore": {
+                "description": "Space before subsection headings, e.g. 8mm.",
+                "type": "string"
+              },
+              "subsectionSpaceAfter": {
+                "description": "Space after subsection headings, e.g. 4mm.",
+                "type": "string"
+              }
+            }
+          }
+        }
+      }
+    },
+    "_source": "pi-studio"
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "studio_export_html",
+      "description": "Export Markdown/LaTeX content, a local file, or the last model response to standalone HTML using the Studio preview pipeline.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "path": {
+            "description": "Local Markdown/LaTeX/code file to export. Omit to export markdown or the last model response.",
+            "type": "string"
+          },
+          "markdown": {
+            "description": "Markdown or LaTeX content to export directly. Omit when exporting a file or the last model response.",
+            "type": "string"
+          },
+          "outputPath": {
+            "description": "Output HTML path. Relative paths resolve against the current working directory.",
+            "type": "string"
+          },
+          "resourceDir": {
+            "description": "Base directory for resolving relative images/assets when exporting direct markdown.",
+            "type": "string"
+          },
+          "title": {
+            "description": "HTML document title/source label for direct markdown exports.",
+            "type": "string"
+          },
+          "inputFormat": {
+            "description": "Optional input format: auto, markdown, or latex. Defaults to auto.",
+            "type": "string"
+          },
+          "open": {
+            "description": "Open the exported HTML locally after writing it. Defaults to false for tool use.",
+            "type": "boolean"
+          }
+        }
+      }
+    },
+    "_source": "pi-studio"
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "memory",
+      "description": "Save durable information to persistent memory that survives across sessions. Memory is searchable in future turns, so keep it compact and focused on facts that will still matter later.\n\nWHEN TO SAVE (do this proactively, don't wait to be asked):\n- User corrects you or says 'remember this' / 'don't do that again'\n- User shares a preference, habit, or personal detail (name, role, timezone, coding style)\n- You discover something about the environment (OS, installed tools, project structure)\n- You learn a convention, API quirk, or workflow specific to this user's setup\n- You identify a stable fact that will be useful again in future sessions\n\nPRIORITY: User preferences and corrections > environment facts > procedural knowledge.\n\nDo NOT save task progress, session outcomes, completed-work logs, or temporary TODO state.\n\nTHREE TARGETS:\n- 'user': who the user is -- name, role, preferences, communication style, pet peeves\n- 'memory': your global notes -- environment facts, tool quirks, lessons learned (shared across all projects)\n- 'project': project-specific notes -- architecture decisions, API quirks, team norms, codebase conventions (scoped to current project)\n\nACTIONS: add (new entry), replace (update existing -- old_text identifies it), remove (delete -- old_text identifies it).",
+      "parameters": {
+        "type": "object",
+        "required": ["action", "target"],
+        "properties": {
+          "action": {
+            "type": "string",
+            "enum": ["add", "replace", "remove"]
+          },
+          "target": {
+            "type": "string",
+            "enum": ["memory", "user", "project", "failure"]
+          },
+          "content": {
+            "type": "string",
+            "description": "Entry content for add/replace"
+          },
+          "old_text": {
+            "type": "string",
+            "description": "Substring identifying entry for replace/remove"
+          },
+          "category": {
+            "type": "string",
+            "enum": ["failure", "correction", "insight", "preference", "convention", "tool-quirk"],
+            "description": "Category for failure memories"
+          },
+          "failure_reason": {
+            "type": "string",
+            "description": "Why it failed (for failure category)"
+          }
+        }
+      }
+    },
+    "_source": "pi-hermes-memory"
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "skill_manage",
+      "description": "Manage reusable procedures and patterns as Pi-native skills that survive across sessions. Skills are procedural memory — they capture HOW to do something, not just what happened.\n\nThis tool is intentionally named 'skill_manage' because it manages saved procedural skills; it is not a generic skill-discovery tool.\n\nUse create for a new skill, patch for a targeted section update, update for a full rewrite, view to inspect existing skills, and delete to remove obsolete ones. When creating a skill, scope is required: use global for portable workflows and project for procedures tied to this repo's paths, scripts, architecture, deploy steps, or conventions.\n\nWHEN TO CREATE A SKILL:\n- After completing a complex task that required trial and error or multiple tool calls\n- When you discover a non-obvious approach that could be reused\n- When the user teaches you a specific workflow or procedure\n\nSCOPE:\n- 'global': transferable procedures that can be reused across repositories\n- 'project': procedures tied to this repo's paths, scripts, architecture, deploy flow, or conventions\n\nWHEN TO UPDATE A SKILL (use 'patch'):\n- You discover a better approach for an existing skill\n- A pitfall or edge case not covered by the skill\n- A step in the procedure changed\n\nSKILL FORMAT:\n- name: short, descriptive (e.g., \"debug-typescript-errors\")\n- description: one-line summary of when to use it\n- body: structured with sections — ## When to Use, ## Procedure, ## Pitfalls, ## Verification\n- Prefer structured create/update fields over raw markdown when possible:\n  - when_to_use: trigger conditions and boundaries\n  - procedure_steps: ordered concrete steps\n  - pitfalls: caveats or failure modes\n  - verification_steps: checks that prove success\n\nONE-SHOT EXAMPLE:\n{\n  \"action\": \"create\",\n  \"name\": \"debug-typescript-errors\",\n  \"description\": \"Debug TypeScript build failures in this repo\",\n  \"scope\": \"project\",\n  \"when_to_use\": \"Use when TypeScript fails in this repo's workspace or CI.\",\n  \"procedure_steps\": [\n    \"Run pnpm tsc --noEmit to get the full error list.\",\n    \"Fix dependency or config errors before leaf-module errors.\",\n    \"Re-run the same command until it passes cleanly.\"\n  ],\n  \"pitfalls\": [\n    \"Do not trust editor-only diagnostics without the CLI output.\",\n    \"Do not stop after the first error if downstream modules are still failing.\"\n  ],\n  \"verification_steps\": [\n    \"pnpm tsc --noEmit exits successfully.\",\n    \"The failing CI TypeScript job passes.\"\n  ]\n}\n\nACTIONS: create (new skill), view (read full content or list), patch (update a section by skill_id), update (replace description + body by skill_id), delete (remove by skill_id).\n\nDo not use this tool to discover already-loaded external skills by name alone; use Pi's loaded skill context or explicit SKILL.md paths for that.",
+      "parameters": {
+        "type": "object",
+        "required": ["action"],
+        "properties": {
+          "action": {
+            "type": "string",
+            "enum": ["create", "view", "patch", "update", "edit", "delete"],
+            "description": "The skill action to perform."
+          },
+          "name": {
+            "type": "string",
+            "description": "Skill name for create. e.g., 'debug-typescript-errors'."
+          },
+          "skill_id": {
+            "type": "string",
+            "description": "Stable skill id for view/patch/update/delete. e.g., 'global:debug-typescript-errors' or 'project:my-repo:release-app'. Legacy alias 'edit' also accepts this field."
+          },
+          "description": {
+            "type": "string",
+            "description": "One-line description of when to use this skill. Required for create; optional for update/edit."
+          },
+          "scope": {
+            "type": "string",
+            "enum": ["global", "project"],
+            "description": "Required for create. Use 'global' for portable procedures and 'project' for repo-specific workflows."
+          },
+          "section": {
+            "type": "string",
+            "description": "Required for patch. Section header to patch. e.g., 'Procedure', 'Pitfalls'."
+          },
+          "content": {
+            "type": "string",
+            "description": "Raw markdown body for create/update/edit, or new section content for patch. For create/update/edit you can provide this or the structured fields below."
+          },
+          "when_to_use": {
+            "type": "string",
+            "description": "Structured create/update/edit field. Explain when this skill should be used and where its boundaries are."
+          },
+          "procedure_steps": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Structured create/update/edit field. Ordered concrete steps for the workflow."
+          },
+          "pitfalls": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Structured create/update/edit field. Optional common mistakes, caveats, or failure modes to avoid."
+          },
+          "verification_steps": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Structured create/update/edit field. Concrete checks that confirm the workflow succeeded."
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    "_source": "pi-hermes-memory"
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "session_search",
+      "description": "Search across past Pi coding sessions for relevant conversation context. Use this when the user asks about previous discussions, past work, or when you need context from earlier sessions.\n\nExamples:\n- \"What did we discuss about auth last week?\"\n- \"Find the PR where we fixed the test hang\"\n- \"What approach did we take for the database migration?\"\n\nReturns conversation snippets with session dates and project context.",
+      "parameters": {
+        "type": "object",
+        "required": ["query"],
+        "properties": {
+          "query": {
+            "type": "string",
+            "description": "Search query. Use natural language or specific terms."
+          },
+          "project": {
+            "type": "string",
+            "description": "Filter by project name (optional)."
+          },
+          "role": {
+            "type": "string",
+            "enum": ["user", "assistant"],
+            "description": "Filter by message role (optional)."
+          },
+          "limit": {
+            "type": "number",
+            "description": "Maximum results to return (default: 10, max: 20)."
+          }
+        }
+      }
+    },
+    "_source": "pi-hermes-memory"
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "memory_search",
+      "description": "Search extended memory store for relevant entries. Use this when you need context beyond what's in the system prompt — the extended store has unlimited capacity and is searchable.\n\nUse cases:\n- Find memories about a specific topic: \"What do I know about auth setup?\"\n- Search project-specific memories: \"What conventions does project X follow?\"\n- Find user preferences: \"What are the user's testing preferences?\"\n- Search for past failures: \"memory_search('auth', category='failure')\"\n\nReturns matching memory entries with project context and dates.",
+      "parameters": {
+        "type": "object",
+        "required": ["query"],
+        "properties": {
+          "query": {
+            "type": "string",
+            "description": "Search query. Use natural language or specific terms."
+          },
+          "project": {
+            "type": "string",
+            "description": "Filter by project name. Pass null for global memories only."
+          },
+          "target": {
+            "type": "string",
+            "enum": ["memory", "user", "failure"],
+            "description": "Filter by target type (memory, user, or failure)."
+          },
+          "category": {
+            "type": "string",
+            "enum": ["failure", "correction", "insight", "preference", "convention", "tool-quirk"],
+            "description": "Filter by memory category."
+          },
+          "limit": {
+            "type": "number",
+            "description": "Maximum results to return (default: 10, max: 20)."
+          }
+        }
+      }
+    },
+    "_source": "pi-hermes-memory"
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "mcp",
+      "description": "MCP gateway - connect to MCP servers and call their tools. Non-MCP Pi tools should be called directly, not through mcp.\n\nUsage:\n  mcp({ })                              → Show server status\n  mcp({ server: \"name\" })               → List tools from server\n  mcp({ search: \"query\" })              → Search MCP tools by name/description\n  mcp({ describe: \"tool_name\" })        → Show tool details and parameters\n  mcp({ connect: \"server-name\" })       → Connect to a server and refresh metadata\n  mcp({ tool: \"name\", args: '{\"key\": \"value\"}' })    → Call a tool (args is JSON string)\n  mcp({ action: \"ui-messages\" })        → Retrieve accumulated messages from completed UI sessions\n  mcp({ action: \"auth-start\", server: \"name\" })      → Start manual OAuth and get a browser URL\n  mcp({ action: \"auth-complete\", server: \"name\", args: '{\"redirectUrl\":\"...\"}' }) → Complete manual OAuth\n\nMode: action > tool (call) > connect > describe > search > server (list) > nothing (status)",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "tool": {
+            "type": "string",
+            "description": "Tool name to call (e.g., 'xcodebuild_list_sims')"
+          },
+          "args": {
+            "type": "string",
+            "description": "Arguments as JSON string (e.g., '{\"key\": \"value\"}')"
+          },
+          "connect": {
+            "type": "string",
+            "description": "Server name to connect (lazy connect + metadata refresh)"
+          },
+          "describe": {
+            "type": "string",
+            "description": "Tool name to describe (shows parameters)"
+          },
+          "search": {
+            "type": "string",
+            "description": "Search tools by name/description"
+          },
+          "regex": {
+            "type": "boolean",
+            "description": "Treat search as regex (default: substring match)"
+          },
+          "includeSchemas": {
+            "type": "boolean",
+            "description": "Include parameter schemas in search results (default: true)"
+          },
+          "server": {
+            "type": "string",
+            "description": "Filter to specific server (also disambiguates tool calls)"
+          },
+          "action": {
+            "type": "string",
+            "description": "Action: 'ui-messages', 'auth-start', or 'auth-complete'"
+          }
+        }
+      }
+    },
+    "_source": "pi-mcp-adapter"
+  }
+]
