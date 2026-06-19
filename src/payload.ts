@@ -3,6 +3,7 @@
 // and the top-level applyKimiPayloadMutations that orchestrates them.
 
 import type { CacheRetention, ThinkingLevel } from "@earendil-works/pi-ai";
+import type { KimiResolvedModelConfig, ModelReasoningEntry } from "./config.ts";
 
 import { getBaseUrl } from "./constants.ts";
 import { getCommonHeaders } from "./device.ts";
@@ -16,12 +17,6 @@ const DEFAULT_KIMI_INLINE_UPLOAD_THRESHOLD_BYTES = 1 * 1024 * 1024;
 
 export type JsonRecord = Record<string, unknown>;
 export type Uploader = (mimeType: string, data: string) => Promise<string | null>;
-
-export interface KimiEnvOverrides {
-  temperature?: number;
-  topP?: number;
-  maxCompletionTokens?: number;
-}
 
 export function resolveCacheRetention(value?: CacheRetention): CacheRetention {
   if (value === "none" || value === "short" || value === "long") return value;
@@ -38,31 +33,25 @@ export interface KimiPayloadContext {
   cacheKey?: string;
   cacheRetention: CacheRetention;
   reasoning?: ThinkingLevel;
-  thinkingKeep?: string;
-  envOverrides: KimiEnvOverrides;
-  supportsThinkingType?: "only" | "no" | "both";
+  modelConfig: KimiResolvedModelConfig;
 }
 
 export function isRecord(value: unknown): value is JsonRecord {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-function mapThinkingLevel(
-  level?: string,
-): { effort: string | undefined; enabled: boolean } | undefined {
-  if (!level) return undefined;
-  if (level === "none" || level === "off") return { effort: undefined, enabled: false };
-  if (level === "minimal" || level === "low") return { effort: "low", enabled: true };
-  if (level === "medium") return { effort: "medium", enabled: true };
-  if (level === "high" || level === "xhigh") return { effort: "high", enabled: true };
-  return undefined;
+export function resolveReasoningForLevel(
+  level: string,
+  config: KimiResolvedModelConfig,
+): ModelReasoningEntry | undefined {
+  return config.reasoningMap[level];
 }
 
 function resolveThinkingLevel(ctx: KimiPayloadContext): ThinkingLevel | undefined {
-  if (ctx.supportsThinkingType === "no") return undefined;
-  if (ctx.supportsThinkingType === "only") {
+  if (ctx.modelConfig.supportsThinkingType === "no") return undefined;
+  if (ctx.modelConfig.supportsThinkingType === "only") {
     if (!ctx.reasoning) return "low";
-    const mapped = mapThinkingLevel(ctx.reasoning);
+    const mapped = resolveReasoningForLevel(ctx.reasoning, ctx.modelConfig);
     if (mapped && !mapped.enabled) return "low";
   }
   return ctx.reasoning;
@@ -95,17 +84,6 @@ function getUploadFilename(mimeType: string): string {
   return map[mimeType] ?? "upload.bin";
 }
 
-export function readEnvOverrides(): KimiEnvOverrides {
-  const out: KimiEnvOverrides = {};
-  const temp = process.env.KIMI_MODEL_TEMPERATURE;
-  if (temp) out.temperature = parseFloat(temp);
-  const topP = process.env.KIMI_MODEL_TOP_P;
-  if (topP) out.topP = parseFloat(topP);
-  const maxCompletionTokens = process.env.KIMI_MODEL_MAX_COMPLETION_TOKENS;
-  if (maxCompletionTokens) out.maxCompletionTokens = parseInt(maxCompletionTokens, 10);
-  return out;
-}
-
 // =============================================================================
 // File upload (I/O edge)
 // =============================================================================
@@ -114,10 +92,12 @@ export async function uploadKimiFile(
   apiKey: string,
   mimeType: string,
   data: string,
+  thresholdBytes?: number,
 ): Promise<string | null> {
   const buffer = Buffer.from(data, "base64");
   if (!mimeType.startsWith("image/")) return null;
-  const threshold = parseInlineUploadThreshold(process.env.KIMI_CODE_UPLOAD_THRESHOLD_BYTES);
+  const threshold =
+    thresholdBytes ?? parseInlineUploadThreshold(process.env.KIMI_CODE_UPLOAD_THRESHOLD_BYTES);
   if (buffer.length <= threshold) return null;
 
   const filename = getUploadFilename(mimeType);
@@ -454,11 +434,11 @@ export async function applyKimiPayloadMutations(
     delete payload.max_tokens;
   }
 
-  const { temperature, topP, maxCompletionTokens } = ctx.envOverrides;
-  if (temperature !== undefined) payload.temperature = temperature;
-  if (topP !== undefined) payload.top_p = topP;
-  if (maxCompletionTokens !== undefined) {
-    payload.max_completion_tokens = maxCompletionTokens;
+  const generation = ctx.modelConfig.generation;
+  if (generation.temperature !== undefined) payload.temperature = generation.temperature;
+  if (generation.topP !== undefined) payload.top_p = generation.topP;
+  if (generation.maxCompletionTokens !== undefined) {
+    payload.max_completion_tokens = generation.maxCompletionTokens;
   }
 
   // 5. Spread extra_body into top-level payload before reasoning mapping,
@@ -477,9 +457,9 @@ export async function applyKimiPayloadMutations(
   //    field (which may have come from extra_body above).
   const resolvedReasoning = resolveThinkingLevel(ctx);
   if (resolvedReasoning) {
-    const mapped = mapThinkingLevel(resolvedReasoning);
+    const mapped = resolveReasoningForLevel(resolvedReasoning, ctx.modelConfig);
     if (mapped) {
-      if (mapped.effort !== undefined) {
+      if (mapped.effort !== null) {
         payload.reasoning_effort = mapped.effort;
       } else {
         delete payload.reasoning_effort;
@@ -489,8 +469,8 @@ export async function applyKimiPayloadMutations(
         ...oldThinking,
         type: mapped.enabled ? "enabled" : "disabled",
       };
-      if (mapped.enabled && ctx.thinkingKeep) {
-        (payload.thinking as JsonRecord).keep = ctx.thinkingKeep;
+      if (mapped.enabled && ctx.modelConfig.thinkingKeep) {
+        (payload.thinking as JsonRecord).keep = ctx.modelConfig.thinkingKeep;
       }
     }
   }

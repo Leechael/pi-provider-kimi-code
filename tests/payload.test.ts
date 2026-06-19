@@ -1,12 +1,13 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import type { ThinkingLevel } from "@earendil-works/pi-ai";
+import { DEFAULT_KIMI_CODE_CONFIG, type KimiResolvedModelConfig } from "../src/config.ts";
 import {
   applyKimiPayloadMutations,
   type JsonRecord,
   type KimiPayloadContext,
-  readEnvOverrides,
   resolveCacheRetention,
+  resolveReasoningForLevel,
 } from "../src/payload.ts";
 import {
   filterEmptyResponseStream,
@@ -14,10 +15,12 @@ import {
   resolveKimiApiKey,
 } from "../src/stream.ts";
 
+const defaultModelConfig: KimiResolvedModelConfig = { ...DEFAULT_KIMI_CODE_CONFIG.model };
+
 const baseCtx = (overrides: Partial<KimiPayloadContext> = {}): KimiPayloadContext => ({
   api: "anthropic-messages",
   cacheRetention: "short",
-  envOverrides: {},
+  modelConfig: defaultModelConfig,
   ...overrides,
 });
 
@@ -278,7 +281,7 @@ describe("applyKimiPayloadMutations", () => {
     };
     await applyKimiPayloadMutations(
       enabledPayload,
-      baseCtx({ reasoning: "high", thinkingKeep: "all" }),
+      baseCtx({ reasoning: "high", modelConfig: { ...defaultModelConfig, thinkingKeep: "all" } }),
     );
     assert.deepEqual(enabledPayload.thinking, { type: "enabled", keep: "all" });
 
@@ -287,7 +290,10 @@ describe("applyKimiPayloadMutations", () => {
     };
     await applyKimiPayloadMutations(
       disabledPayload,
-      baseCtx({ reasoning: "none" as ThinkingLevel, thinkingKeep: "all" }),
+      baseCtx({
+        reasoning: "none" as ThinkingLevel,
+        modelConfig: { ...defaultModelConfig, thinkingKeep: "all" },
+      }),
     );
     assert.deepEqual(disabledPayload.thinking, { type: "disabled" });
     assert.equal(disabledPayload.reasoning_effort, undefined);
@@ -317,7 +323,7 @@ describe("applyKimiPayloadMutations", () => {
     assert.equal(payload.max_completion_tokens, undefined);
   });
 
-  it("lets max completion token env override win over payload max_tokens", async () => {
+  it("lets model config maxCompletionTokens override payload max_tokens", async () => {
     const payload: JsonRecord = {
       messages: [{ role: "user", content: "hi" }],
       max_tokens: 128,
@@ -325,7 +331,10 @@ describe("applyKimiPayloadMutations", () => {
 
     await applyKimiPayloadMutations(
       payload,
-      baseCtx({ api: "openai-completions", envOverrides: { maxCompletionTokens: 32000 } }),
+      baseCtx({
+        api: "openai-completions",
+        modelConfig: { ...defaultModelConfig, generation: { maxCompletionTokens: 32000 } },
+      }),
     );
 
     assert.equal(payload.max_tokens, undefined);
@@ -339,7 +348,10 @@ describe("applyKimiPayloadMutations", () => {
 
     await applyKimiPayloadMutations(
       payload,
-      baseCtx({ reasoning: "high", supportsThinkingType: "no" }),
+      baseCtx({
+        reasoning: "high",
+        modelConfig: { ...defaultModelConfig, supportsThinkingType: "no" },
+      }),
     );
 
     assert.equal(payload.reasoning_effort, undefined);
@@ -353,11 +365,14 @@ describe("applyKimiPayloadMutations", () => {
 
     await applyKimiPayloadMutations(
       payload,
-      baseCtx({ reasoning: "none" as ThinkingLevel, supportsThinkingType: "only" }),
+      baseCtx({
+        reasoning: "none" as ThinkingLevel,
+        modelConfig: { ...defaultModelConfig, supportsThinkingType: "only" },
+      }),
     );
 
     assert.equal(payload.reasoning_effort, "low");
-    assert.deepEqual(payload.thinking, { type: "enabled" });
+    assert.deepEqual(payload.thinking, { type: "enabled", keep: "all" });
   });
 
   it("preserves caller reasoning when supportsThinkingType is 'only' and caller already enabled", async () => {
@@ -367,11 +382,14 @@ describe("applyKimiPayloadMutations", () => {
 
     await applyKimiPayloadMutations(
       payload,
-      baseCtx({ reasoning: "high", supportsThinkingType: "only" }),
+      baseCtx({
+        reasoning: "high",
+        modelConfig: { ...defaultModelConfig, supportsThinkingType: "only" },
+      }),
     );
 
     assert.equal(payload.reasoning_effort, "high");
-    assert.deepEqual(payload.thinking, { type: "enabled" });
+    assert.deepEqual(payload.thinking, { type: "enabled", keep: "all" });
   });
 
   it("forces thinking enabled when supportsThinkingType is 'only' and reasoning is missing", async () => {
@@ -379,10 +397,13 @@ describe("applyKimiPayloadMutations", () => {
       messages: [{ role: "user", content: "hi" }],
     };
 
-    await applyKimiPayloadMutations(payload, baseCtx({ supportsThinkingType: "only" }));
+    await applyKimiPayloadMutations(
+      payload,
+      baseCtx({ modelConfig: { ...defaultModelConfig, supportsThinkingType: "only" } }),
+    );
 
     assert.equal(payload.reasoning_effort, "low");
-    assert.deepEqual(payload.thinking, { type: "enabled" });
+    assert.deepEqual(payload.thinking, { type: "enabled", keep: "all" });
   });
 
   it("behaves normally when supportsThinkingType is 'both'", async () => {
@@ -392,31 +413,39 @@ describe("applyKimiPayloadMutations", () => {
 
     await applyKimiPayloadMutations(
       payload,
-      baseCtx({ reasoning: "high", supportsThinkingType: "both" }),
+      baseCtx({
+        reasoning: "high",
+        modelConfig: { ...defaultModelConfig, supportsThinkingType: "both" },
+      }),
     );
 
     assert.equal(payload.reasoning_effort, "high");
-    assert.deepEqual(payload.thinking, { type: "enabled" });
+    assert.deepEqual(payload.thinking, { type: "enabled", keep: "all" });
   });
 });
 
-describe("readEnvOverrides", () => {
-  it("reads only KIMI_MODEL_MAX_COMPLETION_TOKENS for completion token caps", () => {
-    const oldCompletion = process.env.KIMI_MODEL_MAX_COMPLETION_TOKENS;
-    const oldLegacy = process.env.KIMI_MODEL_MAX_TOKENS;
-    try {
-      delete process.env.KIMI_MODEL_MAX_COMPLETION_TOKENS;
-      process.env.KIMI_MODEL_MAX_TOKENS = "32000";
-      assert.equal(readEnvOverrides().maxCompletionTokens, undefined);
+describe("resolveReasoningForLevel", () => {
+  it("returns mapped reasoning entries from model config", () => {
+    assert.deepEqual(resolveReasoningForLevel("none", defaultModelConfig), {
+      effort: null,
+      enabled: false,
+    });
+    assert.deepEqual(resolveReasoningForLevel("off", defaultModelConfig), {
+      effort: null,
+      enabled: false,
+    });
+    assert.deepEqual(resolveReasoningForLevel("minimal", defaultModelConfig), {
+      effort: "low",
+      enabled: true,
+    });
+    assert.deepEqual(resolveReasoningForLevel("xhigh", defaultModelConfig), {
+      effort: "high",
+      enabled: true,
+    });
+  });
 
-      process.env.KIMI_MODEL_MAX_COMPLETION_TOKENS = "64000";
-      assert.equal(readEnvOverrides().maxCompletionTokens, 64000);
-    } finally {
-      if (oldCompletion === undefined) delete process.env.KIMI_MODEL_MAX_COMPLETION_TOKENS;
-      else process.env.KIMI_MODEL_MAX_COMPLETION_TOKENS = oldCompletion;
-      if (oldLegacy === undefined) delete process.env.KIMI_MODEL_MAX_TOKENS;
-      else process.env.KIMI_MODEL_MAX_TOKENS = oldLegacy;
-    }
+  it("returns undefined for unknown reasoning levels", () => {
+    assert.equal(resolveReasoningForLevel("unknown", defaultModelConfig), undefined);
   });
 });
 

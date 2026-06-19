@@ -9,20 +9,37 @@ import { join } from "node:path";
 export const CLIENT_ID = "17e5f671-d194-4dfb-9706-5516cb48c098";
 export const DEFAULT_OAUTH_HOST = "https://auth.kimi.com";
 
-// KIMI_CODE_PROTOCOL supports two values: "openai" (default) and "anthropic".
-export const IS_OPENAI_PROTOCOL = process.env.KIMI_CODE_PROTOCOL !== "anthropic";
+export type KimiWireProtocol = "openai" | "anthropic";
 
-export const PROTOCOL = IS_OPENAI_PROTOCOL ? "openai-completions" : "anthropic-messages";
+// KIMI_CODE_PROTOCOL supports two values: "openai" (default) and "anthropic".
+export const ENV_KIMI_CODE_PROTOCOL: KimiWireProtocol =
+  process.env.KIMI_CODE_PROTOCOL === "anthropic" ? "anthropic" : "openai";
+
+export const IS_OPENAI_PROTOCOL = ENV_KIMI_CODE_PROTOCOL === "openai";
+
+export function getApiProtocol(
+  protocol: KimiWireProtocol,
+): "openai-completions" | "anthropic-messages" {
+  return protocol === "openai" ? "openai-completions" : "anthropic-messages";
+}
+
+export const PROTOCOL = getApiProtocol(ENV_KIMI_CODE_PROTOCOL);
+
+export function getKimiApiType(
+  protocol: KimiWireProtocol,
+): "kimi-openai-completions" | "kimi-anthropic-messages" {
+  return protocol === "openai" ? "kimi-openai-completions" : "kimi-anthropic-messages";
+}
 
 // Use a custom api identifier so this provider never conflicts with the
 // built-in "anthropic-messages" or "openai-completions" stream handlers.
-export const KIMI_API_TYPE = IS_OPENAI_PROTOCOL
-  ? "kimi-openai-completions"
-  : "kimi-anthropic-messages";
+export const KIMI_API_TYPE = getKimiApiType(ENV_KIMI_CODE_PROTOCOL);
 
-export const DEFAULT_BASE_URL = IS_OPENAI_PROTOCOL
-  ? "https://api.kimi.com/coding/v1"
-  : "https://api.kimi.com/coding";
+export function getDefaultBaseUrl(protocol: KimiWireProtocol): string {
+  return protocol === "openai" ? "https://api.kimi.com/coding/v1" : "https://api.kimi.com/coding";
+}
+
+export const DEFAULT_BASE_URL = getDefaultBaseUrl(ENV_KIMI_CODE_PROTOCOL);
 
 export const KIMI_CODE_VERSION = "0.6.0";
 export const KIMI_CODE_USER_AGENT = `kimi-code-cli/${KIMI_CODE_VERSION}`;
@@ -47,7 +64,8 @@ export function getOAuthHost(): string {
   return value.trim() || DEFAULT_OAUTH_HOST;
 }
 
-export function getBaseUrl(): string {
-  const value = process.env.KIMI_CODE_BASE_URL || process.env.KIMI_BASE_URL || DEFAULT_BASE_URL;
-  return value.trim() || DEFAULT_BASE_URL;
+export function getBaseUrl(protocol: KimiWireProtocol = ENV_KIMI_CODE_PROTOCOL): string {
+  const defaultBaseUrl = getDefaultBaseUrl(protocol);
+  const value = process.env.KIMI_CODE_BASE_URL || process.env.KIMI_BASE_URL || defaultBaseUrl;
+  return value.trim() || defaultBaseUrl;
 }

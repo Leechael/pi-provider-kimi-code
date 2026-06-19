@@ -17,18 +17,34 @@ import {
   streamSimpleAnthropic,
   streamSimpleOpenAICompletions,
 } from "@earendil-works/pi-ai";
+import {
+  DEFAULT_KIMI_CODE_CONFIG,
+  type KimiCodeConfig,
+  type KimiResolvedModelConfig,
+} from "./config.ts";
 
-import { IS_OPENAI_PROTOCOL, PROTOCOL } from "./constants.ts";
+import { ENV_KIMI_CODE_PROTOCOL, getApiProtocol, getBaseUrl } from "./constants.ts";
 import { getCommonHeaders } from "./device.ts";
 import { isKimiAuthErrorMessage, refreshKimiAuthToken } from "./oauth.ts";
 import {
   type Uploader,
   applyKimiPayloadMutations,
   isRecord,
-  readEnvOverrides,
   resolveCacheRetention,
   uploadKimiFile,
 } from "./payload.ts";
+
+interface KimiStreamRuntimeConfig {
+  model: KimiResolvedModelConfig;
+  protocol: KimiCodeConfig["protocol"];
+  uploads: KimiCodeConfig["uploads"];
+}
+
+let resolvedStore: KimiStreamRuntimeConfig | null = null;
+
+export function setStoreResolvedKimiConfig(config: KimiStreamRuntimeConfig): void {
+  resolvedStore = config;
+}
 
 // =============================================================================
 // Event stream filter: suppress Kimi "(Empty response: ...)" text blocks
@@ -163,8 +179,21 @@ export function streamSimpleKimi(
   )?.prompt_cache_key;
   const cacheKey = (typeof cacheKeyOverride === "string" && cacheKeyOverride) || options?.sessionId;
   const cacheRetention = resolveCacheRetention(options?.cacheRetention);
-  const envOverrides = readEnvOverrides();
-  const thinkingKeep = process.env.KIMI_MODEL_THINKING_KEEP;
+  const streamConfig = resolvedStore ?? {
+    model: {
+      contextWindow: model.contextWindow,
+      maxTokens: model.maxTokens,
+      input: ["text"],
+      reasoning: model.reasoning,
+      reasoningMap: {},
+      thinkingKeep: null,
+      generation: {},
+    },
+    protocol: ENV_KIMI_CODE_PROTOCOL,
+    uploads: DEFAULT_KIMI_CODE_CONFIG.uploads,
+  };
+  const modelConfig = streamConfig.model;
+  const apiProtocol = getApiProtocol(streamConfig.protocol);
   const originalOnPayload = options?.onPayload;
   // The pi-side model id ("kimi-for-coding") is what users select via /model
   // and what gets persisted into sessions. The wire model id discovered at
@@ -172,13 +201,10 @@ export function streamSimpleKimi(
   // the model object via modifyModels and rewritten into the request payload
   // here so /v1/chat/completions and /v1/messages see the real wire id.
   const wireModelId = (model as Model<Api> & { wireModelId?: unknown }).wireModelId;
-  const supportsThinkingType = (
-    model as Model<Api> & { supportsThinkingType?: "only" | "no" | "both" }
-  ).supportsThinkingType;
-
   const buildPatchedOptions = (apiKey: string): SimpleStreamOptions => {
     const upload: Uploader | undefined = apiKey
-      ? (mimeType, data) => uploadKimiFile(apiKey, mimeType, data)
+      ? (mimeType, data) =>
+          uploadKimiFile(apiKey, mimeType, data, streamConfig.uploads.thresholdBytes)
       : undefined;
     // Only forward apiKey if we actually have one — never override the
     // caller's credential (e.g. Claude Code OAuth token) with an empty string.
@@ -192,14 +218,12 @@ export function streamSimpleKimi(
 
         if (isRecord(nextPayload)) {
           await applyKimiPayloadMutations(nextPayload, {
-            api: PROTOCOL,
+            api: apiProtocol,
             upload,
             cacheKey,
             cacheRetention,
             reasoning: options?.reasoning,
-            thinkingKeep,
-            envOverrides,
-            supportsThinkingType,
+            modelConfig,
           });
           if (
             typeof wireModelId === "string" &&
@@ -230,13 +254,23 @@ export function streamSimpleKimi(
       // register with a custom api type (kimi-openai-completions /
       // kimi-anthropic-messages) to avoid overriding the built-in
       // Anthropic/OpenAI stream handlers.
-      const upstream = IS_OPENAI_PROTOCOL
-        ? streamSimpleOpenAICompletions(
-            model as Model<"openai-completions">,
-            context,
-            patchedOptions,
-          )
-        : streamSimpleAnthropic(model as Model<"anthropic-messages">, context, patchedOptions);
+      const runtimeModel = {
+        ...model,
+        api: apiProtocol,
+        baseUrl: getBaseUrl(streamConfig.protocol),
+      } as Model<Api>;
+      const upstream =
+        streamConfig.protocol === "openai"
+          ? streamSimpleOpenAICompletions(
+              runtimeModel as Model<"openai-completions">,
+              context,
+              patchedOptions,
+            )
+          : streamSimpleAnthropic(
+              runtimeModel as Model<"anthropic-messages">,
+              context,
+              patchedOptions,
+            );
 
       let shouldRetry = false;
       let prefixBuffer: AssistantMessageEvent[] = [];

@@ -3,11 +3,12 @@ import assert from "node:assert/strict";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { DEFAULT_KIMI_CODE_CONFIG } from "../src/config.ts";
 import { DEFAULT_KIMI_MODEL_INPUT, PROVIDER_ID } from "../src/constants.ts";
 import {
-  applyKimiEnvOverridesToModel,
   applyKimiOAuthExtrasToModel,
   discoverKimiModelMetadata,
+  resolveKimiModelConfig,
 } from "../src/models.ts";
 import {
   isKimiAuthErrorMessage,
@@ -109,7 +110,7 @@ describe("discoverKimiModelMetadata", () => {
     assert.equal(result.supportsImageIn, true);
   });
 
-  it("falls back to the first entry when no kimi-for-coding is present", async () => {
+  it("returns empty when no kimi-for-coding is present", async () => {
     mock = mockFetch(() =>
       jsonResponse({
         data: [{ id: "k2p7-beta", display_name: "Beta K2.7", context_length: 1048576 }],
@@ -117,14 +118,24 @@ describe("discoverKimiModelMetadata", () => {
     );
 
     const result = await discoverKimiModelMetadata("tok-1");
-    assert.equal(result.wireModelId, "k2p7-beta");
-    assert.equal(result.modelDisplay, "Beta K2.7");
-    assert.equal(result.contextLength, 1048576);
+    assert.deepEqual(result, {});
   });
 
   it("returns empty when the server replies non-2xx", async () => {
     mock = mockFetch(() => new Response("nope", { status: 401 }));
     const result = await discoverKimiModelMetadata("tok-1");
+    assert.deepEqual(result, {});
+  });
+
+  it("returns empty when model discovery times out", async () => {
+    mock = mockFetch(
+      ({ init }) =>
+        new Promise<Response>((_resolve, reject) => {
+          init?.signal?.addEventListener("abort", () => reject(new Error("aborted")));
+        }),
+    );
+
+    const result = await discoverKimiModelMetadata("tok-1", undefined, { timeoutMs: 1 });
     assert.deepEqual(result, {});
   });
 
@@ -285,6 +296,27 @@ describe("applyKimiOAuthExtrasToModel", () => {
     assert.equal(bothResult.supportsThinkingType, "both");
   });
 
+  it("preserves image input when only video support is reported false", () => {
+    const model: Model<Api> = {
+      id: "kimi-for-coding",
+      name: "Kimi for Coding",
+      provider: "kimi-coding",
+      api: "kimi-openai-completions" as Api,
+      baseUrl: "https://api.kimi.com/coding/v1",
+      reasoning: false,
+      input: ["text", "image"],
+      cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+      contextWindow: 262144,
+      maxTokens: 32000,
+    };
+
+    const result = applyKimiOAuthExtrasToModel(model, {
+      supportsVideoIn: false,
+    }) as Model<Api> & { input: string[] };
+
+    assert.deepEqual(result.input, ["text", "image"]);
+  });
+
   it("does not set supportsThinkingType when not in extras", () => {
     const model: Model<Api> = {
       id: "kimi-for-coding",
@@ -329,94 +361,19 @@ describe("applyKimiOAuthExtrasToModel", () => {
   });
 });
 
-describe("DEFAULT_KIMI_MODEL_INPUT", () => {
-  it("advertises text and image input by default", () => {
-    assert.deepEqual([...DEFAULT_KIMI_MODEL_INPUT], ["text", "image"]);
+describe("resolveKimiModelConfig", () => {
+  it("preserves configured image input when only video support is reported false", () => {
+    const result = resolveKimiModelConfig(DEFAULT_KIMI_CODE_CONFIG.model, {
+      supportsVideoIn: false,
+    });
+
+    assert.deepEqual(result.input, ["text", "image"]);
   });
 });
 
-describe("applyKimiEnvOverridesToModel", () => {
-  it("applies official Kimi model env overrides to the registered model", () => {
-    process.env.KIMI_MODEL_NAME = "kimi-k2-custom";
-    process.env.KIMI_MODEL_MAX_CONTEXT_SIZE = "1048576";
-    process.env.KIMI_MODEL_CAPABILITIES = "thinking,image_in";
-
-    const model: Model<Api> = {
-      id: "kimi-for-coding",
-      name: "Kimi for Coding",
-      provider: "kimi-coding",
-      api: "kimi-openai-completions" as Api,
-      baseUrl: "https://api.kimi.com/coding/v1",
-      reasoning: false,
-      input: ["text"],
-      cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-      contextWindow: 262144,
-      maxTokens: 32000,
-    };
-
-    const result = applyKimiEnvOverridesToModel(model) as Model<Api> & {
-      wireModelId?: string;
-      input: string[];
-      supportsThinkingType?: "only" | "no" | "both";
-    };
-
-    assert.equal(result.id, "kimi-for-coding");
-    assert.equal(result.name, "kimi-k2-custom");
-    assert.equal(result.wireModelId, "kimi-k2-custom");
-    assert.equal(result.contextWindow, 1048576);
-    assert.equal(result.reasoning, true);
-    assert.equal(result.supportsThinkingType, "both");
-    assert.deepEqual(result.input, ["text", "image"]);
-  });
-
-  it("maps always_thinking env capability to supportsThinkingType only", () => {
-    process.env.KIMI_MODEL_CAPABILITIES = "always_thinking,image_in";
-
-    const model: Model<Api> = {
-      id: "kimi-for-coding",
-      name: "Kimi for Coding",
-      provider: "kimi-coding",
-      api: "kimi-openai-completions" as Api,
-      baseUrl: "https://api.kimi.com/coding/v1",
-      reasoning: false,
-      input: ["text"],
-      cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-      contextWindow: 262144,
-      maxTokens: 32000,
-    };
-
-    const result = applyKimiEnvOverridesToModel(model) as Model<Api> & {
-      supportsThinkingType?: "only" | "no" | "both";
-    };
-
-    assert.equal(result.reasoning, true);
-    assert.equal(result.supportsThinkingType, "only");
-  });
-
-  it("maps official capabilities exactly when provided", () => {
-    process.env.KIMI_MODEL_CAPABILITIES = "image_in";
-
-    const model: Model<Api> = {
-      id: "kimi-for-coding",
-      name: "Kimi for Coding",
-      provider: "kimi-coding",
-      api: "kimi-openai-completions" as Api,
-      baseUrl: "https://api.kimi.com/coding/v1",
-      reasoning: true,
-      input: ["text", "image"],
-      cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-      contextWindow: 262144,
-      maxTokens: 32000,
-    };
-
-    const result = applyKimiEnvOverridesToModel(model) as Model<Api> & {
-      input: string[];
-      supportsThinkingType?: "only" | "no" | "both";
-    };
-
-    assert.equal(result.reasoning, false);
-    assert.equal(result.supportsThinkingType, "no");
-    assert.deepEqual(result.input, ["text", "image"]);
+describe("DEFAULT_KIMI_MODEL_INPUT", () => {
+  it("advertises text and image input by default", () => {
+    assert.deepEqual([...DEFAULT_KIMI_MODEL_INPUT], ["text", "image"]);
   });
 });
 

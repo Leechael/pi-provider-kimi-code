@@ -11,7 +11,11 @@ import type {
   RegisteredCommand,
   ToolDefinition,
 } from "@earendil-works/pi-coding-agent";
-import { KIMI_TOOL_NAMES } from "../src/config.ts";
+import {
+  DEFAULT_KIMI_CODE_CONFIG,
+  KIMI_TOOL_NAMES,
+  getProjectKimiCodeConfigPath,
+} from "../src/config.ts";
 import { PROVIDER_ID } from "../src/constants.ts";
 import registerKimiCodeExtension from "../index.ts";
 
@@ -19,13 +23,20 @@ function tempDir(name: string): string {
   return mkdtempSync(join(tmpdir(), `${name}-`));
 }
 
-function withCwd<T>(cwd: string, fn: () => T): T {
+async function withCwd<T>(cwd: string, fn: () => T | Promise<T>): Promise<T> {
   const originalCwd = process.cwd();
+  const originalHome = process.env.HOME;
   process.chdir(cwd);
+  process.env.HOME = cwd;
   try {
-    return fn();
+    return await fn();
   } finally {
     process.chdir(originalCwd);
+    if (originalHome === undefined) {
+      delete process.env.HOME;
+    } else {
+      process.env.HOME = originalHome;
+    }
   }
 }
 
@@ -89,11 +100,11 @@ function makePi() {
 }
 
 describe("extension tool registration", () => {
-  it("does not register Moonshot tools when config is missing", () => {
+  it("does not register Moonshot tools when config is missing", async () => {
     const cwd = tempDir("kimi-extension-cwd");
     const { commands, pi, providers, tools } = makePi();
 
-    withCwd(cwd, () => registerKimiCodeExtension(pi));
+    await withCwd(cwd, () => registerKimiCodeExtension(pi));
 
     assert.deepEqual(providers, ["kimi-coding"]);
     assert.deepEqual(
@@ -103,27 +114,27 @@ describe("extension tool registration", () => {
     assert.ok(commands.has("kimi-settings"));
   });
 
-  it("registers KIMI_API_KEY with explicit pi config-value env syntax", () => {
+  it("registers KIMI_API_KEY with explicit pi config-value env syntax", async () => {
     const cwd = tempDir("kimi-extension-cwd");
     const { pi, providerConfigs } = makePi();
 
-    withCwd(cwd, () => registerKimiCodeExtension(pi));
+    await withCwd(cwd, () => registerKimiCodeExtension(pi));
 
     assert.equal(providerConfigs.get("kimi-coding")?.apiKey, "$KIMI_API_KEY");
   });
 
-  it("does not register dynamic Kimi identity headers as pi config values", () => {
+  it("does not register dynamic Kimi identity headers as pi config values", async () => {
     const cwd = tempDir("kimi-extension-cwd");
     const { pi, providerConfigs } = makePi();
 
-    withCwd(cwd, () => registerKimiCodeExtension(pi));
+    await withCwd(cwd, () => registerKimiCodeExtension(pi));
 
     assert.equal(providerConfigs.get("kimi-coding")?.headers, undefined);
   });
 
-  it("registers only enabled Moonshot tools", () => {
+  it("registers only enabled Moonshot tools", async () => {
     const cwd = tempDir("kimi-extension-cwd");
-    const configPath = join(cwd, ".pi", "pi-provider-kimi-code.json");
+    const configPath = getProjectKimiCodeConfigPath(cwd);
     mkdirSync(join(configPath, ".."), { recursive: true });
     writeFileSync(
       configPath,
@@ -137,7 +148,7 @@ describe("extension tool registration", () => {
     );
     const { pi, tools } = makePi();
 
-    withCwd(cwd, () => registerKimiCodeExtension(pi));
+    await withCwd(cwd, () => registerKimiCodeExtension(pi));
 
     assert.deepEqual(
       tools.map((tool) => tool.name),
@@ -152,12 +163,12 @@ describe("extension tool registration", () => {
       undefined as never,
       undefined as never,
     );
-    assert.match(component.render(80).join("\n"), /"url": "https:\/\/example.com"/);
+    assert.match(component.render(80).join("\n"), /https:\/\/example.com/);
   });
 
   it("shows effective tool sources in /kimi-settings", async () => {
     const cwd = tempDir("kimi-extension-cwd");
-    const configPath = join(cwd, ".pi", "pi-provider-kimi-code.json");
+    const configPath = getProjectKimiCodeConfigPath(cwd);
     mkdirSync(join(configPath, ".."), { recursive: true });
     writeFileSync(
       configPath,
@@ -181,7 +192,7 @@ describe("extension tool registration", () => {
       });
 
     try {
-      withCwd(cwd, () => registerKimiCodeExtension(pi));
+      await withCwd(cwd, () => registerKimiCodeExtension(pi));
       const kimiCommand = commands.get("kimi-settings");
       assert.ok(kimiCommand);
 
@@ -255,7 +266,7 @@ describe("extension tool registration", () => {
     };
 
     try {
-      withCwd(cwd, () => registerKimiCodeExtension(pi));
+      await withCwd(cwd, () => registerKimiCodeExtension(pi));
       const kimiCommand = commands.get("kimi-settings");
       assert.ok(kimiCommand);
 
@@ -282,13 +293,83 @@ describe("extension tool registration", () => {
     assert.match(notifications[0], /Weekly limit: \[####################\] 99% left \(99\/100\)/);
   });
 
+  it("writes protocol and upload threshold from /kimi-settings", async () => {
+    const cwd = tempDir("kimi-extension-cwd");
+    const configPath = getProjectKimiCodeConfigPath(cwd);
+    mkdirSync(join(configPath, ".."), { recursive: true });
+    writeFileSync(configPath, JSON.stringify(DEFAULT_KIMI_CODE_CONFIG), "utf8");
+    const { commands, pi } = makePi();
+    const choices = [
+      "Edit project config (.pi/providers/kimi-coding/config.json)",
+      "Protocol -> openai",
+      "Use anthropic protocol",
+      "Upload threshold -> 1 MiB",
+      "Back",
+      "Done",
+    ];
+    const inputs = ["2 MiB"];
+    const titles: string[] = [];
+    const notifications: string[] = [];
+    const originalFetch = globalThis.fetch;
+    const originalKimiApiKey = process.env.KIMI_API_KEY;
+    process.env.KIMI_API_KEY = "test-key";
+    globalThis.fetch = async () =>
+      new Response(JSON.stringify({ usage: { limit: 100, remaining: 100 } }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+
+    try {
+      await withCwd(cwd, () => registerKimiCodeExtension(pi));
+      const kimiCommand = commands.get("kimi-settings");
+      assert.ok(kimiCommand);
+
+      await kimiCommand.handler("", {
+        cwd,
+        ui: {
+          select: async (title: string) => {
+            titles.push(title);
+            return choices.shift();
+          },
+          input: async () => inputs.shift(),
+          notify: (message: string) => {
+            notifications.push(message);
+          },
+        },
+      } as unknown as ExtensionCommandContext);
+    } finally {
+      globalThis.fetch = originalFetch;
+      if (originalKimiApiKey === undefined) {
+        delete process.env.KIMI_API_KEY;
+      } else {
+        process.env.KIMI_API_KEY = originalKimiApiKey;
+      }
+    }
+
+    assert.match(titles[0], /Protocol: openai \(project\)/);
+    assert.match(titles.at(-1) ?? "", /Protocol: anthropic \(project\)/);
+    assert.match(titles.at(-1) ?? "", /Upload threshold: 2 MiB \(project\)/);
+    assert.deepEqual(JSON.parse(readFileSync(configPath, "utf8")), {
+      ...DEFAULT_KIMI_CODE_CONFIG,
+      uploads: { thresholdBytes: 2097152 },
+      protocol: "anthropic",
+    });
+    assert.deepEqual(notifications, [
+      "Weekly limit: [####################] 100% left (100/100)",
+      "Saved protocol config",
+      "Saved upload threshold config",
+    ]);
+  });
+
   it("writes project config and updates active tools from /kimi-settings", async () => {
     const cwd = tempDir("kimi-extension-cwd");
-    const configPath = join(cwd, ".pi", "pi-provider-kimi-code.json");
+    const configPath = getProjectKimiCodeConfigPath(cwd);
+    mkdirSync(join(configPath, ".."), { recursive: true });
+    writeFileSync(configPath, JSON.stringify(DEFAULT_KIMI_CODE_CONFIG), "utf8");
     const { commands, getActiveTools, pi, setActiveTools, tools } = makePi();
     setActiveTools(["shell", "moonshot_fetch"]);
     const choices = [
-      "Edit project config (.pi/pi-provider-kimi-code.json)",
+      "Edit project config (.pi/providers/kimi-coding/config.json)",
       "moonshot_search -> disabled, default collapsed",
       "Enable moonshot_search",
       "moonshot_fetch -> disabled, default collapsed",
@@ -315,7 +396,7 @@ describe("extension tool registration", () => {
       );
 
     try {
-      withCwd(cwd, () => registerKimiCodeExtension(pi));
+      await withCwd(cwd, () => registerKimiCodeExtension(pi));
       const kimiCommand = commands.get("kimi-settings");
       assert.ok(kimiCommand);
 
@@ -345,9 +426,10 @@ describe("extension tool registration", () => {
     assert.match(notifications[0], /Weekly limit: \[################----\] 80% left \(80\/100\)/);
     assert.match(notifications[0], /5h rate limit: \[###############-----\] 75% left \(150\/200\)/);
     assert.match(titles[0], /^Kimi settings/);
-    assert.match(titles[0], /moonshot_search: disabled \(default\)/);
-    assert.match(titles[0], /kimi_datasource: disabled \(default\)/);
+    assert.match(titles[0], /moonshot_search: disabled \(project\)/);
+    assert.match(titles[0], /kimi_datasource: disabled \(project\)/);
     assert.deepEqual(JSON.parse(readFileSync(configPath, "utf8")), {
+      ...DEFAULT_KIMI_CODE_CONFIG,
       tools: Object.fromEntries(
         KIMI_TOOL_NAMES.map((name) => [
           name,

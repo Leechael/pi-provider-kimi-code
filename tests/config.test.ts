@@ -5,11 +5,22 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import {
+  ConfigError,
+  DEFAULT_KIMI_CODE_CONFIG,
   KIMI_TOOL_NAMES,
+  clearRuntimeKimiCodeConfigOverride,
+  ensureKimiCodeConfig,
+  getGlobalKimiCodeConfigPath,
+  getProjectKimiCodeConfigPath,
+  loadHomeKimiCodeConfig,
   loadKimiCodeConfig,
   loadKimiCodeConfigSources,
+  loadProjectKimiCodeConfig,
+  replaceRuntimeKimiCodeConfigOverride,
   saveHomeKimiCodeConfig,
   saveProjectKimiCodeConfig,
+  setRuntimeKimiCodeConfigOverride,
+  validateKimiCodeConfig,
   type KimiCodeConfig,
 } from "../src/config.ts";
 
@@ -22,12 +33,14 @@ function writeJson(path: string, value: unknown): void {
   writeFileSync(path, JSON.stringify(value), "utf8");
 }
 
-function defaultTools(overrides?: Partial<KimiCodeConfig["tools"]>): KimiCodeConfig["tools"] {
-  const tools = {} as KimiCodeConfig["tools"];
-  for (const name of KIMI_TOOL_NAMES) {
-    tools[name] = overrides?.[name] ?? { enabled: false, default_collapsed: true };
-  }
-  return tools;
+function config(overrides: Partial<KimiCodeConfig> = {}): KimiCodeConfig {
+  return {
+    ...DEFAULT_KIMI_CODE_CONFIG,
+    ...overrides,
+    model: { ...DEFAULT_KIMI_CODE_CONFIG.model, ...overrides.model },
+    tools: { ...DEFAULT_KIMI_CODE_CONFIG.tools, ...overrides.tools },
+    uploads: { ...DEFAULT_KIMI_CODE_CONFIG.uploads, ...overrides.uploads },
+  };
 }
 
 describe("loadKimiCodeConfig", () => {
@@ -35,223 +48,163 @@ describe("loadKimiCodeConfig", () => {
     const cwd = tempDir("kimi-config-cwd");
     const home = tempDir("kimi-config-home");
 
-    assert.deepEqual(loadKimiCodeConfig({ cwd, home }), {
-      tools: defaultTools(),
-    });
+    assert.deepEqual(loadKimiCodeConfig({ cwd, home, env: {} }), DEFAULT_KIMI_CODE_CONFIG);
   });
 
-  it("reads global config", () => {
+  it("merges home, project, env, and runtime overrides in priority order", () => {
     const cwd = tempDir("kimi-config-cwd");
     const home = tempDir("kimi-config-home");
-    writeJson(join(home, ".pi", "pi-provider-kimi-code.json"), {
+    writeJson(getGlobalKimiCodeConfigPath(home), {
+      model: { maxTokens: 16000 },
       tools: { moonshot_search: { enabled: true } },
     });
-
-    assert.deepEqual(loadKimiCodeConfig({ cwd, home }), {
-      tools: defaultTools({
-        moonshot_search: { enabled: true, default_collapsed: true },
-      }),
-    });
-  });
-
-  it("deep-merges project config over global config", () => {
-    const cwd = tempDir("kimi-config-cwd");
-    const home = tempDir("kimi-config-home");
-    writeJson(join(home, ".pi", "pi-provider-kimi-code.json"), {
-      tools: {
-        moonshot_search: { enabled: true },
-        moonshot_fetch: { enabled: false },
-      },
-    });
-    writeJson(join(cwd, ".pi", "pi-provider-kimi-code.json"), {
-      tools: { moonshot_fetch: { enabled: true } },
+    writeJson(getProjectKimiCodeConfigPath(cwd), {
+      model: { maxTokens: 24000 },
+      tools: { moonshot_search: { default_collapsed: false } },
     });
 
-    assert.deepEqual(loadKimiCodeConfig({ cwd, home }), {
-      tools: defaultTools({
-        moonshot_search: { enabled: true, default_collapsed: true },
-        moonshot_fetch: { enabled: true, default_collapsed: true },
-      }),
-    });
-  });
-
-  it("reports whether effective tool fields come from home, project, or defaults", () => {
-    const cwd = tempDir("kimi-config-cwd");
-    const home = tempDir("kimi-config-home");
-    writeJson(join(home, ".pi", "pi-provider-kimi-code.json"), {
-      tools: {
-        moonshot_search: { enabled: true, default_collapsed: false },
-        moonshot_fetch: { enabled: true },
-      },
-    });
-    writeJson(join(cwd, ".pi", "pi-provider-kimi-code.json"), {
-      tools: {
-        moonshot_fetch: { enabled: false },
-      },
-    });
-
-    const sources = loadKimiCodeConfigSources({ cwd, home });
-
-    assert.equal(sources.tools.moonshot_search.enabled, "home");
-    assert.equal(sources.tools.moonshot_search.default_collapsed, "home");
-    assert.equal(sources.tools.moonshot_fetch.enabled, "project");
-    assert.equal(sources.tools.moonshot_fetch.default_collapsed, "default");
-    assert.equal(sources.tools.kimi_datasource.enabled, "default");
-  });
-
-  it("reads default_collapsed when explicitly configured", () => {
-    const cwd = tempDir("kimi-config-cwd");
-    const home = tempDir("kimi-config-home");
-    writeJson(join(cwd, ".pi", "pi-provider-kimi-code.json"), {
-      tools: {
-        moonshot_search: { enabled: true, default_collapsed: false },
-        moonshot_fetch: { enabled: false, default_collapsed: true },
-      },
-    });
-
-    assert.deepEqual(loadKimiCodeConfig({ cwd, home }), {
-      tools: defaultTools({
-        moonshot_search: { enabled: true, default_collapsed: false },
-      }),
-    });
-  });
-
-  it("lets project config disable a globally enabled tool", () => {
-    const cwd = tempDir("kimi-config-cwd");
-    const home = tempDir("kimi-config-home");
-    writeJson(join(home, ".pi", "pi-provider-kimi-code.json"), {
-      tools: { moonshot_search: { enabled: true } },
-    });
-    writeJson(join(cwd, ".pi", "pi-provider-kimi-code.json"), {
-      tools: { moonshot_search: { enabled: false } },
-    });
-
-    assert.deepEqual(loadKimiCodeConfig({ cwd, home }), {
-      tools: defaultTools({
-        moonshot_search: { enabled: false, default_collapsed: true },
-      }),
-    });
-  });
-
-  it("ignores malformed JSON and logs an error", () => {
-    const cwd = tempDir("kimi-config-cwd");
-    const home = tempDir("kimi-config-home");
-    const configPath = join(home, ".pi", "pi-provider-kimi-code.json");
-    mkdirSync(join(configPath, ".."), { recursive: true });
-    writeFileSync(configPath, "{", "utf8");
-
-    const originalError = console.error;
-    const errors: unknown[][] = [];
-    console.error = (...args: unknown[]) => errors.push(args);
     try {
-      assert.deepEqual(loadKimiCodeConfig({ cwd, home }), {
-        tools: defaultTools(),
+      setRuntimeKimiCodeConfigOverride({ model: { generation: { maxCompletionTokens: 64000 } } });
+      const loaded = loadKimiCodeConfig({
+        cwd,
+        home,
+        env: { KIMI_MODEL_MAX_COMPLETION_TOKENS: "32000" },
       });
-      assert.equal(errors.length, 1);
+
+      assert.equal(loaded.model.maxTokens, 24000);
+      assert.equal(loaded.model.generation.maxCompletionTokens, 64000);
+      assert.equal(loaded.tools.moonshot_search.enabled, true);
+      assert.equal(loaded.tools.moonshot_search.default_collapsed, false);
     } finally {
-      console.error = originalError;
+      clearRuntimeKimiCodeConfigOverride();
     }
   });
 
-  it("returns the full default-shaped object when one nested key is set", () => {
+  it("reports effective field sources", () => {
     const cwd = tempDir("kimi-config-cwd");
     const home = tempDir("kimi-config-home");
-    writeJson(join(cwd, ".pi", "pi-provider-kimi-code.json"), {
-      tools: { moonshot_search: { enabled: true } },
+    writeJson(getGlobalKimiCodeConfigPath(home), {
+      tools: { moonshot_search: { enabled: true, default_collapsed: false } },
+    });
+    writeJson(getProjectKimiCodeConfigPath(cwd), {
+      tools: { moonshot_fetch: { enabled: false } },
     });
 
-    assert.deepEqual(loadKimiCodeConfig({ cwd, home }), {
-      tools: defaultTools({
-        moonshot_search: { enabled: true, default_collapsed: true },
-      }),
-    });
+    try {
+      replaceRuntimeKimiCodeConfigOverride({ uploads: { thresholdBytes: 2048 } });
+      const sources = loadKimiCodeConfigSources({
+        cwd,
+        home,
+        env: { KIMI_MODEL_MAX_COMPLETION_TOKENS: "32000" },
+      });
+
+      assert.equal(sources.tools.moonshot_search.enabled, "home");
+      assert.equal(sources.tools.moonshot_fetch.enabled, "project");
+      assert.equal(sources.model.generation.maxCompletionTokens, "env");
+      assert.equal(sources.uploads.thresholdBytes, "runtime");
+      assert.equal(sources.tools.kimi_datasource.enabled, "default");
+    } finally {
+      clearRuntimeKimiCodeConfigOverride();
+    }
   });
 
-  it("saves project config and preserves unrelated keys", () => {
+  it("maps KIMI_MODEL_* env vars into config", () => {
     const cwd = tempDir("kimi-config-cwd");
-    const configPath = join(cwd, ".pi", "pi-provider-kimi-code.json");
-    writeJson(configPath, {
-      model: { name: "custom" },
-      tools: {
-        other_tool: { enabled: true },
-        moonshot_search: { enabled: true, default_collapsed: false },
+    const home = tempDir("kimi-config-home");
+
+    const loaded = loadKimiCodeConfig({
+      cwd,
+      home,
+      env: {
+        KIMI_MODEL_MAX_CONTEXT_SIZE: "512000",
+        KIMI_MODEL_TEMPERATURE: "0.2",
+        KIMI_MODEL_TOP_P: "0.8",
+        KIMI_MODEL_MAX_COMPLETION_TOKENS: "12345",
+        KIMI_MODEL_THINKING_KEEP: "last",
+        KIMI_CODE_UPLOAD_THRESHOLD_BYTES: "4096",
       },
     });
 
-    saveProjectKimiCodeConfig(cwd, {
-      tools: defaultTools({
-        moonshot_search: { enabled: false, default_collapsed: true },
-        moonshot_fetch: { enabled: true, default_collapsed: false },
-      }),
+    assert.equal(loaded.model.contextWindow, 512000);
+    assert.deepEqual(loaded.model.generation, {
+      temperature: 0.2,
+      topP: 0.8,
+      maxCompletionTokens: 12345,
     });
-
-    assert.deepEqual(JSON.parse(readFileSync(configPath, "utf8")), {
-      model: { name: "custom" },
-      tools: {
-        other_tool: { enabled: true },
-        ...Object.fromEntries(
-          KIMI_TOOL_NAMES.map((name) => [
-            name,
-            name === "moonshot_search"
-              ? { enabled: false, default_collapsed: true }
-              : name === "moonshot_fetch"
-                ? { enabled: true, default_collapsed: false }
-                : { enabled: false, default_collapsed: true },
-          ]),
-        ),
-      },
-    });
+    assert.equal(loaded.model.thinkingKeep, "last");
+    assert.equal(loaded.uploads.thresholdBytes, 4096);
   });
 
-  it("overwrites a malformed project config with the resolved shape", () => {
+  it("throws ConfigError with a JSON pointer for invalid merged config", () => {
     const cwd = tempDir("kimi-config-cwd");
-    const configPath = join(cwd, ".pi", "pi-provider-kimi-code.json");
-    mkdirSync(join(configPath, ".."), { recursive: true });
-    writeFileSync(configPath, "{", "utf8");
-
-    saveProjectKimiCodeConfig(cwd, {
-      tools: defaultTools({
-        moonshot_search: { enabled: true, default_collapsed: true },
-        moonshot_fetch: { enabled: false, default_collapsed: false },
-      }),
+    const home = tempDir("kimi-config-home");
+    writeJson(getProjectKimiCodeConfigPath(cwd), {
+      model: { maxTokens: "32000" },
     });
 
-    assert.deepEqual(JSON.parse(readFileSync(configPath, "utf8")), {
-      tools: Object.fromEntries(
-        KIMI_TOOL_NAMES.map((name) => [
-          name,
-          name === "moonshot_search"
-            ? { enabled: true, default_collapsed: true }
-            : name === "moonshot_fetch"
-              ? { enabled: false, default_collapsed: false }
-              : { enabled: false, default_collapsed: true },
-        ]),
-      ),
-    });
+    assert.throws(
+      () => loadKimiCodeConfig({ cwd, home, env: {} }),
+      (error: unknown) => error instanceof ConfigError && error.pointer === "/model/maxTokens",
+    );
   });
 
-  it("saves home config at ~/.pi/pi-provider-kimi-code.json", () => {
+  it("throws on malformed JSON config files", () => {
+    const cwd = tempDir("kimi-config-cwd");
     const home = tempDir("kimi-config-home");
-    const configPath = join(home, ".pi", "pi-provider-kimi-code.json");
+    const path = getGlobalKimiCodeConfigPath(home);
+    mkdirSync(join(path, ".."), { recursive: true });
+    writeFileSync(path, "{", "utf8");
 
-    saveHomeKimiCodeConfig(home, {
-      tools: defaultTools({
-        moonshot_search: { enabled: true, default_collapsed: false },
-        moonshot_fetch: { enabled: false, default_collapsed: true },
+    assert.throws(
+      () => loadKimiCodeConfig({ cwd, home, env: {} }),
+      (error: unknown) => error instanceof ConfigError && error.message.includes("invalid JSON"),
+    );
+  });
+});
+
+describe("validateKimiCodeConfig", () => {
+  it("accepts complete config and skips null generation values", () => {
+    const loaded = validateKimiCodeConfig(
+      config({
+        model: { ...DEFAULT_KIMI_CODE_CONFIG.model, generation: { temperature: null as never } },
       }),
-    });
+    );
 
-    assert.deepEqual(JSON.parse(readFileSync(configPath, "utf8")), {
-      tools: Object.fromEntries(
-        KIMI_TOOL_NAMES.map((name) => [
-          name,
-          name === "moonshot_search"
-            ? { enabled: true, default_collapsed: false }
-            : name === "moonshot_fetch"
-              ? { enabled: false, default_collapsed: true }
-              : { enabled: false, default_collapsed: true },
-        ]),
-      ),
-    });
+    assert.deepEqual(loaded.model.generation, {});
+  });
+
+  it("preserves all known tools", () => {
+    const loaded = validateKimiCodeConfig(DEFAULT_KIMI_CODE_CONFIG);
+
+    assert.deepEqual(Object.keys(loaded.tools).sort(), [...KIMI_TOOL_NAMES].sort());
+  });
+});
+
+describe("layer config file helpers", () => {
+  it("bootstraps config file when missing", () => {
+    const home = tempDir("kimi-config-home");
+    const path = getGlobalKimiCodeConfigPath(home);
+
+    assert.equal(ensureKimiCodeConfig(home), true);
+    assert.equal(ensureKimiCodeConfig(home), false);
+    assert.deepEqual(JSON.parse(readFileSync(path, "utf8")), DEFAULT_KIMI_CODE_CONFIG);
+  });
+
+  it("loads and saves home config", () => {
+    const home = tempDir("kimi-config-home");
+    const next = config({ model: { ...DEFAULT_KIMI_CODE_CONFIG.model, maxTokens: 12345 } });
+
+    saveHomeKimiCodeConfig(home, next);
+
+    assert.deepEqual(loadHomeKimiCodeConfig(home), next);
+  });
+
+  it("loads and saves project config", () => {
+    const cwd = tempDir("kimi-config-cwd");
+    const next = config({ uploads: { thresholdBytes: 2048 } });
+
+    saveProjectKimiCodeConfig(cwd, next);
+
+    assert.deepEqual(loadProjectKimiCodeConfig(cwd), next);
   });
 });
