@@ -163,7 +163,7 @@ describe("extension tool registration", () => {
       undefined as never,
       undefined as never,
     );
-    assert.match(component.render(80).join("\n"), /Example|https:\/\/example.com/);
+    assert.match(component.render(80).join("\n"), /https:\/\/example.com/);
   });
 
   it("shows effective tool sources in /kimi-settings", async () => {

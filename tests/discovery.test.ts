@@ -3,8 +3,13 @@ import assert from "node:assert/strict";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { DEFAULT_KIMI_CODE_CONFIG } from "../src/config.ts";
 import { DEFAULT_KIMI_MODEL_INPUT, PROVIDER_ID } from "../src/constants.ts";
-import { applyKimiOAuthExtrasToModel, discoverKimiModelMetadata } from "../src/models.ts";
+import {
+  applyKimiOAuthExtrasToModel,
+  discoverKimiModelMetadata,
+  resolveKimiModelConfig,
+} from "../src/models.ts";
 import {
   isKimiAuthErrorMessage,
   refreshAccessToken,
@@ -119,6 +124,18 @@ describe("discoverKimiModelMetadata", () => {
   it("returns empty when the server replies non-2xx", async () => {
     mock = mockFetch(() => new Response("nope", { status: 401 }));
     const result = await discoverKimiModelMetadata("tok-1");
+    assert.deepEqual(result, {});
+  });
+
+  it("returns empty when model discovery times out", async () => {
+    mock = mockFetch(
+      ({ init }) =>
+        new Promise<Response>((_resolve, reject) => {
+          init?.signal?.addEventListener("abort", () => reject(new Error("aborted")));
+        }),
+    );
+
+    const result = await discoverKimiModelMetadata("tok-1", undefined, { timeoutMs: 1 });
     assert.deepEqual(result, {});
   });
 
@@ -279,6 +296,27 @@ describe("applyKimiOAuthExtrasToModel", () => {
     assert.equal(bothResult.supportsThinkingType, "both");
   });
 
+  it("preserves image input when only video support is reported false", () => {
+    const model: Model<Api> = {
+      id: "kimi-for-coding",
+      name: "Kimi for Coding",
+      provider: "kimi-coding",
+      api: "kimi-openai-completions" as Api,
+      baseUrl: "https://api.kimi.com/coding/v1",
+      reasoning: false,
+      input: ["text", "image"],
+      cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+      contextWindow: 262144,
+      maxTokens: 32000,
+    };
+
+    const result = applyKimiOAuthExtrasToModel(model, {
+      supportsVideoIn: false,
+    }) as Model<Api> & { input: string[] };
+
+    assert.deepEqual(result.input, ["text", "image"]);
+  });
+
   it("does not set supportsThinkingType when not in extras", () => {
     const model: Model<Api> = {
       id: "kimi-for-coding",
@@ -320,6 +358,16 @@ describe("applyKimiOAuthExtrasToModel", () => {
     }) as Model<Api> & { supportsThinkingType?: "only" | "no" | "both" };
     assert.equal(result.reasoning, false);
     assert.equal(result.supportsThinkingType, undefined);
+  });
+});
+
+describe("resolveKimiModelConfig", () => {
+  it("preserves configured image input when only video support is reported false", () => {
+    const result = resolveKimiModelConfig(DEFAULT_KIMI_CODE_CONFIG.model, {
+      supportsVideoIn: false,
+    });
+
+    assert.deepEqual(result.input, ["text", "image"]);
   });
 });
 

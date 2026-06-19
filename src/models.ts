@@ -2,7 +2,7 @@
 // extras-merging helpers used by both registration and the OAuth modifyModels hook.
 
 import type { Api, Model, OAuthCredentials } from "@earendil-works/pi-ai";
-import type { KimiResolvedModelConfig, ModelConfig } from "./config.ts";
+import type { KimiInputModality, KimiResolvedModelConfig, ModelConfig } from "./config.ts";
 
 import { type KimiWireProtocol, getBaseUrl } from "./constants.ts";
 import { getCommonHeaders } from "./device.ts";
@@ -18,6 +18,29 @@ export interface KimiOAuthExtras {
 }
 
 export type KimiOAuthCredentials = OAuthCredentials & KimiOAuthExtras;
+
+const DEFAULT_DISCOVERY_TIMEOUT_MS = 2500;
+
+export interface DiscoverKimiModelMetadataOptions {
+  timeoutMs?: number;
+}
+
+function mergeInputModalities(
+  input: readonly KimiInputModality[],
+  extras: Partial<Pick<KimiOAuthExtras, "supportsImageIn" | "supportsVideoIn">>,
+): KimiInputModality[] {
+  const next = new Set<KimiInputModality>(input);
+  next.add("text");
+  if (typeof extras.supportsImageIn === "boolean") {
+    if (extras.supportsImageIn) next.add("image");
+    else next.delete("image");
+  }
+  if (typeof extras.supportsVideoIn === "boolean") {
+    if (extras.supportsVideoIn) next.add("video");
+    else next.delete("video");
+  }
+  return (["text", "image", "video"] as const).filter((modality) => next.has(modality));
+}
 
 export function buildKimiModelFromConfig(config: ModelConfig): Model<Api> {
   return {
@@ -46,9 +69,7 @@ export function resolveKimiModelConfig(
     resolved.reasoning = extras.supportsReasoning;
   }
   if (typeof extras.supportsImageIn === "boolean" || typeof extras.supportsVideoIn === "boolean") {
-    resolved.input = ["text"];
-    if (extras.supportsImageIn) resolved.input.push("image");
-    if (extras.supportsVideoIn) resolved.input.push("video");
+    resolved.input = mergeInputModalities(resolved.input, extras);
   }
   return resolved;
 }
@@ -80,10 +101,16 @@ function getModelsUrl(protocol?: KimiWireProtocol): string {
 export async function discoverKimiModelMetadata(
   accessToken: string,
   protocol?: KimiWireProtocol,
+  options: DiscoverKimiModelMetadataOptions = {},
 ): Promise<KimiOAuthExtras> {
   if (!accessToken) return {};
+  const timeoutMs = options.timeoutMs ?? DEFAULT_DISCOVERY_TIMEOUT_MS;
+  const controller = new AbortController();
+  const timeout =
+    timeoutMs > 0 ? setTimeout(() => controller.abort(), timeoutMs).unref() : undefined;
   try {
     const response = await fetch(getModelsUrl(protocol), {
+      signal: controller.signal,
       headers: {
         ...getCommonHeaders(),
         Authorization: `Bearer ${accessToken}`,
@@ -115,6 +142,8 @@ export async function discoverKimiModelMetadata(
     return extras;
   } catch {
     return {};
+  } finally {
+    if (timeout) clearTimeout(timeout);
   }
 }
 
@@ -141,9 +170,7 @@ export function applyKimiOAuthExtrasToModel(
     next.supportsThinkingType = undefined;
   }
   if (typeof extras.supportsImageIn === "boolean" || typeof extras.supportsVideoIn === "boolean") {
-    const input = ["text"];
-    if (extras.supportsImageIn) input.push("image");
-    if (extras.supportsVideoIn) input.push("video");
+    const input = mergeInputModalities(next.input as KimiInputModality[], extras);
     (next as unknown as { input: string[] }).input = input;
   }
   return next;
