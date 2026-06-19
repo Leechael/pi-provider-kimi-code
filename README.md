@@ -30,8 +30,10 @@ Kimi's API surface goes beyond the LLM itself. It includes file uploads, web sea
 - OpenAI-compatible mode by default, Anthropic-compatible mode on request.
 - Kimi K2.7 reasoning level mapping for Pi's reasoning controls.
 - Tool schema dedup to stay under Moonshot's 15 KB per-tool-schema limit.
+- K2.7 parameter guard: strips `temperature`, `top_p`, and `tool_choice` values that the API rejects.
 - Stream cleanup for Kimi's thinking-only placeholder text.
 - Optional `moonshot_search`, `moonshot_fetch`, and unified datasource `kimi_datasource` tools via `/kimi-settings`.
+- Programmatic `KimiCode()` factory for embedding in custom Pi builds.
 - No build step; Pi loads the TypeScript extension directly.
 
 ## Install
@@ -264,10 +266,26 @@ Kimi's cache is **content-based**: it fires automatically when your prompt prefi
 
 In OpenAI mode this extension maps the `developer` role to `system` (Kimi's Coding endpoint does not recognize `developer`). If something in your toolchain expects `developer` to round-trip, use Anthropic mode instead.
 
+## Programmatic usage
+
+Use `KimiCode()` to embed Kimi Code as a provider inside a custom Pi build:
+
+```typescript
+import { main } from "@earendil-works/pi-coding-agent";
+import { KimiCode } from "pi-provider-kimi-code";
+
+main(process.argv.slice(2), {
+  extensionFactories: [KimiCode({ protocol: "anthropic" })],
+});
+```
+
+`KimiCode()` with no arguments behaves identically to the file-based extension. Pass a `KimiCodeConfigPatch` to override defaults (protocol, upload threshold, tools, model parameters). See [docs/programmatic-usage.md](docs/programmatic-usage.md) for the full API.
+
 ## References
 
 - Pi: [earendil-works/pi](https://github.com/earendil-works/pi)
 - Environment variables: [docs/ENV.md](docs/ENV.md)
+- Programmatic usage: [docs/programmatic-usage.md](docs/programmatic-usage.md)
 - Testing guide: [docs/TESTING.md](docs/TESTING.md)
 - Cache behavior: [docs/caching.md](docs/caching.md)
 - Architecture notes: [docs/architecture.md](docs/architecture.md)

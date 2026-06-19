@@ -20,7 +20,7 @@ streaming to:
 
 - upload large inline base64 images to Kimi's `/v1/files` endpoint as `ms://` references
 - inject Kimi's proprietary `prompt_cache_key` alongside Anthropic `cache_control`
-- apply env-level hyperparameter overrides (`temperature`, `top_p`, `max_completion_tokens`)
+- apply env-level hyperparameter overrides (`max_completion_tokens`; `temperature` and `top_p` are stripped for K2.7 Code which only accepts fixed values)
 - map Pi's `reasoning` level to Kimi's `reasoning_effort` + top-level `thinking`
 - suppress Kimi's `(Empty response: ...)` placeholder text blocks from the response stream
 
