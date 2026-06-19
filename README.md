@@ -5,7 +5,7 @@
 
 **Use Kimi Code in Pi, with the Kimi parts handled.**
 
-Pi already has a basic `kimi-coding` provider. This extension is for the parts that start to matter once Kimi Code becomes part of your real Pi workflow: account login reuse, file uploads, measured cache behavior, live model metadata, and optional Moonshot search/fetch/datasource tools.
+Pi already has a basic `kimi-coding` provider. This extension is for the parts that start to matter once Kimi Code becomes part of your real Pi workflow: account login reuse, file uploads, tool schema compatibility, live model metadata, measured cache behavior, and API-tested parameter handling.
 
 > **Kimi K2.7 supported.** The provider automatically discovers the current model from Kimi's `/v1/models` endpoint at login, refresh, and `/kimi-settings` time, so new rollouts (including K2.7) are picked up immediately without a package update.
 
@@ -18,8 +18,10 @@ Kimi's API surface goes beyond the LLM itself. It includes file uploads, web sea
 - **Use your Kimi account.** Log in with `/login kimi-coding`, or reuse an existing `kimi-code` session.
 - **Send files the Kimi way.** Large inline images go through Kimi's Files API and become `ms://` references instead of huge base64 payloads.
 - **Know what the cache is doing.** Kimi caches by content prefix. This repo measures that behavior instead of pretending `prompt_cache_key` controls it.
-- **Use the safer protocol by default.** OpenAI-compatible mode is the default because tool results are less ambiguous there. Anthropic-compatible mode is still available.
+- **Keep Pi's tools working.** Moonshot's API rejects tool schemas over 15 KB — a limit that Pi's extension ecosystem regularly hits ([#16](https://github.com/Leechael/pi-provider-kimi-code/issues/16), [#21](https://github.com/Leechael/pi-provider-kimi-code/issues/21)). This extension automatically deduplicates schemas with `$ref`/`$defs` before sending, so subagents and other extensions don't break.
+- **Tested against the live API.** Thinking config, parameter constraints, protocol compatibility, and streaming behavior are all verified against Kimi's Coding endpoint — not assumed from docs. When the API rejects something (wrong `temperature`, unsupported `tool_choice`), the provider strips it before you see a 400.
 - **Turn on Kimi-native tools when you want them.** `moonshot_search`, `moonshot_fetch`, and `kimi_datasource` are opt-in, configurable per user or per project.
+- **Embed in your own build.** `KimiCode()` factory lets you ship Kimi Code support inside a custom Pi agent with programmatic config overrides — no file-based extension path needed.
 
 ## What this package adds
 
@@ -58,6 +60,21 @@ If you prefer not to use npm, download the tarball from the [latest release](htt
 curl -L https://github.com/Leechael/pi-provider-kimi-code/releases/latest/download/pi-provider-kimi-code.tar.gz | tar -xz -C /tmp
 pi install /tmp/pi-provider-kimi-code
 ```
+
+### Programmatic usage
+
+Use `KimiCode()` to embed Kimi Code as a provider inside a custom Pi build:
+
+```typescript
+import { main } from "@earendil-works/pi-coding-agent";
+import { KimiCode } from "pi-provider-kimi-code";
+
+main(process.argv.slice(2), {
+  extensionFactories: [KimiCode({ protocol: "anthropic" })],
+});
+```
+
+`KimiCode()` with no arguments behaves identically to the file-based extension. Pass a `KimiCodeConfigPatch` to override defaults (protocol, upload threshold, tools, model parameters). See [docs/programmatic-usage.md](docs/programmatic-usage.md) for the full API.
 
 ## Sign in
 
@@ -106,7 +123,7 @@ Fallback values:
 - Input: text and image
 - Reasoning: enabled
 
-The provider maps Pi's reasoning levels to Kimi's reasoning-effort controls. The mapping is config-driven and refreshes automatically on credential refresh. Opening `/kimi-settings` also re-discovers the latest model metadata.
+The provider maps Pi's reasoning levels to Kimi's `reasoning_effort` and top-level `thinking` parameters. The mapping refreshes automatically on credential refresh. Opening `/kimi-settings` also re-discovers the latest model metadata.
 
 ## Optional tools
 
@@ -265,21 +282,6 @@ Kimi's cache is **content-based**: it fires automatically when your prompt prefi
 ### OpenAI-compatible tools complain about a `developer` role
 
 In OpenAI mode this extension maps the `developer` role to `system` (Kimi's Coding endpoint does not recognize `developer`). If something in your toolchain expects `developer` to round-trip, use Anthropic mode instead.
-
-## Programmatic usage
-
-Use `KimiCode()` to embed Kimi Code as a provider inside a custom Pi build:
-
-```typescript
-import { main } from "@earendil-works/pi-coding-agent";
-import { KimiCode } from "pi-provider-kimi-code";
-
-main(process.argv.slice(2), {
-  extensionFactories: [KimiCode({ protocol: "anthropic" })],
-});
-```
-
-`KimiCode()` with no arguments behaves identically to the file-based extension. Pass a `KimiCodeConfigPatch` to override defaults (protocol, upload threshold, tools, model parameters). See [docs/programmatic-usage.md](docs/programmatic-usage.md) for the full API.
 
 ## References
 
