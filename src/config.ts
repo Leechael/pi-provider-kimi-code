@@ -494,10 +494,16 @@ function loadLayers(
   ];
 }
 
-export function loadKimiCodeConfig(options: LoadKimiCodeConfigOptions): KimiCodeConfig {
+export function loadKimiCodeConfig(
+  options: LoadKimiCodeConfigOptions,
+  overrides?: KimiCodeConfigPatch,
+): KimiCodeConfig {
   let merged = clone(DEFAULT_KIMI_CODE_CONFIG) as unknown as Record<string, unknown>;
   for (const layer of loadLayers(options)) {
     merged = mergeConfigPatch(merged, layer.config);
+  }
+  if (overrides) {
+    merged = mergeConfigPatch(merged, overrides as Record<string, unknown>);
   }
   return validateKimiCodeConfig(merged);
 }

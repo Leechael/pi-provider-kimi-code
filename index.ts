@@ -22,12 +22,14 @@ import {
   AuthStorage,
   type ExtensionAPI,
   type ExtensionCommandContext,
+  type ExtensionFactory,
 } from "@earendil-works/pi-coding-agent";
 import os from "node:os";
 import { relative } from "node:path";
 
 import {
   type KimiCodeConfig,
+  type KimiCodeConfigPatch,
   KIMI_TOOL_NAMES,
   getProjectKimiCodeConfigPath,
   getGlobalKimiCodeConfigPath,
@@ -73,6 +75,7 @@ interface KimiRuntimeState {
   cwd: string;
   config: KimiCodeConfig;
   modelExtras: KimiOAuthExtras;
+  overrides?: KimiCodeConfigPatch;
 }
 
 function buildKimiTool(toolName: KimiToolName, config: KimiCodeConfig) {
@@ -109,7 +112,7 @@ function registerConfiguredMoonshotTools(
 }
 
 function reloadEffectiveKimiRuntimeConfig(state: KimiRuntimeState, cwd: string): KimiCodeConfig {
-  const config = loadKimiCodeConfig({ cwd, home: os.homedir() });
+  const config = loadKimiCodeConfig({ cwd, home: os.homedir() }, state.overrides);
   state.cwd = cwd;
   state.config = config;
   setStoreResolvedKimiConfig({
@@ -572,16 +575,17 @@ function formatToolStatus(config: KimiCodeConfig, toolName: KimiToolName): strin
   return `${enabled}, ${collapsed}`;
 }
 
-export default async function (pi: ExtensionAPI) {
-  const cwd = process.cwd();
-  const config = loadKimiCodeConfig({ cwd, home: os.homedir() });
-  const baseModel = buildKimiModelFromConfig(config.model);
-  const discoveryToken = getKimiUsageToken();
-  const discovered = discoveryToken
-    ? await discoverKimiModelMetadata(discoveryToken, config.protocol)
-    : {};
-  const state: KimiRuntimeState = { cwd, config, modelExtras: discovered };
-  reloadEffectiveKimiRuntimeConfig(state, cwd);
+export function KimiCode(overrides?: KimiCodeConfigPatch): ExtensionFactory {
+  return async (pi: ExtensionAPI) => {
+    const cwd = process.cwd();
+    const config = loadKimiCodeConfig({ cwd, home: os.homedir() }, overrides);
+    const baseModel = buildKimiModelFromConfig(config.model);
+    const discoveryToken = getKimiUsageToken();
+    const discovered = discoveryToken
+      ? await discoverKimiModelMetadata(discoveryToken, config.protocol)
+      : {};
+    const state: KimiRuntimeState = { cwd, config, modelExtras: discovered, overrides };
+    reloadEffectiveKimiRuntimeConfig(state, cwd);
   const model = applyKimiOAuthExtrasToModel(baseModel, discovered);
 
   pi.registerProvider(PROVIDER_ID, {
@@ -622,4 +626,7 @@ export default async function (pi: ExtensionAPI) {
       await runKimiCommand(pi, ctx, state);
     },
   });
+  };
 }
+
+export default KimiCode();
