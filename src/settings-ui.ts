@@ -1,10 +1,15 @@
 import os from "node:os";
+import { relative } from "node:path";
+import type { Theme } from "@earendil-works/pi-coding-agent";
+import type { SettingsListTheme } from "@earendil-works/pi-tui";
 
 import {
   type KimiCodeConfig,
   type KimiCodeConfigSources,
   KIMI_TOOL_NAMES,
   type KimiToolName,
+  getGlobalKimiCodeConfigPath,
+  getProjectKimiCodeConfigPath,
 } from "./config.ts";
 import { PROVIDER_VERSION } from "./constants.ts";
 import type { KimiOAuthExtras } from "./models.ts";
@@ -92,6 +97,30 @@ export function buildConfigScopeTitle(
     "",
     moonshotStatus(config),
   ].join("\n");
+}
+
+export function buildSettingsTheme(theme: Theme): SettingsListTheme {
+  return {
+    label: (text: string, selected: boolean) => (selected ? theme.fg("accent", text) : text),
+    value: (text: string, selected: boolean) =>
+      selected ? theme.bold(theme.fg("accent", text)) : theme.fg("muted", text),
+    description: (text: string) => theme.fg("dim", text),
+    cursor: theme.fg("accent", "> "),
+    hint: (text: string) => theme.fg("dim", text),
+  };
+}
+
+export function formatScopeDescription(
+  scope: KimiConfigScope,
+  cwd: string,
+  home = os.homedir(),
+): string {
+  const filePath =
+    scope === "project"
+      ? getProjectKimiCodeConfigPath(cwd)
+      : getGlobalKimiCodeConfigPath(home);
+  const displayPath = scope === "home" ? homeRelative(filePath, home) : relative(cwd, filePath);
+  return `Writes to the ${scope} config file: ${displayPath}`;
 }
 
 export function homeRelative(filePath: string, home = os.homedir()): string {
