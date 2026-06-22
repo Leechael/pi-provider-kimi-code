@@ -178,7 +178,15 @@ describe("extension tool registration", () => {
     const home = tempDir("kimi-extension-home");
     const configPath = getProjectKimiCodeConfigPath(cwd);
     mkdirSync(join(configPath, ".."), { recursive: true });
-    writeFileSync(configPath, "{", "utf8");
+    writeFileSync(
+      configPath,
+      JSON.stringify({
+        tools: {
+          moonshot_search: { enabled: true },
+        },
+      }),
+      "utf8",
+    );
     const { emit, pi, tools } = makePi();
 
     await withCwd(cwd, async () => {
@@ -202,7 +210,15 @@ describe("extension tool registration", () => {
     const agentDir = tempDir("kimi-extension-agent");
     const configPath = getProjectKimiCodeConfigPath(cwd);
     mkdirSync(join(configPath, ".."), { recursive: true });
-    writeFileSync(configPath, "{", "utf8");
+    writeFileSync(
+      configPath,
+      JSON.stringify({
+        tools: {
+          moonshot_search: { enabled: true },
+        },
+      }),
+      "utf8",
+    );
     const { emit, pi, tools } = makePi();
 
     await withAgentDir(agentDir, () =>

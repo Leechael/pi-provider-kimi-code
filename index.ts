@@ -15,6 +15,7 @@
  *                       login/refresh handlers, stream-level auth refresh
  *   src/models.ts     — /v1/models discovery + extras-merging helpers
  *   src/payload.ts    — payload pipeline + file upload + transforms
+ *   src/project-trust.ts — project config approval compatibility helpers
  *   src/stream.ts     — empty-response filter + streamSimpleKimi orchestrator
  */
 
@@ -52,6 +53,7 @@ import {
   resolveKimiModelConfig,
 } from "./src/models.ts";
 import { loginKimiCode, refreshKimiAuthToken, refreshKimiCodeToken } from "./src/oauth.ts";
+import { isKimiProjectConfigApproved } from "./src/project-trust.ts";
 import { setStoreResolvedKimiConfig, streamSimpleKimi } from "./src/stream.ts";
 import { buildMoonshotFetchTool, buildMoonshotSearchTool } from "./src/tools/moonshot.ts";
 import { buildKimiDatasourceTool } from "./src/tools/datasource.ts";
@@ -77,24 +79,6 @@ interface KimiRuntimeState {
   modelExtras: KimiOAuthExtras;
   projectTrusted: boolean;
   overrides?: KimiCodeConfigPatch;
-}
-
-async function isKimiProjectConfigApproved(ctx: unknown, cwd: string): Promise<boolean> {
-  const check = (ctx as { isProjectTrusted?: () => boolean } | undefined)?.isProjectTrusted;
-  if (typeof check !== "function") return true;
-  if (!check.call(ctx)) return false;
-
-  const mod = (await import("@earendil-works/pi-coding-agent")) as unknown as {
-    ProjectTrustStore?: new (agentDir: string) => { get(cwd: string): boolean | null };
-    getAgentDir?: () => string;
-  };
-  if (!mod.ProjectTrustStore || !mod.getAgentDir) return true;
-
-  try {
-    return new mod.ProjectTrustStore(mod.getAgentDir()).get(cwd) === true;
-  } catch {
-    return false;
-  }
 }
 
 function buildKimiTool(toolName: KimiToolName, config: KimiCodeConfig) {
