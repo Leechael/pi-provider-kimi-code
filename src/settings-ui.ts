@@ -116,9 +116,7 @@ export function formatScopeDescription(
   home = os.homedir(),
 ): string {
   const filePath =
-    scope === "project"
-      ? getProjectKimiCodeConfigPath(cwd)
-      : getGlobalKimiCodeConfigPath(home);
+    scope === "project" ? getProjectKimiCodeConfigPath(cwd) : getGlobalKimiCodeConfigPath(home);
   const displayPath = scope === "home" ? homeRelative(filePath, home) : relative(cwd, filePath);
   return `Writes to the ${scope} config file: ${displayPath}`;
 }

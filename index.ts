@@ -24,7 +24,7 @@ import {
   type ExtensionCommandContext,
   type ExtensionFactory,
 } from "@earendil-works/pi-coding-agent";
-import { Input, SettingsList, type SettingItem } from "@earendil-works/pi-tui";
+import { Input, SettingsList, type SettingItem, truncateToWidth } from "@earendil-works/pi-tui";
 import os from "node:os";
 
 import {
@@ -38,7 +38,7 @@ import {
   saveProjectKimiCodeConfig,
   type KimiToolName,
 } from "./src/config.ts";
-import { PROVIDER_ID, getBaseUrl, getKimiApiType } from "./src/constants.ts";
+import { PROVIDER_ID, PROVIDER_VERSION, getBaseUrl, getKimiApiType } from "./src/constants.ts";
 import {
   type KimiOAuthCredentials,
   type KimiOAuthExtras,
@@ -148,7 +148,6 @@ async function openSettingsMenu(
   state: KimiRuntimeState,
 ): Promise<void> {
   const [usage] = await Promise.all([fetchKimiUsageSummary(), refreshModelExtras(state)]);
-  ctx.ui.notify(usage);
 
   const projectTrusted = await isKimiProjectConfigApproved(ctx, ctx.cwd);
   const homeDraft = loadHomeKimiCodeConfig(os.homedir());
@@ -159,19 +158,22 @@ async function openSettingsMenu(
   let scope: KimiConfigScope = projectTrusted ? "project" : "home";
   let dirty = false;
 
-  await ctx.ui.custom<void>((_tui, theme, _keybindings, done) => {
+  await ctx.ui.custom<void>((tui, theme, _keybindings, done) => {
     const settingsTheme = buildSettingsTheme(theme);
 
     let list: SettingsList;
 
+    const formatToolMenuValue = (toolName: KimiToolName) => {
+      const tool = drafts[scope].tools[toolName];
+      const enabled = tool.enabled ? "enabled" : "disabled";
+      const previews = tool.default_collapsed ? "previews collapsed" : "previews expanded";
+      return `${enabled}, ${previews}`;
+    };
+
     const refreshDisplays = () => {
       scopeItem.description = formatScopeDescription(scope, ctx.cwd);
       for (const toolName of KIMI_TOOL_NAMES) {
-        list.updateValue(`${toolName}:enabled`, String(drafts[scope].tools[toolName].enabled));
-        list.updateValue(
-          `${toolName}:collapsed`,
-          String(drafts[scope].tools[toolName].default_collapsed),
-        );
+        list.updateValue(toolName, formatToolMenuValue(toolName));
       }
       list.updateValue("protocol", drafts[scope].protocol);
       list.updateValue("uploadThreshold", formatByteSize(drafts[scope].uploads.thresholdBytes));
@@ -209,10 +211,7 @@ async function openSettingsMenu(
       if (id === "uploadThreshold") {
         const bytes = parseByteSizeInput(newValue);
         if (bytes === undefined || bytes <= 0) {
-          ctx.ui.notify(
-            "Upload threshold must be a positive size, for example 2 MiB",
-            "error",
-          );
+          ctx.ui.notify("Upload threshold must be a positive size, for example 2 MiB", "error");
           return;
         }
         drafts[scope].uploads.thresholdBytes = bytes;
@@ -229,7 +228,7 @@ async function openSettingsMenu(
         } else {
           drafts[scope].tools[toolName].default_collapsed = newValue === "true";
         }
-        list.updateValue(id, newValue);
+        list.updateValue(toolName, formatToolMenuValue(toolName));
         save();
       }
     };
@@ -247,18 +246,33 @@ async function openSettingsMenu(
     const items: SettingItem[] = [scopeItem];
     for (const toolName of KIMI_TOOL_NAMES) {
       items.push({
-        id: `${toolName}:enabled`,
+        id: toolName,
         label: toolName,
-        description: `Register ${toolName} at session start`,
-        currentValue: String(drafts[scope].tools[toolName].enabled),
-        values: ["true", "false"],
-      });
-      items.push({
-        id: `${toolName}:collapsed`,
-        label: `${toolName} previews`,
-        description: `Collapse ${toolName} result previews by default`,
-        currentValue: String(drafts[scope].tools[toolName].default_collapsed),
-        values: ["true", "false"],
+        description: `Configure ${toolName} registration and preview defaults`,
+        currentValue: formatToolMenuValue(toolName),
+        submenu: (_current, submenuDone) =>
+          new SettingsList(
+            [
+              {
+                id: `${toolName}:enabled`,
+                label: "Enabled",
+                description: `Register ${toolName} at session start`,
+                currentValue: String(drafts[scope].tools[toolName].enabled),
+                values: ["true", "false"],
+              },
+              {
+                id: `${toolName}:collapsed`,
+                label: "Previews collapsed",
+                description: `Collapse ${toolName} result previews by default`,
+                currentValue: String(drafts[scope].tools[toolName].default_collapsed),
+                values: ["true", "false"],
+              },
+            ],
+            2,
+            settingsTheme,
+            onChange,
+            () => submenuDone(),
+          ),
       });
     }
     items.push({
@@ -279,10 +293,7 @@ async function openSettingsMenu(
         input.onSubmit = (value) => {
           const bytes = parseByteSizeInput(value);
           if (bytes === undefined || bytes <= 0) {
-            ctx.ui.notify(
-              "Upload threshold must be a positive size, for example 2 MiB",
-              "error",
-            );
+            ctx.ui.notify("Upload threshold must be a positive size, for example 2 MiB", "error");
             submenuDone();
             return;
           }
@@ -296,7 +307,32 @@ async function openSettingsMenu(
     list = new SettingsList(items, items.length, settingsTheme, onChange, () => done(), {
       enableSearch: true,
     });
-    return list;
+
+    return {
+      items,
+      onChange,
+      render(width: number) {
+        const usageLines = usage.split("\n").map((line) => truncateToWidth(`  ${line}`, width));
+        return [
+          truncateToWidth(
+            theme.fg("accent", theme.bold(`Kimi settings (provider v${PROVIDER_VERSION})`)),
+            width,
+          ),
+          "",
+          truncateToWidth(theme.fg("accent", theme.bold("Kimi usage")), width),
+          ...usageLines,
+          "",
+          ...list.render(width),
+        ];
+      },
+      handleInput(data: string) {
+        list.handleInput?.(data);
+        tui.requestRender();
+      },
+      invalidate() {
+        list.invalidate();
+      },
+    };
   });
 
   if (dirty) await ctx.reload();

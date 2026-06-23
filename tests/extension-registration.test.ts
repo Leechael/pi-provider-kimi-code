@@ -145,6 +145,14 @@ function mockTheme(): Theme {
   } as unknown as Theme;
 }
 
+type TestSettingItem = {
+  id: string;
+  label?: string;
+  currentValue: string;
+  values?: string[];
+  submenu?: (currentValue: string, done: (selectedValue?: string) => void) => SettingsList;
+};
+
 type SettingsOperation = (list: SettingsList, done: () => void) => void;
 
 async function runSettingsHandler(
@@ -157,12 +165,7 @@ async function runSettingsHandler(
     ui: {
       ...ctx.ui,
       custom: async (
-        factory: (
-          tui: unknown,
-          theme: Theme,
-          keybindings: unknown,
-          done: () => void,
-        ) => unknown,
+        factory: (tui: unknown, theme: Theme, keybindings: unknown, done: () => void) => unknown,
       ) => {
         let resolveCustom: (() => void) | undefined;
         let doneCalled = false;
@@ -382,7 +385,8 @@ describe("extension tool registration", () => {
       const kimiCommand = commands.get("kimi-settings");
       assert.ok(kimiCommand);
 
-      let items: Array<{ id: string; currentValue: string }> = [];
+      let items: TestSettingItem[] = [];
+      let rendered = "";
       await runSettingsHandler(
         kimiCommand.handler,
         {
@@ -392,20 +396,41 @@ describe("extension tool registration", () => {
           reload: async () => {},
         } as unknown as ExtensionCommandContext,
         (list, done) => {
-          items = (list as unknown as { items: Array<{ id: string; currentValue: string }> }).items;
+          items = (list as unknown as { items: TestSettingItem[] }).items;
+          rendered = list.render(80).join("\n");
           done();
         },
       );
 
-      assert.equal(
-        items.find((i) => i.id === "moonshot_search:enabled")?.currentValue,
-        "true",
+      assert.match(
+        rendered,
+        /^Kimi settings \(provider v\d+\.\d+\.\d+\)\n\nKimi usage\n  Current week\n\s+0% used/m,
       );
       assert.equal(
-        items.find((i) => i.id === "kimi_datasource:enabled")?.currentValue,
-        "false",
+        items.find((i) => i.id === "moonshot_search")?.currentValue,
+        "enabled, previews collapsed",
+      );
+      assert.equal(
+        items.find((i) => i.id === "kimi_datasource")?.currentValue,
+        "disabled, previews collapsed",
       );
       assert.equal(items.find((i) => i.id === "scope")?.currentValue, "project");
+      assert.equal(
+        items.some((i) => i.id === "moonshot_search:enabled"),
+        false,
+      );
+
+      const moonshotSearch = items.find((i) => i.id === "moonshot_search");
+      assert.ok(moonshotSearch?.submenu);
+      const submenu = moonshotSearch.submenu(moonshotSearch.currentValue, () => {});
+      const submenuItems = (submenu as unknown as { items: TestSettingItem[] }).items;
+      assert.deepEqual(
+        submenuItems.map((i) => [i.id, i.label, i.currentValue]),
+        [
+          ["moonshot_search:enabled", "Enabled", "true"],
+          ["moonshot_search:collapsed", "Previews collapsed", "true"],
+        ],
+      );
     } finally {
       globalThis.fetch = originalFetch;
       if (originalKimiApiKey === undefined) {
@@ -445,7 +470,7 @@ describe("extension tool registration", () => {
       const kimiCommand = commands.get("kimi-settings");
       assert.ok(kimiCommand);
 
-      let items: Array<{ id: string; currentValue: string; values?: string[] }> = [];
+      let items: TestSettingItem[] = [];
       await runSettingsHandler(
         kimiCommand.handler,
         {
@@ -456,7 +481,7 @@ describe("extension tool registration", () => {
           reload: async () => {},
         } as unknown as ExtensionCommandContext,
         (list, done) => {
-          items = (list as unknown as { items: Array<{ id: string; currentValue: string; values?: string[] }> }).items;
+          items = (list as unknown as { items: TestSettingItem[] }).items;
           done();
         },
       );
@@ -464,8 +489,8 @@ describe("extension tool registration", () => {
       const scopeItem = items.find((i) => i.id === "scope");
       assert.deepEqual(scopeItem?.values, ["home"]);
       assert.equal(
-        items.find((i) => i.id === "moonshot_search:enabled")?.currentValue,
-        "false",
+        items.find((i) => i.id === "moonshot_search")?.currentValue,
+        "disabled, previews collapsed",
       );
     } finally {
       globalThis.fetch = originalFetch;
@@ -554,7 +579,7 @@ describe("extension tool registration", () => {
     }
 
     assert.deepEqual(usageTokens, ["Bearer stale-access", "Bearer fresh-access"]);
-    assert.match(notifications[0], /Weekly limit: \[####################\] 99% left \(99\/100\)/);
+    assert.match(notifications[0], /Current week\n▌\s+1% used/);
   });
 
   it("writes protocol and upload threshold from /kimi-settings", async () => {
@@ -612,7 +637,7 @@ describe("extension tool registration", () => {
       uploads: { thresholdBytes: 2097152 },
       protocol: "anthropic",
     });
-    assert.match(notifications[0], /Weekly limit: /);
+    assert.deepEqual(notifications, []);
   });
 
   it("writes project config and updates active tools from /kimi-settings", async () => {
@@ -673,9 +698,7 @@ describe("extension tool registration", () => {
       }
     }
 
-    assert.match(notifications[0], /Membership: Allegretto \(LEVEL_INTERMEDIATE\)/);
-    assert.match(notifications[0], /Weekly limit: \[################----\] 80% left \(80\/100\)/);
-    assert.match(notifications[0], /5h rate limit: \[###############-----\] 75% left \(150\/200\)/);
+    assert.deepEqual(notifications, []);
     assert.deepEqual(JSON.parse(readFileSync(configPath, "utf8")), {
       ...DEFAULT_KIMI_CODE_CONFIG,
       tools: Object.fromEntries(
