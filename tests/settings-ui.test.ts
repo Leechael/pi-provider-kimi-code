@@ -10,8 +10,10 @@ import { PROVIDER_VERSION } from "../src/constants.ts";
 import {
   buildConfigScopeTitle,
   buildKimiMainTitle,
+  buildSettingsTheme,
   formatByteSize,
   formatProtocolStatus,
+  formatScopeDescription,
   formatToolStatus,
   formatUploadThresholdStatus,
   homeRelative,
@@ -171,5 +173,45 @@ describe("settings config mutators", () => {
     assert.equal(expanded.tools.moonshot_search.default_collapsed, false);
     assert.equal(protocol.protocol, "anthropic");
     assert.equal(threshold.uploads.thresholdBytes, 2048);
+  });
+});
+
+describe("SettingsList helpers", () => {
+  it("builds a theme that delegates to the supplied theme", () => {
+    const calls: string[] = [];
+    const theme = {
+      fg: (color: string, text: string) => {
+        calls.push(`fg:${color}:${text}`);
+        return text;
+      },
+      bold: (text: string) => `bold:${text}`,
+    } as unknown as import("@earendil-works/pi-coding-agent").Theme;
+
+    const settingsTheme = buildSettingsTheme(theme);
+    assert.equal(settingsTheme.label("hello", false), "hello");
+    assert.equal(settingsTheme.label("hello", true), "hello");
+    assert.equal(settingsTheme.value("world", false), "world");
+    assert.equal(settingsTheme.value("world", true), "bold:world");
+    assert.equal(settingsTheme.description("desc"), "desc");
+    assert.equal(settingsTheme.hint("hint"), "hint");
+    assert.deepEqual(calls, [
+      "fg:accent:> ",
+      "fg:accent:hello",
+      "fg:muted:world",
+      "fg:accent:world",
+      "fg:dim:desc",
+      "fg:dim:hint",
+    ]);
+  });
+
+  it("formats scope description with the config file path", () => {
+    assert.equal(
+      formatScopeDescription("home", "/tmp/project", "/tmp/home"),
+      "Writes to the home config file: ~/.pi/providers/kimi-coding/config.json",
+    );
+    assert.equal(
+      formatScopeDescription("project", "/tmp/project", "/tmp/home"),
+      "Writes to the project config file: .pi/providers/kimi-coding/config.json",
+    );
   });
 });
