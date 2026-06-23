@@ -430,14 +430,24 @@ describe("extension tool registration", () => {
         rendered,
         /^Kimi settings \(provider v\d+\.\d+\.\d+\)\n\nKimi usage\n  Current week\n\s+0% used/m,
       );
+      assert.deepEqual(
+        items
+          .filter(
+            (i) =>
+              i.id === "moonshot_search" || i.id === "moonshot_fetch" || i.id === "kimi_datasource",
+          )
+          .map((i) => [i.id, i.label]),
+        [
+          ["moonshot_search", "Search tool"],
+          ["moonshot_fetch", "Fetch tool"],
+          ["kimi_datasource", "Real-world data API"],
+        ],
+      );
       assert.equal(
         items.find((i) => i.id === "moonshot_search")?.currentValue,
-        "enabled, previews collapsed",
+        "enabled without preview",
       );
-      assert.equal(
-        items.find((i) => i.id === "kimi_datasource")?.currentValue,
-        "disabled, previews collapsed",
-      );
+      assert.equal(items.find((i) => i.id === "kimi_datasource")?.currentValue, "disabled");
       assert.equal(items.find((i) => i.id === "scope")?.currentValue, "project");
       assert.equal(
         items.some((i) => i.id === "moonshot_search:enabled"),
@@ -452,7 +462,7 @@ describe("extension tool registration", () => {
         submenuItems.map((i) => [i.id, i.label, i.currentValue]),
         [
           ["moonshot_search:enabled", "Enabled", "true"],
-          ["moonshot_search:collapsed", "Previews collapsed", "true"],
+          ["moonshot_search:collapsed", "Show preview", "false"],
         ],
       );
     } finally {
@@ -512,10 +522,7 @@ describe("extension tool registration", () => {
 
       const scopeItem = items.find((i) => i.id === "scope");
       assert.deepEqual(scopeItem?.values, ["home"]);
-      assert.equal(
-        items.find((i) => i.id === "moonshot_search")?.currentValue,
-        "disabled, previews collapsed",
-      );
+      assert.equal(items.find((i) => i.id === "moonshot_search")?.currentValue, "disabled");
     } finally {
       globalThis.fetch = originalFetch;
       process.chdir(originalCwd);
@@ -780,7 +787,7 @@ describe("extension tool registration", () => {
           const onChange = (list as unknown as { onChange: (id: string, value: string) => void })
             .onChange;
           onChange("moonshot_search:enabled", "true");
-          onChange("moonshot_fetch:collapsed", "false");
+          onChange("moonshot_fetch:collapsed", "true");
           done();
         },
       );

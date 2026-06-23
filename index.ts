@@ -162,11 +162,16 @@ async function openSettingsMenu(
 
     let list: SettingsList;
 
+    const toolLabel = (toolName: KimiToolName) => {
+      if (toolName === "moonshot_search") return "Search tool";
+      if (toolName === "moonshot_fetch") return "Fetch tool";
+      return "Real-world data API";
+    };
+
     const formatToolMenuValue = (toolName: KimiToolName) => {
       const tool = drafts[scope].tools[toolName];
-      const enabled = tool.enabled ? "enabled" : "disabled";
-      const previews = tool.default_collapsed ? "previews collapsed" : "previews expanded";
-      return `${enabled}, ${previews}`;
+      if (!tool.enabled) return "disabled";
+      return tool.default_collapsed ? "enabled without preview" : "enabled with preview";
     };
 
     const refreshDisplays = () => {
@@ -225,7 +230,7 @@ async function openSettingsMenu(
         if (field === "enabled") {
           drafts[scope].tools[toolName].enabled = newValue === "true";
         } else {
-          drafts[scope].tools[toolName].default_collapsed = newValue === "true";
+          drafts[scope].tools[toolName].default_collapsed = newValue !== "true";
         }
         list.updateValue(toolName, formatToolMenuValue(toolName));
         save();
@@ -246,7 +251,7 @@ async function openSettingsMenu(
     for (const toolName of KIMI_TOOL_NAMES) {
       items.push({
         id: toolName,
-        label: toolName,
+        label: toolLabel(toolName),
         description: `Configure ${toolName} registration and preview defaults`,
         currentValue: formatToolMenuValue(toolName),
         submenu: (_current, submenuDone) =>
@@ -261,9 +266,9 @@ async function openSettingsMenu(
               },
               {
                 id: `${toolName}:collapsed`,
-                label: "Previews collapsed",
-                description: `Collapse ${toolName} result previews by default`,
-                currentValue: String(drafts[scope].tools[toolName].default_collapsed),
+                label: "Show preview",
+                description: `Show ${toolName} result previews by default`,
+                currentValue: String(!drafts[scope].tools[toolName].default_collapsed),
                 values: ["true", "false"],
               },
             ],
