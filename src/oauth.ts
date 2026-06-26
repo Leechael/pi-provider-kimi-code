@@ -417,7 +417,7 @@ export async function refreshKimiAuthToken(currentKey: string): Promise<string |
       const kimiExpiresMs = (kimiCred.expires_at ?? 0) * 1000;
       const piMtime = getFileMtimeMs(
         join(
-          process.env.PI_AGENT_DIR || join(os.homedir(), ".pi", "agent"),
+          process.env.PI_CODING_AGENT_DIR || join(os.homedir(), ".pi", "agent"),
           "auth.json",
         ),
       );
@@ -425,6 +425,9 @@ export async function refreshKimiAuthToken(currentKey: string): Promise<string |
 
       if (piMtime > kimiMtime && piOAuth.access !== kimiCred.access_token) {
         writeKimiCodeCredentials(piOAuth.access, piOAuth.refresh, piOAuth.expires);
+        kimiCred.access_token = piOAuth.access;
+        kimiCred.refresh_token = piOAuth.refresh;
+        kimiCred.expires_at = Math.floor(piOAuth.expires / 1000);
         console.error("[kimi-coding] auth merge: synced newer pi credentials to kimi-code");
       } else if (kimiMtime > piMtime && kimiCred.access_token !== piOAuth.access) {
         const merged: OAuthCredential = {
