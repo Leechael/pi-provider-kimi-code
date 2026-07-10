@@ -25,6 +25,10 @@ describe("asciiHeaderValue", () => {
 });
 
 describe("getCommonHeaders", () => {
+  it("identifies requests as the synced Kimi Code release", () => {
+    assert.equal(KIMI_UPSTREAM_VERSION, "0.23.4");
+  });
+
   it("uses Kimi Code-compatible identity headers", () => {
     const headers = getCommonHeaders();
     assert.equal(headers["X-Msh-Platform"], "kimi_code_cli");

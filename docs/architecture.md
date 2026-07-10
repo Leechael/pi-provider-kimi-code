@@ -67,9 +67,9 @@ Every OAuth request and model API request includes Kimi Code-style headers:
 
 | Header               | Value                               |
 | -------------------- | ----------------------------------- |
-| `User-Agent`         | `kimi-code-cli/0.6.0`               |
+| `User-Agent`         | `kimi-code-cli/0.23.4`              |
 | `X-Msh-Platform`     | `kimi_code_cli`                     |
-| `X-Msh-Version`      | `0.6.0`                             |
+| `X-Msh-Version`      | `0.23.4`                            |
 | `X-Msh-Device-Name`  | Hostname                            |
 | `X-Msh-Device-Model` | OS + kernel release + architecture  |
 | `X-Msh-Os-Version`   | `os.release()`                      |
