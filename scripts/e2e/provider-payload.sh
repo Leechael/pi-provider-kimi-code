@@ -54,13 +54,14 @@ KIMI_CODE_BASE_URL="$proxy_base_url" KIMI_CODE_PROTOCOL="${KIMI_E2E_PROVIDER_PRO
   -p "What is 17 * 23? Reply with just the number." \
   --thinking "${KIMI_E2E_PROVIDER_THINKING:-high}" --mode print >/dev/null
 
-python3 - "$CAPTURE_DIR" "${KIMI_E2E_WIRE_MODEL}" <<'PY'
+python3 - "$CAPTURE_DIR" "${KIMI_E2E_WIRE_MODEL}" "${KIMI_E2E_EXPECT_THINKING_EFFORT:-none}" <<'PY'
 import json
 import pathlib
 import sys
 
 capture_dir = pathlib.Path(sys.argv[1])
 expected_model = sys.argv[2]
+expected_effort = sys.argv[3]
 requests = sorted(capture_dir.glob("*-request.json"))
 if not requests:
     print("FAIL: provider emitted no captured HTTP request")
@@ -74,9 +75,19 @@ for path in requests:
     if body["model"] != expected_model:
         print(f"FAIL: expected wire model {expected_model!r}, got {body['model']!r}")
         sys.exit(1)
+    if "reasoning_effort" in body:
+        print(f"FAIL: legacy reasoning_effort must be absent, got {body['reasoning_effort']!r}")
+        sys.exit(1)
     thinking = body.get("thinking")
     if not isinstance(thinking, dict) or thinking.get("type") != "enabled":
         print(f"FAIL: expected root thinking.type=enabled, got {thinking!r}")
+        sys.exit(1)
+    actual_effort = thinking.get("effort")
+    if expected_effort == "none" and actual_effort is not None:
+        print(f"FAIL: model advertises no effort support, got thinking.effort={actual_effort!r}")
+        sys.exit(1)
+    if expected_effort != "none" and actual_effort != expected_effort:
+        print(f"FAIL: expected thinking.effort={expected_effort!r}, got {actual_effort!r}")
         sys.exit(1)
     print(f"PASS: captured {request.get('url')} with model={body['model']!r} and thinking={thinking!r}")
     sys.exit(0)
