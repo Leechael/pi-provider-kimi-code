@@ -200,13 +200,16 @@ export function streamSimpleKimi(
   };
   const modelConfig: KimiResolvedModelConfig = {
     ...streamConfig.model,
-    ...(discoveredModel.supportsThinkingType
-      ? { supportsThinkingType: discoveredModel.supportsThinkingType }
-      : {}),
-    ...(discoveredModel.supportEfforts
-      ? { supportEfforts: [...discoveredModel.supportEfforts] }
-      : {}),
-    ...(discoveredModel.defaultEffort ? { defaultEffort: discoveredModel.defaultEffort } : {}),
+    contextWindow: model.contextWindow,
+    maxTokens: model.maxTokens,
+    input: [...model.input],
+    reasoning: model.reasoning,
+    supportsThinkingType:
+      discoveredModel.supportsThinkingType ?? (model.reasoning ? undefined : "no"),
+    supportEfforts: discoveredModel.supportEfforts
+      ? [...discoveredModel.supportEfforts]
+      : undefined,
+    defaultEffort: discoveredModel.defaultEffort,
   };
   const wireProtocol = discoveredModel.wireProtocol ?? streamConfig.protocol;
   const apiProtocol = getApiProtocol(wireProtocol);

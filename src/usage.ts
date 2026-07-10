@@ -103,7 +103,7 @@ function parseBoosterWallet(value: unknown): BoosterWalletInfo | null {
   const balanceRecord = balance as Record<string, unknown>;
   if (balanceRecord.type !== "BOOSTER") return null;
   const amount = toBigInt(balanceRecord.amount);
-  if (amount === null || amount <= 0n) return null;
+  if (amount === null || amount < 0n) return null;
 
   const amountLeft = toBigInt(balanceRecord.amountLeft);
   const monthlyLimit = parseMoney(record.monthlyChargeLimit);

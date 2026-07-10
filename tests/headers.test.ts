@@ -55,6 +55,30 @@ describe("getKimiProviderHeaders", () => {
     assert.equal(headers["x-msh-version"], undefined);
     assert.equal(headers["content-type"], undefined);
   });
+
+  it("drops invalid custom header names without breaking valid lines", () => {
+    const headers = getKimiProviderHeaders({
+      KIMI_CODE_CUSTOM_HEADERS:
+        "Valid-Header: yes\nBad Header: no\nBad@Header: no\n你好: no\nX-Token_~: kept",
+    });
+
+    assert.equal(headers["Valid-Header"], "yes");
+    assert.equal(headers["Bad Header"], undefined);
+    assert.equal(headers["Bad@Header"], undefined);
+    assert.equal(headers["你好"], undefined);
+    assert.equal(headers["X-Token_~"], "kept");
+    assert.doesNotThrow(() => new Headers(headers));
+  });
+
+  it("sanitizes non-ASCII custom header values before requests", () => {
+    const headers = getKimiProviderHeaders({
+      KIMI_CODE_CUSTOM_HEADERS: "X-Gateway: héllo\nX-Region: 你好",
+    });
+
+    assert.equal(headers["X-Gateway"], "hllo");
+    assert.equal(headers["X-Region"], "unknown");
+    assert.doesNotThrow(() => new Headers(headers));
+  });
 });
 
 describe("buildModelsUrl", () => {

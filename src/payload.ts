@@ -425,7 +425,19 @@ export async function applyKimiPayloadMutations(
       : { include_usage: true };
   }
 
-  // 5. Normalize deprecated max_tokens (OpenAI path only — Anthropic
+  // 5. Spread extra_body into the top-level payload before normalization and
+  //    config caps. Top-level fields retain precedence over extra_body.
+  if (isRecord(payload.extra_body)) {
+    const extraBody = payload.extra_body as JsonRecord;
+    delete payload.extra_body;
+    for (const [key, value] of Object.entries(extraBody)) {
+      if (payload[key] === undefined) {
+        payload[key] = value;
+      }
+    }
+  }
+
+  // 6. Normalize deprecated max_tokens (OpenAI path only — Anthropic
   //    /messages uses max_tokens natively).
   if (ctx.api === "openai-completions") {
     if (payload.max_completion_tokens === undefined && typeof payload.max_tokens === "number") {
@@ -446,19 +458,7 @@ export async function applyKimiPayloadMutations(
         : generation.maxCompletionTokens;
   }
 
-  // 5. Spread extra_body into top-level payload before reasoning mapping,
-  //    matching upstream (Kimi expects thinking etc. at the root).
-  if (isRecord(payload.extra_body)) {
-    const extraBody = payload.extra_body as JsonRecord;
-    delete payload.extra_body;
-    for (const [key, value] of Object.entries(extraBody)) {
-      if (payload[key] === undefined) {
-        payload[key] = value;
-      }
-    }
-  }
-
-  // 6. Reasoning effort mapping. Kimi now accepts effort only inside the
+  // 7. Reasoning effort mapping. Kimi now accepts effort only inside the
   //    thinking object, and only for values advertised by the model catalog.
   delete payload.reasoning_effort;
   if (ctx.modelConfig.supportsThinkingType === "no") {
@@ -488,7 +488,7 @@ export async function applyKimiPayloadMutations(
     }
   }
 
-  // 7. K2.7 Code API constraints: the server rejects non-default values for
+  // 8. K2.7 Code API constraints: the server rejects non-default values for
   //    temperature (must be 1.0) and top_p (must be 0.95), and tool_choice
   //    "required" / function-specific when thinking is enabled (always-on).
   if (payload.temperature !== undefined && payload.temperature !== 1) {

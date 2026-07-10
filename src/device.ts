@@ -162,8 +162,8 @@ export function parseKimiCodeCustomHeaders(
     const colon = line.indexOf(":");
     if (colon < 0) continue;
     const name = line.slice(0, colon).trim();
-    if (!name) continue;
-    headers[name] = line.slice(colon + 1).trim();
+    if (!/^[!#$%&'*+.^_`|~0-9A-Za-z-]+$/.test(name)) continue;
+    headers[name] = asciiHeaderValue(line.slice(colon + 1));
   }
   return headers;
 }
