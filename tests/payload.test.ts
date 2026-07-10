@@ -424,6 +424,7 @@ describe("applyKimiPayloadMutations", () => {
     const payload: JsonRecord = {
       messages: [{ role: "user", content: "hi" }],
       reasoning_effort: "high",
+      thinking: { type: "enabled", effort: "high" },
     };
 
     await applyKimiPayloadMutations(

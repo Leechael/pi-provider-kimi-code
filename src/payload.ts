@@ -461,6 +461,9 @@ export async function applyKimiPayloadMutations(
   // 6. Reasoning effort mapping. Kimi now accepts effort only inside the
   //    thinking object, and only for values advertised by the model catalog.
   delete payload.reasoning_effort;
+  if (ctx.modelConfig.supportsThinkingType === "no") {
+    delete payload.thinking;
+  }
   const resolvedReasoning = resolveThinkingLevel(ctx);
   if (resolvedReasoning) {
     const mapped = resolveReasoningForLevel(resolvedReasoning, ctx.modelConfig);
