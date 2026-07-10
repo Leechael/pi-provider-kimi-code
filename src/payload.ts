@@ -474,6 +474,7 @@ export async function applyKimiPayloadMutations(
         type: mapped.enabled ? "enabled" : "disabled",
       };
       delete thinking.effort;
+      if (!mapped.enabled) delete thinking.keep;
       const effort = ctx.reasoning
         ? mapped.effort
         : (ctx.modelConfig.defaultEffort ?? mapped.effort);

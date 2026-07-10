@@ -335,6 +335,7 @@ describe("applyKimiPayloadMutations", () => {
 
     const disabledPayload: JsonRecord = {
       messages: [{ role: "user", content: "hi" }],
+      extra_body: { thinking: { keep: "all" } },
     };
     await applyKimiPayloadMutations(
       disabledPayload,
