@@ -15,6 +15,7 @@ export interface KimiModelMetadata {
   supportsImageIn?: boolean;
   supportsVideoIn?: boolean;
   supportsThinkingType?: "only" | "no" | "both";
+  protocol?: KimiWireProtocol;
   supportEfforts?: string[];
   defaultEffort?: string;
 }
@@ -112,6 +113,7 @@ interface KimiServerModel {
   supports_image_in?: unknown;
   supports_video_in?: unknown;
   supports_thinking_type?: unknown;
+  protocol?: unknown;
   think_efforts?: unknown;
 }
 
@@ -160,6 +162,9 @@ function parseKimiModelMetadata(model: KimiServerModel): KimiModelMetadata | und
   }
   if (typeof model.supports_video_in === "boolean") {
     metadata.supportsVideoIn = model.supports_video_in;
+  }
+  if (model.protocol === "openai" || model.protocol === "anthropic") {
+    metadata.protocol = model.protocol;
   }
   Object.assign(metadata, parseThinkEfforts(model.think_efforts));
   return metadata;
@@ -228,6 +233,7 @@ export function applyKimiOAuthExtrasToModel(
   const next: Model<Api> & {
     wireModelId?: string;
     supportsThinkingType?: "only" | "no" | "both";
+    wireProtocol?: KimiWireProtocol;
     supportEfforts?: string[];
     defaultEffort?: string;
   } = { ...model };
@@ -252,6 +258,7 @@ export function applyKimiOAuthExtrasToModel(
     const input = mergeInputModalities(next.input as KimiInputModality[], extras);
     (next as unknown as { input: string[] }).input = input;
   }
+  if (extras.protocol) next.wireProtocol = extras.protocol;
   if (extras.supportEfforts) next.supportEfforts = [...extras.supportEfforts];
   if (extras.defaultEffort) next.defaultEffort = extras.defaultEffort;
   return next;

@@ -103,6 +103,7 @@ describe("discoverKimiModelMetadata", () => {
             context_length: 524288,
             supports_reasoning: true,
             supports_video_in: true,
+            protocol: "anthropic",
             think_efforts: {
               support: true,
               valid_efforts: ["low", "high"],
@@ -125,6 +126,7 @@ describe("discoverKimiModelMetadata", () => {
       contextLength: 524288,
       supportsReasoning: true,
       supportsVideoIn: true,
+      protocol: "anthropic",
       supportEfforts: ["low", "high"],
       defaultEffort: "high",
     });
@@ -279,11 +281,13 @@ describe("applyKimiOAuthExtrasToModel", () => {
       contextLength: 1048576,
       supportsReasoning: true,
       supportsImageIn: true,
-    }) as Model<Api> & { wireModelId?: string; input: string[] };
+      protocol: "anthropic",
+    }) as Model<Api> & { wireModelId?: string; wireProtocol?: string; input: string[] };
 
     assert.equal(result.name, "Kimi K2 Next");
     assert.equal(result.contextWindow, 1048576);
     assert.equal(result.wireModelId, "kimi-k2-next");
+    assert.equal(result.wireProtocol, "anthropic");
     assert.equal(result.reasoning, true);
     assert.deepEqual(result.input, ["text", "image"]);
   });

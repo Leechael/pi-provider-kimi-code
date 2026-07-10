@@ -194,6 +194,7 @@ export function streamSimpleKimi(
   };
   const discoveredModel = model as Model<Api> & {
     supportsThinkingType?: "only" | "no" | "both";
+    wireProtocol?: KimiCodeConfig["protocol"];
     supportEfforts?: string[];
     defaultEffort?: string;
   };
@@ -207,7 +208,8 @@ export function streamSimpleKimi(
       : {}),
     ...(discoveredModel.defaultEffort ? { defaultEffort: discoveredModel.defaultEffort } : {}),
   };
-  const apiProtocol = getApiProtocol(streamConfig.protocol);
+  const wireProtocol = discoveredModel.wireProtocol ?? streamConfig.protocol;
+  const apiProtocol = getApiProtocol(wireProtocol);
   const originalOnPayload = options?.onPayload;
   // The pi-side model id ("kimi-for-coding") is what users select via /model
   // and what gets persisted into sessions. The wire model id discovered at
@@ -271,10 +273,10 @@ export function streamSimpleKimi(
       const runtimeModel = {
         ...model,
         api: apiProtocol,
-        baseUrl: getBaseUrl(streamConfig.protocol),
+        baseUrl: getBaseUrl(wireProtocol),
       } as Model<Api>;
       const upstream =
-        streamConfig.protocol === "openai"
+        wireProtocol === "openai"
           ? streamSimpleOpenAICompletions(
               runtimeModel as Model<"openai-completions">,
               context,
