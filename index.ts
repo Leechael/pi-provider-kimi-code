@@ -44,6 +44,8 @@ import {
   type KimiOAuthExtras,
   buildKimiModelFromConfig,
   applyKimiOAuthExtrasToModel,
+  KIMI_CODING_HIGHSPEED_MODEL_ID,
+  KIMI_CODING_MODEL_ID,
   discoverKimiModelMetadata,
   resolveKimiModelConfig,
 } from "./src/models.ts";
@@ -355,9 +357,13 @@ function saveScopeKimiCodeConfig(
 }
 
 function registerKimiProvider(pi: ExtensionAPI, state: KimiRuntimeState): void {
-  const model = applyKimiOAuthExtrasToModel(
+  const standardModel = applyKimiOAuthExtrasToModel(
     buildKimiModelFromConfig(state.config.model),
     state.modelExtras,
+  );
+  const highSpeedModel = buildKimiModelFromConfig(
+    state.config.model,
+    KIMI_CODING_HIGHSPEED_MODEL_ID,
   );
 
   pi.registerProvider(PROVIDER_ID, {
@@ -366,7 +372,7 @@ function registerKimiProvider(pi: ExtensionAPI, state: KimiRuntimeState): void {
     api: getKimiApiType(state.config.protocol),
     streamSimple: streamSimpleKimi,
 
-    models: [model],
+    models: [standardModel, highSpeedModel],
 
     oauth: {
       name: "Kimi Code (OAuth)",
@@ -383,7 +389,7 @@ function registerKimiProvider(pi: ExtensionAPI, state: KimiRuntimeState): void {
         state.modelExtras = extras;
         reloadEffectiveKimiRuntimeConfig(state, state.cwd, state.projectTrusted);
         return models.map((model) => {
-          if (model.id !== "kimi-for-coding") return model;
+          if (model.id !== KIMI_CODING_MODEL_ID) return model;
           return applyKimiOAuthExtrasToModel(model, extras);
         });
       },

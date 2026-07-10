@@ -47,6 +47,9 @@ function mergeInputModalities(
 const COST_STANDARD = { input: 0.897, output: 3.724, cacheRead: 0.179, cacheWrite: 0.897 };
 const COST_HIGH_SPEED = { input: 1.793, output: 7.448, cacheRead: 0.359, cacheWrite: 1.793 };
 
+export const KIMI_CODING_MODEL_ID = "kimi-for-coding";
+export const KIMI_CODING_HIGHSPEED_MODEL_ID = "kimi-for-coding-highspeed";
+
 function resolveModelCost(modelDisplay: string | undefined): {
   input: number;
   output: number;
@@ -57,13 +60,17 @@ function resolveModelCost(modelDisplay: string | undefined): {
   return COST_STANDARD;
 }
 
-export function buildKimiModelFromConfig(config: ModelConfig): Model<Api> {
+export function buildKimiModelFromConfig(
+  config: ModelConfig,
+  modelId = KIMI_CODING_MODEL_ID,
+): Model<Api> {
+  const isHighSpeed = modelId === KIMI_CODING_HIGHSPEED_MODEL_ID;
   return {
-    id: "kimi-for-coding",
-    name: "Kimi for Coding",
+    id: modelId,
+    name: isHighSpeed ? "Kimi for Coding High Speed" : "Kimi for Coding",
     reasoning: config.reasoning,
     input: [...config.input] as unknown as ("text" | "image" | "video")[],
-    cost: { ...COST_STANDARD },
+    cost: { ...(isHighSpeed ? COST_HIGH_SPEED : COST_STANDARD) },
     contextWindow: config.contextWindow,
     maxTokens: config.maxTokens,
   } as Model<Api>;
@@ -135,7 +142,7 @@ export async function discoverKimiModelMetadata(
     if (!response.ok) return {};
     const json = (await response.json()) as { data?: unknown };
     const list = Array.isArray(json.data) ? (json.data as KimiServerModel[]) : [];
-    const preferred = list.find((m) => typeof m.id === "string" && m.id === "kimi-for-coding");
+    const preferred = list.find((m) => typeof m.id === "string" && m.id === KIMI_CODING_MODEL_ID);
     if (!preferred || typeof preferred.id !== "string") return {};
     const extras: KimiOAuthExtras = { wireModelId: preferred.id };
     if (typeof preferred.display_name === "string") extras.modelDisplay = preferred.display_name;

@@ -219,6 +219,21 @@ describe("extension tool registration", () => {
     assert.ok(commands.has("kimi-settings"));
   });
 
+  it("registers standard and highspeed Coding models as separate selections", async () => {
+    const cwd = tempDir("kimi-extension-cwd");
+    const { pi, providerConfigs } = makePi();
+
+    await withCwd(cwd, () => registerKimiCodeExtension(pi));
+
+    const models = providerConfigs.get("kimi-coding")?.models ?? [];
+    assert.deepEqual(
+      models.map((model) => model.id),
+      ["kimi-for-coding", "kimi-for-coding-highspeed"],
+    );
+    assert.equal(models[0]?.cost.input, 0.897);
+    assert.equal(models[1]?.cost.input, 1.793);
+  });
+
   it("registers KIMI_API_KEY with explicit pi config-value env syntax", async () => {
     const cwd = tempDir("kimi-extension-cwd");
     const { pi, providerConfigs } = makePi();

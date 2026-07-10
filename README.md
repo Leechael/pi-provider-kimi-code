@@ -102,16 +102,18 @@ KIMI_API_KEY=sk-... pi
 
 ## Model
 
-This provider publishes one Pi model ID:
+This provider publishes two Pi model IDs:
 
 ```text
 kimi-coding/kimi-for-coding
+kimi-coding/kimi-for-coding-highspeed
 ```
 
-Select it inside Pi:
+Select standard or highspeed mode inside Pi:
 
 ```text
 /model kimi-coding/kimi-for-coding
+/model kimi-coding/kimi-for-coding-highspeed
 ```
 
 Kimi keeps Coding models behind aliases. Rather than hardcoding a stale model list, this extension asks Kimi for the current model info when you log in or refresh. If your account is on a newer rollout (e.g., Kimi K2.7) or internal test, Pi can pick up the latest model name and context size without waiting for a package release.
