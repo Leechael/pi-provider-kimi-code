@@ -453,25 +453,29 @@ export async function applyKimiPayloadMutations(
     }
   }
 
-  // 6. Reasoning effort mapping. Merges into any existing top-level thinking
-  //    field (which may have come from extra_body above).
+  // 6. Reasoning effort mapping. Kimi now accepts effort only inside the
+  //    thinking object, and only for values advertised by the model catalog.
+  delete payload.reasoning_effort;
   const resolvedReasoning = resolveThinkingLevel(ctx);
   if (resolvedReasoning) {
     const mapped = resolveReasoningForLevel(resolvedReasoning, ctx.modelConfig);
     if (mapped) {
-      if (mapped.effort !== null) {
-        payload.reasoning_effort = mapped.effort;
-      } else {
-        delete payload.reasoning_effort;
-      }
       const oldThinking = isRecord(payload.thinking) ? payload.thinking : {};
-      payload.thinking = {
+      const thinking: JsonRecord = {
         ...oldThinking,
         type: mapped.enabled ? "enabled" : "disabled",
       };
-      if (mapped.enabled && ctx.modelConfig.thinkingKeep) {
-        (payload.thinking as JsonRecord).keep = ctx.modelConfig.thinkingKeep;
+      delete thinking.effort;
+      const effort = ctx.reasoning
+        ? mapped.effort
+        : (ctx.modelConfig.defaultEffort ?? mapped.effort);
+      if (mapped.enabled && effort !== null && ctx.modelConfig.supportEfforts?.includes(effort)) {
+        thinking.effort = effort;
       }
+      if (mapped.enabled && ctx.modelConfig.thinkingKeep) {
+        thinking.keep = ctx.modelConfig.thinkingKeep;
+      }
+      payload.thinking = thinking;
     }
   }
 

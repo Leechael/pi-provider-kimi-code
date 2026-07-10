@@ -15,6 +15,8 @@ export interface KimiModelMetadata {
   supportsImageIn?: boolean;
   supportsVideoIn?: boolean;
   supportsThinkingType?: "only" | "no" | "both";
+  supportEfforts?: string[];
+  defaultEffort?: string;
 }
 
 export interface KimiOAuthExtras extends KimiModelMetadata {
@@ -97,6 +99,8 @@ export function resolveKimiModelConfig(
   if (typeof extras.supportsImageIn === "boolean" || typeof extras.supportsVideoIn === "boolean") {
     resolved.input = mergeInputModalities(resolved.input, extras);
   }
+  if (extras.supportEfforts) resolved.supportEfforts = [...extras.supportEfforts];
+  if (extras.defaultEffort) resolved.defaultEffort = extras.defaultEffort;
   return resolved;
 }
 
@@ -108,11 +112,34 @@ interface KimiServerModel {
   supports_image_in?: unknown;
   supports_video_in?: unknown;
   supports_thinking_type?: unknown;
+  think_efforts?: unknown;
 }
 
 function parseSupportsThinkingType(value: unknown): "only" | "no" | "both" | undefined {
   if (value === "only" || value === "no" || value === "both") return value;
   return undefined;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function parseThinkEfforts(value: unknown): {
+  supportEfforts?: string[];
+  defaultEffort?: string;
+} {
+  if (!isRecord(value) || value.support !== true) return {};
+  const validEfforts = Array.isArray(value.valid_efforts)
+    ? value.valid_efforts.filter(
+        (effort): effort is string => typeof effort === "string" && !!effort,
+      )
+    : [];
+  return {
+    ...(validEfforts.length > 0 ? { supportEfforts: validEfforts } : {}),
+    ...(typeof value.default_effort === "string" && value.default_effort
+      ? { defaultEffort: value.default_effort }
+      : {}),
+  };
 }
 
 function parseKimiModelMetadata(model: KimiServerModel): KimiModelMetadata | undefined {
@@ -134,6 +161,7 @@ function parseKimiModelMetadata(model: KimiServerModel): KimiModelMetadata | und
   if (typeof model.supports_video_in === "boolean") {
     metadata.supportsVideoIn = model.supports_video_in;
   }
+  Object.assign(metadata, parseThinkEfforts(model.think_efforts));
   return metadata;
 }
 
@@ -197,8 +225,12 @@ export function applyKimiOAuthExtrasToModel(
   model: Model<Api>,
   extras: KimiModelMetadata,
 ): Model<Api> {
-  const next: Model<Api> & { wireModelId?: string; supportsThinkingType?: "only" | "no" | "both" } =
-    { ...model };
+  const next: Model<Api> & {
+    wireModelId?: string;
+    supportsThinkingType?: "only" | "no" | "both";
+    supportEfforts?: string[];
+    defaultEffort?: string;
+  } = { ...model };
   if (typeof extras.modelDisplay === "string" && extras.modelDisplay) {
     next.name = extras.modelDisplay;
     next.cost = resolveModelCost(extras.modelDisplay);
@@ -220,5 +252,7 @@ export function applyKimiOAuthExtrasToModel(
     const input = mergeInputModalities(next.input as KimiInputModality[], extras);
     (next as unknown as { input: string[] }).input = input;
   }
+  if (extras.supportEfforts) next.supportEfforts = [...extras.supportEfforts];
+  if (extras.defaultEffort) next.defaultEffort = extras.defaultEffort;
   return next;
 }

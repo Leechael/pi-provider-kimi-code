@@ -21,7 +21,7 @@ streaming to:
 - upload large inline base64 images to Kimi's `/v1/files` endpoint as `ms://` references
 - inject Kimi's proprietary `prompt_cache_key` alongside Anthropic `cache_control`
 - apply env-level hyperparameter overrides (`max_completion_tokens`; `temperature` and `top_p` are stripped for K2.7 Code which only accepts fixed values)
-- map Pi's `reasoning` level to Kimi's `reasoning_effort` + top-level `thinking`
+- map Pi's `reasoning` level to top-level `thinking`, including only server-advertised effort values
 - suppress Kimi's `(Empty response: ...)` placeholder text blocks from the response stream
 
 ## File Structure
@@ -243,7 +243,7 @@ the middle layers are unit-testable without mocking modules.
            └─> upload(mimeType, data)            │  replace done.message.content with filtered copy
      3. prompt_cache_key injection               │
      4. env overrides                            ▼
-     5. reasoning_effort mapping         filtered.push(event)
+     5. thinking type/effort mapping     filtered.push(event)
             │
             ▼
    originalOnPayload chain
@@ -312,11 +312,11 @@ Every unit below can be tested without touching the network, the filesystem, or
 
 #### Layer 2 — pure given injected dependencies
 
-| Function                                          | Contract                                                                                           | Fixture strategy                                                                                                                                                                                                                  |
-| ------------------------------------------------- | -------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `transformOpenAIPayloadFiles(payload, upload)`    | Replace inline base64 `image_url` fields with `ms://` refs                                         | Build payload fixture, pass fake `upload = async () => "ms://fake"`, assert mutated payload. Cover: plain data URL, already `ms://`, mime that fails `parseDataUrl`, cache dedup for repeated URLs                                |
-| `transformAnthropicPayloadFiles(payload, upload)` | Replace base64 `image` blocks (including inside `tool_result`) with `{source: {type: "url", url}}` | Fixture with nested `tool_result.content`, assert recursive replacement + `cache_control` preservation                                                                                                                            |
-| `applyKimiPayloadMutations(payload, ctx)`         | Apply all 5 steps in order                                                                         | Table test per step: (a) developer→system, (b) upload dispatch by `ctx.api`, (c) cache_key precedence (existing > ctx.cacheKey > nothing), (d) env overrides only when set, (e) reasoning_effort only when `ctx.reasoning` is set |
+| Function                                          | Contract                                                                                           | Fixture strategy                                                                                                                                                                                                                    |
+| ------------------------------------------------- | -------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `transformOpenAIPayloadFiles(payload, upload)`    | Replace inline base64 `image_url` fields with `ms://` refs                                         | Build payload fixture, pass fake `upload = async () => "ms://fake"`, assert mutated payload. Cover: plain data URL, already `ms://`, mime that fails `parseDataUrl`, cache dedup for repeated URLs                                  |
+| `transformAnthropicPayloadFiles(payload, upload)` | Replace base64 `image` blocks (including inside `tool_result`) with `{source: {type: "url", url}}` | Fixture with nested `tool_result.content`, assert recursive replacement + `cache_control` preservation                                                                                                                              |
+| `applyKimiPayloadMutations(payload, ctx)`         | Apply all payload steps in order                                                                   | Table test per step: (a) developer→system, (b) upload dispatch by `ctx.api`, (c) cache_key precedence (existing > ctx.cacheKey > nothing), (d) env overrides only when set, (e) thinking effort only when the catalog advertises it |
 
 #### Layer 3 — pure stream transformation
 
@@ -356,8 +356,8 @@ and (if the step needs new inputs) a new field on `KimiPayloadContext`.
 
 Kimi Code's backend speaks both formats. Different Pi users and downstream tools
 prefer different protocols — some want strict Anthropic compatibility for
-`cache_control` + thinking blocks, others need OpenAI's `reasoning_effort` and
-top-level `thinking` semantics. Selecting via `KIMI_CODE_PROTOCOL` at module load lets a
+`cache_control` + thinking blocks, while others need the OpenAI-compatible transport.
+Selecting via `KIMI_CODE_PROTOCOL` at module load lets a
 single extension cover both audiences without duplication, and the protocol-
 specific payload transform lives in its own function
 (`transformOpenAIPayloadFiles` / `transformAnthropicPayloadFiles`) behind a

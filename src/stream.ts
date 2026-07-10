@@ -192,7 +192,21 @@ export function streamSimpleKimi(
     protocol: ENV_KIMI_CODE_PROTOCOL,
     uploads: DEFAULT_KIMI_CODE_CONFIG.uploads,
   };
-  const modelConfig = streamConfig.model;
+  const discoveredModel = model as Model<Api> & {
+    supportsThinkingType?: "only" | "no" | "both";
+    supportEfforts?: string[];
+    defaultEffort?: string;
+  };
+  const modelConfig: KimiResolvedModelConfig = {
+    ...streamConfig.model,
+    ...(discoveredModel.supportsThinkingType
+      ? { supportsThinkingType: discoveredModel.supportsThinkingType }
+      : {}),
+    ...(discoveredModel.supportEfforts
+      ? { supportEfforts: [...discoveredModel.supportEfforts] }
+      : {}),
+    ...(discoveredModel.defaultEffort ? { defaultEffort: discoveredModel.defaultEffort } : {}),
+  };
   const apiProtocol = getApiProtocol(streamConfig.protocol);
   const originalOnPayload = options?.onPayload;
   // The pi-side model id ("kimi-for-coding") is what users select via /model

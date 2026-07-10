@@ -103,6 +103,11 @@ describe("discoverKimiModelMetadata", () => {
             context_length: 524288,
             supports_reasoning: true,
             supports_video_in: true,
+            think_efforts: {
+              support: true,
+              valid_efforts: ["low", "high"],
+              default_effort: "high",
+            },
           },
         ],
       }),
@@ -120,6 +125,8 @@ describe("discoverKimiModelMetadata", () => {
       contextLength: 524288,
       supportsReasoning: true,
       supportsVideoIn: true,
+      supportEfforts: ["low", "high"],
+      defaultEffort: "high",
     });
   });
 

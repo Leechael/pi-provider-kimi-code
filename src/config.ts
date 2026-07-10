@@ -38,6 +38,8 @@ export interface ModelConfig {
 
 export interface KimiResolvedModelConfig extends ModelConfig {
   supportsThinkingType?: "only" | "no" | "both";
+  supportEfforts?: string[];
+  defaultEffort?: string;
 }
 
 export interface KimiCodeConfig {

@@ -293,7 +293,7 @@ describe("applyKimiPayloadMutations", () => {
     assert.equal(payload.tool_choice, "auto");
   });
 
-  it("merges reasoning type into existing thinking fields at top level", async () => {
+  it("omits effort when the model does not advertise supported efforts", async () => {
     const payload: JsonRecord = {
       messages: [{ role: "user", content: "hi" }],
       extra_body: { thinking: { keep: "all" } },
@@ -301,9 +301,26 @@ describe("applyKimiPayloadMutations", () => {
 
     await applyKimiPayloadMutations(payload, baseCtx({ reasoning: "high" }));
 
-    assert.equal(payload.reasoning_effort, "high");
+    assert.equal(payload.reasoning_effort, undefined);
     assert.equal(payload.extra_body, undefined);
     assert.deepEqual(payload.thinking, { keep: "all", type: "enabled" });
+  });
+
+  it("sends effort inside thinking when the model advertises it", async () => {
+    const payload: JsonRecord = {
+      messages: [{ role: "user", content: "hi" }],
+    };
+
+    await applyKimiPayloadMutations(
+      payload,
+      baseCtx({
+        reasoning: "high",
+        modelConfig: { ...defaultModelConfig, supportEfforts: ["low", "high"] },
+      }),
+    );
+
+    assert.equal(payload.reasoning_effort, undefined);
+    assert.deepEqual(payload.thinking, { type: "enabled", effort: "high", keep: "all" });
   });
 
   it("applies thinkingKeep only when reasoning is enabled", async () => {
@@ -375,6 +392,7 @@ describe("applyKimiPayloadMutations", () => {
   it("suppresses reasoning fields when supportsThinkingType is 'no'", async () => {
     const payload: JsonRecord = {
       messages: [{ role: "user", content: "hi" }],
+      reasoning_effort: "high",
     };
 
     await applyKimiPayloadMutations(
@@ -402,7 +420,7 @@ describe("applyKimiPayloadMutations", () => {
       }),
     );
 
-    assert.equal(payload.reasoning_effort, "low");
+    assert.equal(payload.reasoning_effort, undefined);
     assert.deepEqual(payload.thinking, { type: "enabled", keep: "all" });
   });
 
@@ -419,7 +437,7 @@ describe("applyKimiPayloadMutations", () => {
       }),
     );
 
-    assert.equal(payload.reasoning_effort, "high");
+    assert.equal(payload.reasoning_effort, undefined);
     assert.deepEqual(payload.thinking, { type: "enabled", keep: "all" });
   });
 
@@ -430,11 +448,18 @@ describe("applyKimiPayloadMutations", () => {
 
     await applyKimiPayloadMutations(
       payload,
-      baseCtx({ modelConfig: { ...defaultModelConfig, supportsThinkingType: "only" } }),
+      baseCtx({
+        modelConfig: {
+          ...defaultModelConfig,
+          supportsThinkingType: "only",
+          supportEfforts: ["medium", "high"],
+          defaultEffort: "high",
+        },
+      }),
     );
 
-    assert.equal(payload.reasoning_effort, "low");
-    assert.deepEqual(payload.thinking, { type: "enabled", keep: "all" });
+    assert.equal(payload.reasoning_effort, undefined);
+    assert.deepEqual(payload.thinking, { type: "enabled", effort: "high", keep: "all" });
   });
 
   it("behaves normally when supportsThinkingType is 'both'", async () => {
@@ -450,7 +475,7 @@ describe("applyKimiPayloadMutations", () => {
       }),
     );
 
-    assert.equal(payload.reasoning_effort, "high");
+    assert.equal(payload.reasoning_effort, undefined);
     assert.deepEqual(payload.thinking, { type: "enabled", keep: "all" });
   });
 });

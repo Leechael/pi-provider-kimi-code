@@ -125,7 +125,7 @@ Fallback values:
 - Input: text and image
 - Reasoning: enabled
 
-The provider maps Pi's reasoning levels to Kimi's `reasoning_effort` and top-level `thinking` parameters. The mapping refreshes automatically on credential refresh. Opening `/kimi-settings` also re-discovers the latest model metadata.
+The provider maps Pi's reasoning levels to Kimi's top-level `thinking` parameter. It sends `thinking.effort` only when `/models` advertises supported effort values. The mapping refreshes automatically on credential refresh. Opening `/kimi-settings` also re-discovers the latest model metadata.
 
 ## Optional tools
 
