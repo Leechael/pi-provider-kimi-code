@@ -234,6 +234,70 @@ describe("extension tool registration", () => {
     assert.equal(models[1]?.cost.input, 1.793);
   });
 
+  it("applies discovered metadata to each registered Coding model", async () => {
+    const cwd = tempDir("kimi-extension-cwd");
+    const { pi, providerConfigs } = makePi();
+
+    await withCwd(cwd, () => registerKimiCodeExtension(pi));
+
+    const provider = providerConfigs.get("kimi-coding");
+    const modifyModels = provider?.oauth?.modifyModels;
+    assert.ok(modifyModels);
+    const models = modifyModels(
+      provider.models as never,
+      {
+        access: "oauth-token",
+        refresh: "refresh-token",
+        expires: Date.now() + 60_000,
+        modelCatalog: {
+          "kimi-for-coding": {
+            wireModelId: "kimi-for-coding",
+            modelDisplay: "Kimi Standard",
+            contextLength: 262144,
+          },
+          "kimi-for-coding-highspeed": {
+            wireModelId: "kimi-for-coding-highspeed",
+            modelDisplay: "Kimi High Speed",
+            contextLength: 524288,
+            supportsVideoIn: true,
+          },
+        },
+      } as never,
+    );
+
+    assert.equal(models[0]?.name, "Kimi Standard");
+    assert.equal(models[1]?.name, "Kimi High Speed");
+    assert.equal(models[1]?.contextWindow, 524288);
+    assert.deepEqual(models[1]?.input, ["text", "image", "video"]);
+  });
+
+  it("removes Coding models that the authenticated catalog does not expose", async () => {
+    const cwd = tempDir("kimi-extension-cwd");
+    const { pi, providerConfigs } = makePi();
+
+    await withCwd(cwd, () => registerKimiCodeExtension(pi));
+
+    const provider = providerConfigs.get("kimi-coding");
+    const modifyModels = provider?.oauth?.modifyModels;
+    assert.ok(modifyModels);
+    const models = modifyModels(
+      provider.models as never,
+      {
+        access: "oauth-token",
+        refresh: "refresh-token",
+        expires: Date.now() + 60_000,
+        modelCatalog: {
+          "kimi-for-coding": { wireModelId: "kimi-for-coding" },
+        },
+      } as never,
+    );
+
+    assert.deepEqual(
+      models.map((model) => model.id),
+      ["kimi-for-coding"],
+    );
+  });
+
   it("registers KIMI_API_KEY with explicit pi config-value env syntax", async () => {
     const cwd = tempDir("kimi-extension-cwd");
     const { pi, providerConfigs } = makePi();

@@ -7,7 +7,7 @@ import type { KimiInputModality, KimiResolvedModelConfig, ModelConfig } from "./
 import { type KimiWireProtocol, getBaseUrl } from "./constants.ts";
 import { getCommonHeaders } from "./device.ts";
 
-export interface KimiOAuthExtras {
+export interface KimiModelMetadata {
   wireModelId?: string;
   modelDisplay?: string;
   contextLength?: number;
@@ -15,6 +15,10 @@ export interface KimiOAuthExtras {
   supportsImageIn?: boolean;
   supportsVideoIn?: boolean;
   supportsThinkingType?: "only" | "no" | "both";
+}
+
+export interface KimiOAuthExtras extends KimiModelMetadata {
+  modelCatalog?: Record<string, KimiModelMetadata>;
 }
 
 export type KimiOAuthCredentials = OAuthCredentials & KimiOAuthExtras;
@@ -111,6 +115,28 @@ function parseSupportsThinkingType(value: unknown): "only" | "no" | "both" | und
   return undefined;
 }
 
+function parseKimiModelMetadata(model: KimiServerModel): KimiModelMetadata | undefined {
+  if (typeof model.id !== "string" || !model.id) return undefined;
+  const metadata: KimiModelMetadata = { wireModelId: model.id };
+  if (typeof model.display_name === "string") metadata.modelDisplay = model.display_name;
+  if (typeof model.context_length === "number" && model.context_length > 0) {
+    metadata.contextLength = model.context_length;
+  }
+  const thinkingType = parseSupportsThinkingType(model.supports_thinking_type);
+  if (thinkingType) {
+    metadata.supportsThinkingType = thinkingType;
+  } else if (typeof model.supports_reasoning === "boolean") {
+    metadata.supportsReasoning = model.supports_reasoning;
+  }
+  if (typeof model.supports_image_in === "boolean") {
+    metadata.supportsImageIn = model.supports_image_in;
+  }
+  if (typeof model.supports_video_in === "boolean") {
+    metadata.supportsVideoIn = model.supports_video_in;
+  }
+  return metadata;
+}
+
 export function buildModelsUrl(baseUrl: string): string {
   const base = baseUrl.replace(/\/+$/, "");
   return base.endsWith("/v1") ? `${base}/models` : `${base}/v1/models`;
@@ -142,26 +168,18 @@ export async function discoverKimiModelMetadata(
     if (!response.ok) return {};
     const json = (await response.json()) as { data?: unknown };
     const list = Array.isArray(json.data) ? (json.data as KimiServerModel[]) : [];
-    const preferred = list.find((m) => typeof m.id === "string" && m.id === KIMI_CODING_MODEL_ID);
-    if (!preferred || typeof preferred.id !== "string") return {};
-    const extras: KimiOAuthExtras = { wireModelId: preferred.id };
-    if (typeof preferred.display_name === "string") extras.modelDisplay = preferred.display_name;
-    if (typeof preferred.context_length === "number" && preferred.context_length > 0) {
-      extras.contextLength = preferred.context_length;
+    const supportedIds = new Set([KIMI_CODING_MODEL_ID, KIMI_CODING_HIGHSPEED_MODEL_ID]);
+    const modelCatalog: Record<string, KimiModelMetadata> = {};
+    for (const model of list) {
+      if (typeof model.id !== "string" || !supportedIds.has(model.id)) continue;
+      const metadata = parseKimiModelMetadata(model);
+      if (metadata) modelCatalog[model.id] = metadata;
     }
-    const thinkingType = parseSupportsThinkingType(preferred.supports_thinking_type);
-    if (thinkingType) {
-      extras.supportsThinkingType = thinkingType;
-    } else if (typeof preferred.supports_reasoning === "boolean") {
-      extras.supportsReasoning = preferred.supports_reasoning;
+    const preferred = modelCatalog[KIMI_CODING_MODEL_ID];
+    if (!preferred) {
+      return Object.keys(modelCatalog).length > 0 ? { modelCatalog } : {};
     }
-    if (typeof preferred.supports_image_in === "boolean") {
-      extras.supportsImageIn = preferred.supports_image_in;
-    }
-    if (typeof preferred.supports_video_in === "boolean") {
-      extras.supportsVideoIn = preferred.supports_video_in;
-    }
-    return extras;
+    return Object.keys(modelCatalog).length > 1 ? { ...preferred, modelCatalog } : preferred;
   } catch {
     return {};
   } finally {
@@ -169,9 +187,15 @@ export async function discoverKimiModelMetadata(
   }
 }
 
+export function getKimiModelMetadata(extras: KimiOAuthExtras, modelId: string): KimiModelMetadata {
+  const discovered = extras.modelCatalog?.[modelId];
+  if (discovered) return discovered;
+  return modelId === KIMI_CODING_MODEL_ID ? extras : {};
+}
+
 export function applyKimiOAuthExtrasToModel(
   model: Model<Api>,
-  extras: KimiOAuthExtras,
+  extras: KimiModelMetadata,
 ): Model<Api> {
   const next: Model<Api> & { wireModelId?: string; supportsThinkingType?: "only" | "no" | "both" } =
     { ...model };

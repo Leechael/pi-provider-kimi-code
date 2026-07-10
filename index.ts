@@ -47,6 +47,7 @@ import {
   KIMI_CODING_HIGHSPEED_MODEL_ID,
   KIMI_CODING_MODEL_ID,
   discoverKimiModelMetadata,
+  getKimiModelMetadata,
   resolveKimiModelConfig,
 } from "./src/models.ts";
 import { getKimiApiKey, loginKimiCode, refreshKimiCodeToken } from "./src/oauth.ts";
@@ -116,7 +117,10 @@ function reloadEffectiveKimiRuntimeConfig(
   state.config = config;
   state.projectTrusted = projectTrusted;
   setStoreResolvedKimiConfig({
-    model: resolveKimiModelConfig(config.model, state.modelExtras),
+    model: resolveKimiModelConfig(
+      config.model,
+      getKimiModelMetadata(state.modelExtras, KIMI_CODING_MODEL_ID),
+    ),
     protocol: config.protocol,
     uploads: config.uploads,
   });
@@ -359,11 +363,11 @@ function saveScopeKimiCodeConfig(
 function registerKimiProvider(pi: ExtensionAPI, state: KimiRuntimeState): void {
   const standardModel = applyKimiOAuthExtrasToModel(
     buildKimiModelFromConfig(state.config.model),
-    state.modelExtras,
+    getKimiModelMetadata(state.modelExtras, KIMI_CODING_MODEL_ID),
   );
-  const highSpeedModel = buildKimiModelFromConfig(
-    state.config.model,
-    KIMI_CODING_HIGHSPEED_MODEL_ID,
+  const highSpeedModel = applyKimiOAuthExtrasToModel(
+    buildKimiModelFromConfig(state.config.model, KIMI_CODING_HIGHSPEED_MODEL_ID),
+    getKimiModelMetadata(state.modelExtras, KIMI_CODING_HIGHSPEED_MODEL_ID),
   );
 
   pi.registerProvider(PROVIDER_ID, {
@@ -388,10 +392,12 @@ function registerKimiProvider(pi: ExtensionAPI, state: KimiRuntimeState): void {
         const extras = cred as KimiOAuthCredentials;
         state.modelExtras = extras;
         reloadEffectiveKimiRuntimeConfig(state, state.cwd, state.projectTrusted);
-        return models.map((model) => {
-          if (model.id !== KIMI_CODING_MODEL_ID) return model;
-          return applyKimiOAuthExtrasToModel(model, extras);
-        });
+        const available = extras.modelCatalog ? new Set(Object.keys(extras.modelCatalog)) : null;
+        return models
+          .filter((model) => !available || available.has(model.id))
+          .map((model) =>
+            applyKimiOAuthExtrasToModel(model, getKimiModelMetadata(extras, model.id)),
+          );
       },
     },
   });

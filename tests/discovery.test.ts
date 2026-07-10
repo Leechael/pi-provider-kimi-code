@@ -86,17 +86,23 @@ describe("discoverKimiModelMetadata", () => {
     assert.equal(headers.Authorization, "Bearer tok-1");
   });
 
-  it("prefers the entry with id 'kimi-for-coding' even when other models are present", async () => {
+  it("retains metadata for every model returned by the catalog", async () => {
     mock = mockFetch(() =>
       jsonResponse({
         data: [
-          { id: "k2p7-beta", display_name: "Beta K2.7" },
           {
             id: "kimi-for-coding",
             display_name: "Kimi For Coding",
             context_length: 262144,
             supports_reasoning: true,
             supports_image_in: true,
+          },
+          {
+            id: "kimi-for-coding-highspeed",
+            display_name: "Kimi For Coding High Speed",
+            context_length: 524288,
+            supports_reasoning: true,
+            supports_video_in: true,
           },
         ],
       }),
@@ -108,6 +114,13 @@ describe("discoverKimiModelMetadata", () => {
     assert.equal(result.contextLength, 262144);
     assert.equal(result.supportsReasoning, true);
     assert.equal(result.supportsImageIn, true);
+    assert.deepEqual(result.modelCatalog?.["kimi-for-coding-highspeed"], {
+      wireModelId: "kimi-for-coding-highspeed",
+      modelDisplay: "Kimi For Coding High Speed",
+      contextLength: 524288,
+      supportsReasoning: true,
+      supportsVideoIn: true,
+    });
   });
 
   it("returns empty when no kimi-for-coding is present", async () => {
