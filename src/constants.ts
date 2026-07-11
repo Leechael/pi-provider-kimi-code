@@ -41,7 +41,7 @@ export function getDefaultBaseUrl(protocol: KimiWireProtocol): string {
 
 export const DEFAULT_BASE_URL = getDefaultBaseUrl(ENV_KIMI_CODE_PROTOCOL);
 
-export const PROVIDER_VERSION = "0.6.3";
+export const PROVIDER_VERSION = "0.6.4";
 
 // Upstream kimi-code CLI version — used in User-Agent and X-Msh-Version
 // headers to match the official client's identity. Update this when
