@@ -234,8 +234,7 @@ export async function discoverKimiModelMetadata(
   if (!accessToken) return {};
   const timeoutMs = options.timeoutMs ?? DEFAULT_DISCOVERY_TIMEOUT_MS;
   const controller = new AbortController();
-  const timeout =
-    timeoutMs > 0 ? setTimeout(() => controller.abort(), timeoutMs).unref() : undefined;
+  const timeout = timeoutMs > 0 ? setTimeout(() => controller.abort(), timeoutMs) : undefined;
   try {
     const response = await fetch(getModelsUrl(protocol), {
       signal: controller.signal,

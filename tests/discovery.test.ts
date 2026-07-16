@@ -598,7 +598,7 @@ describe("refreshKimiAuthToken", () => {
     }
   });
 
-  it("refreshes stale OAuth credentials and preserves stored metadata", async () => {
+  it("refreshes stale OAuth credentials without writing Pi auth storage", async () => {
     const auth = withTempAuthFile({
       type: "oauth",
       access: "stale-access",
@@ -621,10 +621,10 @@ describe("refreshKimiAuthToken", () => {
       const result = await refreshKimiAuthToken("stale-access");
       assert.equal(result, "fresh-access");
       const stored = auth.readCredential();
-      assert.equal(stored.access, "fresh-access");
-      assert.equal(stored.refresh, "refresh-2");
+      assert.equal(stored.access, "stale-access");
+      assert.equal(stored.refresh, "refresh-1");
       assert.equal(stored.wireModelId, "kimi-for-coding");
-      assert.equal(stored.modelDisplay, "Kimi For Coding");
+      assert.equal(auth.readKimiCredential().refresh_token, "refresh-2");
     } finally {
       auth.cleanup();
     }
@@ -746,7 +746,7 @@ describe("refreshKimiAuthToken", () => {
 
       assert.equal(result, "fresh-access");
       assert.deepEqual(refreshTokens, ["pi-valid-refresh"]);
-      assert.equal(auth.readCredential().refresh, "fresh-refresh");
+      assert.equal(auth.readCredential().refresh, "pi-valid-refresh");
       assert.equal(auth.readKimiCredential().refresh_token, "fresh-refresh");
     } finally {
       auth.cleanup();

@@ -43,15 +43,13 @@
     "clean": "echo 'nothing to clean'",
     "build": "echo 'nothing to build'",
     "check": "tsc --noEmit",
-    "test": "node --test tests/*.test.ts",
+    "test": "node --test --test-concurrency=1 tests/*.test.ts",
     "lint": "oxlint .",
     "format": "oxfmt . --write",
     "format:check": "oxfmt . --check",
     "pre-commit": "prek run"
   },
-  "dependencies": {
-    "proper-lockfile": "^4.1.2"
-  },
+  "dependencies": {},
   "devDependencies": {
     "@earendil-works/pi-ai": "^0.80.9",
     "@earendil-works/pi-coding-agent": "^0.80.9",
