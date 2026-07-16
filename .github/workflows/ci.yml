@@ -20,6 +20,7 @@ jobs:
         pi-version:
           - 0.78.1
           - 0.79.10
+          - 0.80.9
     name: test (pi ${{ matrix.pi-version }})
     steps:
       - name: Checkout

@@ -1,8 +1,6 @@
-import { AuthStorage } from "@earendil-works/pi-coding-agent";
-
 import { PROVIDER_ID, getBaseUrl } from "./constants.ts";
 import { getKimiProviderHeaders } from "./device.ts";
-import { refreshKimiAuthToken } from "./oauth.ts";
+import { readStoredOAuthCredential, refreshKimiAuthToken } from "./oauth.ts";
 
 const MEMBERSHIP_LEVEL_NAMES: Record<string, string> = {
   LEVEL_FREE: "Free",
@@ -52,8 +50,8 @@ interface BoosterWalletInfo {
 const FIXED_POINT_CENTS = 1_000_000n;
 
 export function getKimiUsageToken(): string | null {
-  const credential = AuthStorage.create().get(PROVIDER_ID);
-  if (credential?.type === "oauth" && credential.access) return credential.access;
+  const credential = readStoredOAuthCredential(PROVIDER_ID);
+  if (credential?.access) return credential.access;
   const apiKey = process.env.KIMI_API_KEY?.trim();
   return apiKey || null;
 }

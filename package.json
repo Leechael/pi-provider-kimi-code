@@ -49,12 +49,16 @@
     "format:check": "oxfmt . --check",
     "pre-commit": "prek run"
   },
+  "dependencies": {
+    "proper-lockfile": "^4.1.2"
+  },
   "devDependencies": {
-    "@earendil-works/pi-ai": "^0.79.10",
-    "@earendil-works/pi-coding-agent": "^0.79.10",
-    "@earendil-works/pi-tui": "^0.79.10",
+    "@earendil-works/pi-ai": "^0.80.9",
+    "@earendil-works/pi-coding-agent": "^0.80.9",
+    "@earendil-works/pi-tui": "^0.80.9",
     "@j178/prek": "^0.4.4",
     "@types/node": "^24.0.0",
+    "@types/proper-lockfile": "^4.1.4",
     "oxfmt": "^0.44.0",
     "oxlint": "^1.59.0",
     "typescript": "^5.9.0"
