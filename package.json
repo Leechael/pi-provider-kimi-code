@@ -1,6 +1,6 @@
 {
   "name": "pi-provider-kimi-code",
-  "version": "0.6.5",
+  "version": "0.6.6",
   "description": "Use Kimi Code in Pi without losing the Kimi-specific bits",
   "keywords": [
     "ai-provider",
