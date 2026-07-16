@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 
 import {
   buildKimiUsageUrl,
+  fetchKimiUsageSnapshot,
   formatResetTime,
   formatUsageRow,
   parseMembership,
@@ -35,6 +36,39 @@ describe("buildKimiUsageUrl", () => {
       buildKimiUsageUrl("https://proxy.example/kimi"),
       "https://proxy.example/kimi/v1/usages",
     );
+  });
+});
+
+describe("fetchKimiUsageSnapshot", () => {
+  it("bounds OAuth refresh by the usage timeout", { timeout: 1000 }, async () => {
+    const originalFetch = globalThis.fetch;
+    const originalApiKey = process.env.KIMI_API_KEY;
+    let refreshAborted = false;
+    process.env.KIMI_API_KEY = "stale-token";
+    globalThis.fetch = async (input, init) => {
+      const url = String(input);
+      if (url.endsWith("/usages")) return new Response("unauthorized", { status: 401 });
+      if (url.endsWith("/api/oauth/token")) {
+        return new Promise<Response>((_resolve, reject) => {
+          init?.signal?.addEventListener("abort", () => {
+            refreshAborted = true;
+            reject(init.signal?.reason);
+          });
+        });
+      }
+      throw new Error(`unexpected request: ${url}`);
+    };
+
+    try {
+      const snapshot = await fetchKimiUsageSnapshot({ timeoutMs: 10 });
+      assert.equal(refreshAborted, true);
+      assert.match(snapshot.summary, /^Usage: fetch failed/);
+      assert.equal(snapshot.membershipLevel, null);
+    } finally {
+      globalThis.fetch = originalFetch;
+      if (originalApiKey === undefined) delete process.env.KIMI_API_KEY;
+      else process.env.KIMI_API_KEY = originalApiKey;
+    }
   });
 });
 

@@ -354,9 +354,9 @@ function fetchKimiUsage(token: string, signal: AbortSignal): Promise<Response> {
 }
 
 export async function fetchKimiUsageSnapshot(
-  options: { timeoutMs?: number } = {},
+  options: { timeoutMs?: number; token?: string; refreshOnUnauthorized?: boolean } = {},
 ): Promise<KimiUsageSnapshot> {
-  const token = getKimiUsageToken();
+  const token = options.token ?? getKimiUsageToken();
   if (!token) {
     return {
       summary: "Usage: missing credentials. Run /login kimi-coding.",
@@ -368,8 +368,8 @@ export async function fetchKimiUsageSnapshot(
   const timeout = setTimeout(() => controller.abort(), options.timeoutMs ?? 15_000);
   try {
     let response = await fetchKimiUsage(token, controller.signal);
-    if (response.status === 401) {
-      const refreshed = await refreshKimiAuthToken(token);
+    if (response.status === 401 && options.refreshOnUnauthorized !== false) {
+      const refreshed = await refreshKimiAuthToken(token, { signal: controller.signal });
       if (refreshed) response = await fetchKimiUsage(refreshed, controller.signal);
     }
     if (!response.ok) {

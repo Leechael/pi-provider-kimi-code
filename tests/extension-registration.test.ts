@@ -498,6 +498,86 @@ describe("extension tool registration", () => {
     }
   });
 
+  it("refreshes membership before applying OAuth model metadata", async () => {
+    const cwd = tempDir("kimi-extension-cwd");
+    const { pi, providerConfigs } = makePi();
+    const auth = withTempAuthFile({
+      type: "oauth",
+      access: "startup-access",
+      refresh: "startup-refresh",
+      expires: Date.now() + 60_000,
+    });
+    const originalFetch = globalThis.fetch;
+    let usageRequests = 0;
+    globalThis.fetch = async (input) => {
+      const url = String(input);
+      if (url.endsWith("/models")) {
+        return new Response(
+          JSON.stringify({
+            data: [
+              { id: "kimi-for-coding", context_length: 262144 },
+              { id: "kimi-for-coding-highspeed", context_length: 262144 },
+              { id: "k3", context_length: 1048576 },
+            ],
+          }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        );
+      }
+      if (url.endsWith("/usages")) {
+        usageRequests++;
+        if (usageRequests === 1) return new Response("unavailable", { status: 503 });
+        return new Response(JSON.stringify({ user: { membership: { level: "LEVEL_STANDARD" } } }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
+      }
+      if (url.endsWith("/api/oauth/token")) {
+        return new Response(
+          JSON.stringify({
+            access_token: "refreshed-access",
+            refresh_token: "refreshed-refresh",
+            expires_in: 900,
+            scope: "kimi-code",
+            token_type: "Bearer",
+          }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        );
+      }
+      throw new Error(`unexpected request: ${url}`);
+    };
+
+    try {
+      await withCwd(cwd, () => registerKimiCodeExtension(pi));
+      const provider = providerConfigs.get("kimi-coding");
+      const refreshToken = provider?.oauth?.refreshToken;
+      const modifyModels = provider?.oauth?.modifyModels;
+      assert.ok(refreshToken);
+      assert.ok(modifyModels);
+
+      const credentials = await refreshToken({
+        access: "startup-access",
+        refresh: "startup-refresh",
+        expires: Date.now() + 60_000,
+      });
+      const models = modifyModels(
+        provider.models?.map((model) => ({ ...model, provider: "kimi-coding" })) as never,
+        credentials as never,
+      );
+
+      assert.equal(usageRequests, 2);
+      assert.deepEqual(
+        models.map((model) => [model.id, model.contextWindow]),
+        [
+          ["kimi-for-coding", 262144],
+          ["k3", 262144],
+        ],
+      );
+    } finally {
+      globalThis.fetch = originalFetch;
+      auth.cleanup();
+    }
+  });
+
   it("refreshes membership limits when settings re-fetches account metadata", async () => {
     const cwd = tempDir("kimi-extension-cwd");
     const { commands, pi, providerConfigs } = makePi();

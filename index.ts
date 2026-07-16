@@ -432,8 +432,26 @@ function registerKimiProvider(pi: ExtensionAPI, state: KimiRuntimeState): void {
 
     oauth: {
       name: "Kimi Code (OAuth)",
-      login: loginKimiCode,
-      refreshToken: refreshKimiCodeToken,
+      login: async (callbacks) => {
+        const credentials = await loginKimiCode(callbacks);
+        const usage = await fetchKimiUsageSnapshot({
+          timeoutMs: 2500,
+          token: credentials.access,
+          refreshOnUnauthorized: false,
+        });
+        state.membershipLevel = usage.membershipLevel;
+        return credentials;
+      },
+      refreshToken: async (credentials) => {
+        const refreshed = await refreshKimiCodeToken(credentials);
+        const usage = await fetchKimiUsageSnapshot({
+          timeoutMs: 2500,
+          token: refreshed.access,
+          refreshOnUnauthorized: false,
+        });
+        state.membershipLevel = usage.membershipLevel;
+        return refreshed;
+      },
       getApiKey: getKimiApiKey,
       // Reflect server-side model identity on the registered model after login
       // / refresh. We never rewrite the model id (pi-side `/model` selections
