@@ -42,12 +42,16 @@ import { PROVIDER_ID, PROVIDER_VERSION, getBaseUrl, getKimiApiType } from "./src
 import {
   type KimiOAuthCredentials,
   type KimiOAuthExtras,
+  applyKimiMembershipLimitsToModel,
   buildKimiModelFromConfig,
   applyKimiOAuthExtrasToModel,
   KIMI_CODING_HIGHSPEED_MODEL_ID,
   KIMI_CODING_MODEL_ID,
+  KIMI_K3_MODEL_ID,
+  KIMI_MODEL_CATALOG_VERSION,
   discoverKimiModelMetadata,
   getKimiModelMetadata,
+  isKimiModelAvailableForMembership,
   resolveKimiModelConfig,
 } from "./src/models.ts";
 import { getKimiApiKey, loginKimiCode, refreshKimiCodeToken } from "./src/oauth.ts";
@@ -60,13 +64,14 @@ import {
   parseByteSizeInput,
 } from "./src/settings-ui.ts";
 import { setStoreResolvedKimiConfig, streamSimpleKimi } from "./src/stream.ts";
-import { fetchKimiUsageSummary, getKimiUsageToken } from "./src/usage.ts";
+import { fetchKimiUsageSnapshot, getKimiUsageToken } from "./src/usage.ts";
 import { buildMoonshotFetchTool, buildMoonshotSearchTool } from "./src/tools/moonshot.ts";
 import { buildKimiDatasourceTool } from "./src/tools/datasource.ts";
 interface KimiRuntimeState {
   cwd: string;
   config: KimiCodeConfig;
   modelExtras: KimiOAuthExtras;
+  membershipLevel: string | null;
   projectTrusted: boolean;
   overrides?: KimiCodeConfigPatch;
 }
@@ -152,11 +157,21 @@ async function openSettingsMenu(
   ctx: ExtensionCommandContext,
   state: KimiRuntimeState,
 ): Promise<void> {
-  const [usage, modelsRefreshed] = await Promise.all([
-    fetchKimiUsageSummary(),
+  const modelDiscoveryToken = getKimiUsageToken();
+  const [usageSnapshot, initialModelsRefreshed] = await Promise.all([
+    fetchKimiUsageSnapshot(),
     refreshModelExtras(state),
   ]);
-  if (modelsRefreshed) registerKimiProvider(pi, state);
+  let modelsRefreshed = initialModelsRefreshed;
+  const refreshedToken = getKimiUsageToken();
+  if (!modelsRefreshed && refreshedToken && refreshedToken !== modelDiscoveryToken) {
+    modelsRefreshed = await refreshModelExtras(state);
+  }
+  const refreshedMembershipLevel = usageSnapshot.membershipLevel ?? state.membershipLevel;
+  const membershipChanged = state.membershipLevel !== refreshedMembershipLevel;
+  state.membershipLevel = refreshedMembershipLevel;
+  if (modelsRefreshed || membershipChanged) registerKimiProvider(pi, state);
+  const usage = usageSnapshot.summary;
 
   const projectTrusted = await isKimiProjectConfigApproved(ctx, ctx.cwd);
   const homeDraft = loadHomeKimiCodeConfig(os.homedir());
@@ -367,19 +382,40 @@ function saveScopeKimiCodeConfig(
 function filterAvailableKimiModels<T extends { id: string }>(
   models: T[],
   extras: KimiOAuthExtras,
+  membershipLevel: string | null,
 ): T[] {
-  const available = extras.modelCatalog ? new Set(Object.keys(extras.modelCatalog)) : null;
-  return available ? models.filter((model) => available.has(model.id)) : models;
+  const available =
+    extras.modelCatalogVersion === KIMI_MODEL_CATALOG_VERSION && extras.modelCatalog
+      ? new Set(Object.keys(extras.modelCatalog))
+      : null;
+  return models.filter(
+    (model) =>
+      (!available || available.has(model.id)) &&
+      isKimiModelAvailableForMembership(model.id, membershipLevel) !== false,
+  );
 }
 
 function registerKimiProvider(pi: ExtensionAPI, state: KimiRuntimeState): void {
-  const standardModel = applyKimiOAuthExtrasToModel(
-    buildKimiModelFromConfig(state.config.model),
-    getKimiModelMetadata(state.modelExtras, KIMI_CODING_MODEL_ID),
+  const standardModel = applyKimiMembershipLimitsToModel(
+    applyKimiOAuthExtrasToModel(
+      buildKimiModelFromConfig(state.config.model),
+      getKimiModelMetadata(state.modelExtras, KIMI_CODING_MODEL_ID),
+    ),
+    state.membershipLevel,
   );
-  const highSpeedModel = applyKimiOAuthExtrasToModel(
-    buildKimiModelFromConfig(state.config.model, KIMI_CODING_HIGHSPEED_MODEL_ID),
-    getKimiModelMetadata(state.modelExtras, KIMI_CODING_HIGHSPEED_MODEL_ID),
+  const highSpeedModel = applyKimiMembershipLimitsToModel(
+    applyKimiOAuthExtrasToModel(
+      buildKimiModelFromConfig(state.config.model, KIMI_CODING_HIGHSPEED_MODEL_ID),
+      getKimiModelMetadata(state.modelExtras, KIMI_CODING_HIGHSPEED_MODEL_ID),
+    ),
+    state.membershipLevel,
+  );
+  const k3Model = applyKimiMembershipLimitsToModel(
+    applyKimiOAuthExtrasToModel(
+      buildKimiModelFromConfig(state.config.model, KIMI_K3_MODEL_ID),
+      getKimiModelMetadata(state.modelExtras, KIMI_K3_MODEL_ID),
+    ),
+    state.membershipLevel,
   );
 
   pi.registerProvider(PROVIDER_ID, {
@@ -388,12 +424,34 @@ function registerKimiProvider(pi: ExtensionAPI, state: KimiRuntimeState): void {
     api: getKimiApiType(state.config.protocol),
     streamSimple: streamSimpleKimi,
 
-    models: filterAvailableKimiModels([standardModel, highSpeedModel], state.modelExtras),
+    models: filterAvailableKimiModels(
+      [standardModel, highSpeedModel, k3Model],
+      state.modelExtras,
+      state.membershipLevel,
+    ),
 
     oauth: {
       name: "Kimi Code (OAuth)",
-      login: loginKimiCode,
-      refreshToken: refreshKimiCodeToken,
+      login: async (callbacks) => {
+        const credentials = await loginKimiCode(callbacks);
+        const usage = await fetchKimiUsageSnapshot({
+          timeoutMs: 2500,
+          token: credentials.access,
+          refreshOnUnauthorized: false,
+        });
+        state.membershipLevel = usage.membershipLevel;
+        return credentials;
+      },
+      refreshToken: async (credentials) => {
+        const refreshed = await refreshKimiCodeToken(credentials);
+        const usage = await fetchKimiUsageSnapshot({
+          timeoutMs: 2500,
+          token: refreshed.access,
+          refreshOnUnauthorized: false,
+        });
+        state.membershipLevel = usage.membershipLevel;
+        return refreshed;
+      },
       getApiKey: getKimiApiKey,
       // Reflect server-side model identity on the registered model after login
       // / refresh. We never rewrite the model id (pi-side `/model` selections
@@ -404,14 +462,23 @@ function registerKimiProvider(pi: ExtensionAPI, state: KimiRuntimeState): void {
         const extras = cred as KimiOAuthCredentials;
         state.modelExtras = extras;
         reloadEffectiveKimiRuntimeConfig(state, state.cwd, state.projectTrusted);
-        const available = extras.modelCatalog ? new Set(Object.keys(extras.modelCatalog)) : null;
+        const available =
+          extras.modelCatalogVersion === KIMI_MODEL_CATALOG_VERSION && extras.modelCatalog
+            ? new Set(Object.keys(extras.modelCatalog))
+            : null;
         return models
           .filter(
-            (model) => model.provider !== PROVIDER_ID || !available || available.has(model.id),
+            (model) =>
+              model.provider !== PROVIDER_ID ||
+              ((!available || available.has(model.id)) &&
+                isKimiModelAvailableForMembership(model.id, state.membershipLevel) !== false),
           )
           .map((model) =>
             model.provider === PROVIDER_ID
-              ? applyKimiOAuthExtrasToModel(model, getKimiModelMetadata(extras, model.id))
+              ? applyKimiMembershipLimitsToModel(
+                  applyKimiOAuthExtrasToModel(model, getKimiModelMetadata(extras, model.id)),
+                  state.membershipLevel,
+                )
               : model,
           );
       },
@@ -427,13 +494,24 @@ export function KimiCode(overrides?: KimiCodeConfigPatch): ExtensionFactory {
       overrides,
     );
     const discoveryToken = getKimiUsageToken();
-    const discovered = discoveryToken
-      ? await discoverKimiModelMetadata(discoveryToken, config.protocol)
-      : {};
+    const [initialDiscovery, usageSnapshot] = await Promise.all([
+      discoveryToken ? discoverKimiModelMetadata(discoveryToken, config.protocol) : {},
+      fetchKimiUsageSnapshot({ timeoutMs: 2500 }),
+    ]);
+    let discovered = initialDiscovery;
+    const refreshedToken = getKimiUsageToken();
+    if (
+      Object.keys(discovered).length === 0 &&
+      refreshedToken &&
+      refreshedToken !== discoveryToken
+    ) {
+      discovered = await discoverKimiModelMetadata(refreshedToken, config.protocol);
+    }
     const state: KimiRuntimeState = {
       cwd,
       config,
       modelExtras: discovered,
+      membershipLevel: usageSnapshot.membershipLevel,
       projectTrusted: false,
       overrides,
     };

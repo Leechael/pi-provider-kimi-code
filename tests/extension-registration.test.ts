@@ -219,7 +219,7 @@ describe("extension tool registration", () => {
     assert.ok(commands.has("kimi-settings"));
   });
 
-  it("registers standard and highspeed Coding models as separate selections", async () => {
+  it("registers all Coding models as separate selections", async () => {
     const cwd = tempDir("kimi-extension-cwd");
     const { pi, providerConfigs } = makePi();
 
@@ -228,10 +228,11 @@ describe("extension tool registration", () => {
     const models = providerConfigs.get("kimi-coding")?.models ?? [];
     assert.deepEqual(
       models.map((model) => model.id),
-      ["kimi-for-coding", "kimi-for-coding-highspeed"],
+      ["kimi-for-coding", "kimi-for-coding-highspeed", "k3"],
     );
     assert.equal(models[0]?.cost.input, 0.897);
     assert.equal(models[1]?.cost.input, 1.793);
+    assert.equal(models[2]?.name, "Kimi K3");
   });
 
   it("applies discovered metadata to each registered Coding model", async () => {
@@ -249,6 +250,7 @@ describe("extension tool registration", () => {
         access: "oauth-token",
         refresh: "refresh-token",
         expires: Date.now() + 60_000,
+        modelCatalogVersion: 1,
         modelCatalog: {
           "kimi-for-coding": {
             wireModelId: "kimi-for-coding",
@@ -261,6 +263,16 @@ describe("extension tool registration", () => {
             contextLength: 524288,
             supportsVideoIn: true,
           },
+          k3: {
+            wireModelId: "k3",
+            modelDisplay: "k3",
+            contextLength: 1048576,
+            supportsThinkingType: "only",
+            supportsImageIn: true,
+            supportsVideoIn: true,
+            supportEfforts: ["max"],
+            defaultEffort: "max",
+          },
         },
       } as never,
     );
@@ -269,6 +281,41 @@ describe("extension tool registration", () => {
     assert.equal(models[1]?.name, "Kimi High Speed");
     assert.equal(models[1]?.contextWindow, 524288);
     assert.deepEqual(models[1]?.input, ["text", "image", "video"]);
+    assert.equal(models[2]?.name, "Kimi K3");
+    assert.equal(models[2]?.contextWindow, 1048576);
+    assert.deepEqual(models[2]?.input, ["text", "image", "video"]);
+    assert.deepEqual(
+      (models[2] as (typeof models)[number] & { supportEfforts?: string[] }).supportEfforts,
+      ["max"],
+    );
+  });
+
+  it("regression: does not let a legacy cached catalog hide newly added models", async () => {
+    const cwd = tempDir("kimi-extension-cwd");
+    const { pi, providerConfigs } = makePi();
+
+    await withCwd(cwd, () => registerKimiCodeExtension(pi));
+
+    const provider = providerConfigs.get("kimi-coding");
+    const modifyModels = provider?.oauth?.modifyModels;
+    assert.ok(modifyModels);
+    const models = modifyModels(
+      provider.models?.map((model) => ({ ...model, provider: "kimi-coding" })) as never,
+      {
+        access: "expired-oauth-token",
+        refresh: "refresh-token",
+        expires: Date.now() - 60_000,
+        modelCatalog: {
+          "kimi-for-coding": { wireModelId: "kimi-for-coding" },
+          "kimi-for-coding-highspeed": { wireModelId: "kimi-for-coding-highspeed" },
+        },
+      } as never,
+    );
+
+    assert.deepEqual(
+      models.map((model) => model.id),
+      ["kimi-for-coding", "kimi-for-coding-highspeed", "k3"],
+    );
   });
 
   it("regression: removes unavailable Kimi models without removing other providers", async () => {
@@ -290,6 +337,7 @@ describe("extension tool registration", () => {
         access: "oauth-token",
         refresh: "refresh-token",
         expires: Date.now() + 60_000,
+        modelCatalogVersion: 1,
         modelCatalog: {
           "kimi-for-coding": { wireModelId: "kimi-for-coding" },
         },
@@ -333,6 +381,287 @@ describe("extension tool registration", () => {
     } finally {
       globalThis.fetch = originalFetch;
       auth.cleanup();
+    }
+  });
+
+  it("adapts K3 and highspeed availability to the current membership plan", async () => {
+    const cwd = tempDir("kimi-extension-cwd");
+    const { pi, providerConfigs } = makePi();
+    const auth = withTempAuthFile({
+      type: "oauth",
+      access: "oauth-token",
+      refresh: "refresh-token",
+      expires: Date.now() + 60_000,
+    });
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = async (input) => {
+      const url = String(input);
+      if (url.endsWith("/models")) {
+        return new Response(
+          JSON.stringify({
+            data: [
+              { id: "kimi-for-coding", context_length: 262144 },
+              { id: "kimi-for-coding-highspeed", context_length: 262144 },
+              { id: "k3", context_length: 1048576 },
+            ],
+          }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        );
+      }
+      if (url.endsWith("/usages")) {
+        return new Response(JSON.stringify({ user: { membership: { level: "LEVEL_STANDARD" } } }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
+      }
+      throw new Error(`unexpected request: ${url}`);
+    };
+
+    try {
+      await withCwd(cwd, () => registerKimiCodeExtension(pi));
+      const models = providerConfigs.get("kimi-coding")?.models ?? [];
+      assert.deepEqual(
+        models.map((model) => model.id),
+        ["kimi-for-coding", "k3"],
+      );
+      assert.equal(models[1]?.contextWindow, 262144);
+    } finally {
+      globalThis.fetch = originalFetch;
+      auth.cleanup();
+    }
+  });
+
+  it("retries model discovery when the membership probe refreshes an expired token", async () => {
+    const cwd = tempDir("kimi-extension-cwd");
+    const { pi, providerConfigs } = makePi();
+    const auth = withTempAuthFile({
+      type: "oauth",
+      access: "stale-access",
+      refresh: "refresh-token",
+      expires: Date.now() - 60_000,
+    });
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = async (input, init) => {
+      const url = String(input);
+      const headers = init?.headers as Record<string, string> | undefined;
+      const authorization = String(headers?.Authorization ?? "");
+      if (url.endsWith("/models")) {
+        if (authorization === "Bearer stale-access")
+          return new Response("expired", { status: 401 });
+        return new Response(
+          JSON.stringify({
+            data: [
+              { id: "kimi-for-coding", context_length: 262144 },
+              { id: "kimi-for-coding-highspeed", context_length: 262144 },
+              { id: "k3", context_length: 1048576 },
+            ],
+          }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        );
+      }
+      if (url.endsWith("/usages")) {
+        if (authorization === "Bearer stale-access")
+          return new Response("expired", { status: 401 });
+        return new Response(
+          JSON.stringify({ user: { membership: { level: "LEVEL_INTERMEDIATE" } } }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        );
+      }
+      if (url.endsWith("/api/oauth/token")) {
+        return new Response(
+          JSON.stringify({
+            access_token: "fresh-access",
+            refresh_token: "fresh-refresh",
+            expires_in: 900,
+            scope: "kimi-code",
+            token_type: "Bearer",
+          }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        );
+      }
+      throw new Error(`unexpected request: ${url}`);
+    };
+
+    try {
+      await withCwd(cwd, () => registerKimiCodeExtension(pi));
+      assert.deepEqual(
+        providerConfigs.get("kimi-coding")?.models?.map((model) => [model.id, model.contextWindow]),
+        [
+          ["kimi-for-coding", 262144],
+          ["kimi-for-coding-highspeed", 262144],
+          ["k3", 1048576],
+        ],
+      );
+    } finally {
+      globalThis.fetch = originalFetch;
+      auth.cleanup();
+    }
+  });
+
+  it("refreshes membership before applying OAuth model metadata", async () => {
+    const cwd = tempDir("kimi-extension-cwd");
+    const { pi, providerConfigs } = makePi();
+    const auth = withTempAuthFile({
+      type: "oauth",
+      access: "startup-access",
+      refresh: "startup-refresh",
+      expires: Date.now() + 60_000,
+    });
+    const originalFetch = globalThis.fetch;
+    let usageRequests = 0;
+    globalThis.fetch = async (input) => {
+      const url = String(input);
+      if (url.endsWith("/models")) {
+        return new Response(
+          JSON.stringify({
+            data: [
+              { id: "kimi-for-coding", context_length: 262144 },
+              { id: "kimi-for-coding-highspeed", context_length: 262144 },
+              { id: "k3", context_length: 1048576 },
+            ],
+          }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        );
+      }
+      if (url.endsWith("/usages")) {
+        usageRequests++;
+        if (usageRequests === 1) return new Response("unavailable", { status: 503 });
+        return new Response(JSON.stringify({ user: { membership: { level: "LEVEL_STANDARD" } } }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
+      }
+      if (url.endsWith("/api/oauth/token")) {
+        return new Response(
+          JSON.stringify({
+            access_token: "refreshed-access",
+            refresh_token: "refreshed-refresh",
+            expires_in: 900,
+            scope: "kimi-code",
+            token_type: "Bearer",
+          }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        );
+      }
+      throw new Error(`unexpected request: ${url}`);
+    };
+
+    try {
+      await withCwd(cwd, () => registerKimiCodeExtension(pi));
+      const provider = providerConfigs.get("kimi-coding");
+      const refreshToken = provider?.oauth?.refreshToken;
+      const modifyModels = provider?.oauth?.modifyModels;
+      assert.ok(refreshToken);
+      assert.ok(modifyModels);
+
+      const credentials = await refreshToken({
+        access: "startup-access",
+        refresh: "startup-refresh",
+        expires: Date.now() + 60_000,
+      });
+      const models = modifyModels(
+        provider.models?.map((model) => ({ ...model, provider: "kimi-coding" })) as never,
+        credentials as never,
+      );
+
+      assert.equal(usageRequests, 2);
+      assert.deepEqual(
+        models.map((model) => [model.id, model.contextWindow]),
+        [
+          ["kimi-for-coding", 262144],
+          ["k3", 262144],
+        ],
+      );
+    } finally {
+      globalThis.fetch = originalFetch;
+      auth.cleanup();
+    }
+  });
+
+  it("refreshes membership limits when settings re-fetches account metadata", async () => {
+    const cwd = tempDir("kimi-extension-cwd");
+    const { commands, pi, providerConfigs } = makePi();
+    const originalFetch = globalThis.fetch;
+    const originalKimiApiKey = process.env.KIMI_API_KEY;
+    process.env.KIMI_API_KEY = "test-key";
+    let usageRequests = 0;
+    globalThis.fetch = async (input) => {
+      const url = String(input);
+      if (url.endsWith("/models")) {
+        return new Response(
+          JSON.stringify({
+            data: [
+              { id: "kimi-for-coding", context_length: 262144 },
+              { id: "kimi-for-coding-highspeed", context_length: 262144 },
+              { id: "k3", context_length: 1048576 },
+            ],
+          }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        );
+      }
+      if (url.endsWith("/usages")) {
+        usageRequests++;
+        if (usageRequests === 3) return new Response("unavailable", { status: 503 });
+        const level = usageRequests === 1 ? "LEVEL_STANDARD" : "LEVEL_INTERMEDIATE";
+        return new Response(JSON.stringify({ user: { membership: { level } } }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
+      }
+      throw new Error(`unexpected request: ${url}`);
+    };
+
+    try {
+      await withCwd(cwd, () => registerKimiCodeExtension(pi));
+      assert.deepEqual(
+        providerConfigs.get("kimi-coding")?.models?.map((model) => [model.id, model.contextWindow]),
+        [
+          ["kimi-for-coding", 262144],
+          ["k3", 262144],
+        ],
+      );
+
+      const kimiCommand = commands.get("kimi-settings");
+      assert.ok(kimiCommand);
+      await runSettingsHandler(
+        kimiCommand.handler,
+        {
+          cwd,
+          mode: "tui",
+          ui: { notify: () => {} },
+          reload: async () => {},
+        } as unknown as ExtensionCommandContext,
+        (_list, done) => done(),
+      );
+
+      const allegrettoModels = [
+        ["kimi-for-coding", 262144],
+        ["kimi-for-coding-highspeed", 262144],
+        ["k3", 1048576],
+      ];
+      assert.deepEqual(
+        providerConfigs.get("kimi-coding")?.models?.map((model) => [model.id, model.contextWindow]),
+        allegrettoModels,
+      );
+
+      await runSettingsHandler(
+        kimiCommand.handler,
+        {
+          cwd,
+          mode: "tui",
+          ui: { notify: () => {} },
+          reload: async () => {},
+        } as unknown as ExtensionCommandContext,
+        (_list, done) => done(),
+      );
+      assert.deepEqual(
+        providerConfigs.get("kimi-coding")?.models?.map((model) => [model.id, model.contextWindow]),
+        allegrettoModels,
+      );
+    } finally {
+      globalThis.fetch = originalFetch;
+      if (originalKimiApiKey === undefined) delete process.env.KIMI_API_KEY;
+      else process.env.KIMI_API_KEY = originalKimiApiKey;
     }
   });
 
@@ -807,7 +1136,11 @@ describe("extension tool registration", () => {
       auth.cleanup();
     }
 
-    assert.deepEqual(usageTokens, ["Bearer stale-access", "Bearer fresh-access"]);
+    assert.deepEqual(usageTokens, [
+      "Bearer stale-access",
+      "Bearer fresh-access",
+      "Bearer fresh-access",
+    ]);
     assert.deepEqual(notifications, []);
   });
 

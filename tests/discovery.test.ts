@@ -6,8 +6,10 @@ import { join } from "node:path";
 import { DEFAULT_KIMI_CODE_CONFIG } from "../src/config.ts";
 import { DEFAULT_KIMI_MODEL_INPUT, PROVIDER_ID } from "../src/constants.ts";
 import {
+  applyKimiMembershipLimitsToModel,
   applyKimiOAuthExtrasToModel,
   discoverKimiModelMetadata,
+  isKimiModelAvailableForMembership,
   resolveKimiModelConfig,
 } from "../src/models.ts";
 import {
@@ -112,6 +114,20 @@ describe("discoverKimiModelMetadata", () => {
               default_effort: "high",
             },
           },
+          {
+            id: "k3",
+            display_name: "k3",
+            context_length: 1048576,
+            supports_reasoning: true,
+            supports_image_in: true,
+            supports_video_in: true,
+            supports_thinking_type: "only",
+            think_efforts: {
+              support: true,
+              valid_efforts: ["max"],
+              default_effort: "max",
+            },
+          },
         ],
       }),
     );
@@ -131,6 +147,16 @@ describe("discoverKimiModelMetadata", () => {
       protocol: "anthropic",
       supportEfforts: ["low", "high"],
       defaultEffort: "high",
+    });
+    assert.deepEqual(result.modelCatalog?.k3, {
+      wireModelId: "k3",
+      modelDisplay: "k3",
+      contextLength: 1048576,
+      supportsThinkingType: "only",
+      supportsImageIn: true,
+      supportsVideoIn: true,
+      supportEfforts: ["max"],
+      defaultEffort: "max",
     });
   });
 
@@ -227,6 +253,7 @@ describe("discoverKimiModelMetadata", () => {
       modelCatalog: {
         "kimi-for-coding": { wireModelId: "kimi-for-coding" },
       },
+      modelCatalogVersion: 1,
     });
   });
 
@@ -259,6 +286,37 @@ describe("discoverKimiModelMetadata", () => {
 
     await discoverKimiModelMetadata("tok-1");
     assert.equal(mock.calls[0]?.url, "https://code.example.com/kimi/v1/models");
+  });
+});
+
+describe("Kimi membership model limits", () => {
+  it("applies the documented model access matrix for known plans", () => {
+    assert.equal(isKimiModelAvailableForMembership("k3", "LEVEL_BASIC"), false);
+    assert.equal(isKimiModelAvailableForMembership("k3", "LEVEL_STANDARD"), true);
+    assert.equal(isKimiModelAvailableForMembership("k3", "LEVEL_INTERMEDIATE"), true);
+    assert.equal(
+      isKimiModelAvailableForMembership("kimi-for-coding-highspeed", "LEVEL_STANDARD"),
+      false,
+    );
+    assert.equal(
+      isKimiModelAvailableForMembership("kimi-for-coding-highspeed", "LEVEL_INTERMEDIATE"),
+      true,
+    );
+    assert.equal(isKimiModelAvailableForMembership("k3", "LEVEL_UNKNOWN"), undefined);
+  });
+
+  it("caps Moderato K3 at 256K without reducing higher plans", () => {
+    const model = {
+      id: "k3",
+      contextWindow: 1048576,
+    } as Model<Api>;
+
+    assert.equal(applyKimiMembershipLimitsToModel(model, "LEVEL_STANDARD").contextWindow, 262144);
+    assert.equal(
+      applyKimiMembershipLimitsToModel(model, "LEVEL_INTERMEDIATE").contextWindow,
+      1048576,
+    );
+    assert.equal(applyKimiMembershipLimitsToModel(model, "LEVEL_UNKNOWN").contextWindow, 1048576);
   });
 });
 
@@ -743,6 +801,27 @@ describe("isKimiAuthErrorMessage", () => {
     assert.equal(isKimiAuthErrorMessage("401 Unauthorized"), true);
     assert.equal(isKimiAuthErrorMessage("incorrect API KEY"), true);
     assert.equal(isKimiAuthErrorMessage("invalid api key"), true);
+  });
+
+  it("does not classify membership permission failures as auth failures", () => {
+    assert.equal(
+      isKimiAuthErrorMessage(
+        "401 Your current subscription does not have access to k3. Upgrade to a Moderato plan or above.",
+      ),
+      false,
+    );
+    assert.equal(
+      isKimiAuthErrorMessage(
+        "401 Your current plan supports only kimi-k3 up to 256K context. 1M context is available on higher-tier plans.",
+      ),
+      false,
+    );
+    assert.equal(
+      isKimiAuthErrorMessage(
+        "401 Your current subscription does not have access to kimi-for-coding-highspeed.",
+      ),
+      false,
+    );
   });
 
   it("does not classify transient or generic errors as auth failures", () => {

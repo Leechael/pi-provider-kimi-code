@@ -51,6 +51,21 @@ describe("loadKimiCodeConfig", () => {
     assert.deepEqual(loadKimiCodeConfig({ cwd, home, env: {} }), DEFAULT_KIMI_CODE_CONFIG);
   });
 
+  it("maps Pi thinking levels to the K3 effort aliases documented by Kimi", () => {
+    assert.deepEqual(DEFAULT_KIMI_CODE_CONFIG.model.reasoningMap.max, {
+      effort: "max",
+      enabled: true,
+    });
+    assert.deepEqual(DEFAULT_KIMI_CODE_CONFIG.model.reasoningMap.xhigh, {
+      effort: "max",
+      enabled: true,
+    });
+    assert.deepEqual(DEFAULT_KIMI_CODE_CONFIG.model.reasoningMap.medium, {
+      effort: "high",
+      enabled: true,
+    });
+  });
+
   it("merges home, project, env, and runtime overrides in priority order", () => {
     const cwd = tempDir("kimi-config-cwd");
     const home = tempDir("kimi-config-home");

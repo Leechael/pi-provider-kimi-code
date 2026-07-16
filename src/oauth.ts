@@ -120,6 +120,7 @@ export async function requestDeviceToken(
 
 interface RefreshAccessTokenOptions {
   maxRetries?: number;
+  signal?: AbortSignal;
   sleep?: (ms: number) => Promise<void>;
 }
 
@@ -133,8 +134,20 @@ export class KimiLoginRequiredError extends Error {
   }
 }
 
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
+function sleep(ms: number, signal?: AbortSignal): Promise<void> {
+  if (!signal) return new Promise((resolve) => setTimeout(resolve, ms));
+  signal.throwIfAborted();
+  return new Promise((resolve, reject) => {
+    const onAbort = () => {
+      clearTimeout(timeout);
+      reject(signal.reason);
+    };
+    const timeout = setTimeout(() => {
+      signal.removeEventListener("abort", onAbort);
+      resolve();
+    }, ms);
+    signal.addEventListener("abort", onAbort, { once: true });
+  });
 }
 
 export async function refreshAccessToken(
@@ -142,11 +155,12 @@ export async function refreshAccessToken(
   options: RefreshAccessTokenOptions = {},
 ): Promise<TokenResponse> {
   const maxRetries = options.maxRetries ?? 3;
-  const wait = options.sleep ?? sleep;
+  const wait = options.sleep ?? ((ms: number) => sleep(ms, options.signal));
   let lastError: unknown;
 
   for (let attempt = 0; attempt < maxRetries; attempt++) {
     try {
+      options.signal?.throwIfAborted();
       const response = await fetch(`${getOAuthHost()}/api/oauth/token`, {
         method: "POST",
         headers: {
@@ -158,6 +172,7 @@ export async function refreshAccessToken(
           grant_type: "refresh_token",
           refresh_token: refreshToken,
         }),
+        signal: options.signal,
       });
 
       if (!response.ok) {
@@ -185,6 +200,7 @@ export async function refreshAccessToken(
 
       return data;
     } catch (error) {
+      if (options.signal?.aborted) throw options.signal.reason;
       lastError = error;
       const message = error instanceof Error ? error.message : String(error);
       if (error instanceof KimiLoginRequiredError) throw error;
@@ -418,6 +434,11 @@ export function getKimiApiKey(credentials: OAuthCredentials): string {
 
 export function isKimiAuthErrorMessage(message: unknown): boolean {
   const text = String(message ?? "").toLowerCase();
+  const isMembershipPermissionError =
+    text.includes("current subscription does not have access to k3") ||
+    text.includes("current plan supports only kimi-k3 up to 256k context") ||
+    text.includes("current subscription does not have access to kimi-for-coding-highspeed");
+  if (isMembershipPermissionError) return false;
   return (
     /\b401\b/.test(text) ||
     text.includes("unauthorized") ||
@@ -426,7 +447,10 @@ export function isKimiAuthErrorMessage(message: unknown): boolean {
   );
 }
 
-export async function refreshKimiAuthToken(currentKey: string): Promise<string | null> {
+export async function refreshKimiAuthToken(
+  currentKey: string,
+  options: { signal?: AbortSignal } = {},
+): Promise<string | null> {
   try {
     const kimiCred = readKimiCliCredentials();
     const storage = AuthStorage.create();
@@ -442,7 +466,7 @@ export async function refreshKimiAuthToken(currentKey: string): Promise<string |
       console.error("[kimi-coding] auth refresh: requesting new access token");
       let refreshed: Awaited<ReturnType<typeof refreshAccessToken>>;
       try {
-        refreshed = await refreshAccessToken(piOAuth.refresh);
+        refreshed = await refreshAccessToken(piOAuth.refresh, { signal: options.signal });
       } catch (error) {
         if (!kimiCred?.refresh_token || kimiCred.refresh_token === piOAuth.refresh) throw error;
         const kimiExpiresMs = (kimiCred.expires_at ?? 0) * 1000;
@@ -459,7 +483,7 @@ export async function refreshKimiAuthToken(currentKey: string): Promise<string |
           return recovered.access;
         }
         console.error("[kimi-coding] auth refresh: pi token rejected, trying kimi-code token");
-        refreshed = await refreshAccessToken(kimiCred.refresh_token);
+        refreshed = await refreshAccessToken(kimiCred.refresh_token, { signal: options.signal });
       }
 
       const newExpiresMs = Date.now() + refreshed.expires_in * 1000;
@@ -490,12 +514,15 @@ export async function refreshKimiAuthToken(currentKey: string): Promise<string |
     }
 
     console.error("[kimi-coding] auth refresh: requesting new access token via kimi-code");
-    const refreshed = await refreshAccessToken(kimiCred.refresh_token!);
+    const refreshed = await refreshAccessToken(kimiCred.refresh_token!, {
+      signal: options.signal,
+    });
     const newExpiresMs = Date.now() + refreshed.expires_in * 1000;
     writeKimiCodeCredentials(refreshed.access_token, refreshed.refresh_token, newExpiresMs);
     console.error("[kimi-coding] auth refresh: new token persisted to kimi-code");
     return refreshed.access_token;
   } catch (err) {
+    if (options.signal?.aborted) return null;
     if (err instanceof KimiLoginRequiredError) {
       console.error(`[kimi-coding] ${KIMI_LOGIN_REQUIRED_MESSAGE}`);
     } else {

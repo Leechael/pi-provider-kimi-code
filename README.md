@@ -7,7 +7,7 @@
 
 Pi already has a basic `kimi-coding` provider. This extension is for the parts that start to matter once Kimi Code becomes part of your real Pi workflow: account login reuse, file uploads, tool schema compatibility, live model metadata, measured cache behavior, and API-tested parameter handling.
 
-> **Kimi K2.7 supported.** The provider automatically discovers the current model from Kimi's `/v1/models` endpoint at login, refresh, and `/kimi-settings` time, so new rollouts (including K2.7) are picked up immediately without a package update.
+> **Kimi K3 supported.** The provider combines Kimi's live `/v1/models` catalog with your membership level from `/usages`, exposing only eligible models and advertising the correct K3 context limit. It refreshes this metadata at startup and through `/kimi-settings`; OAuth login and token refresh also update the model catalog.
 
 ## Why this exists
 
@@ -19,20 +19,20 @@ Kimi's API surface goes beyond the LLM itself. It includes file uploads, web sea
 - **Send files the Kimi way.** Large inline images go through Kimi's Files API and become `ms://` references instead of huge base64 payloads.
 - **Know what the cache is doing.** Kimi caches by content prefix. This repo measures that behavior instead of pretending `prompt_cache_key` controls it.
 - **Keep Pi's tools working.** Moonshot's API rejects tool schemas over 15 KB — a limit that Pi's extension ecosystem regularly hits ([#16](https://github.com/Leechael/pi-provider-kimi-code/issues/16), [#21](https://github.com/Leechael/pi-provider-kimi-code/issues/21)). This extension automatically deduplicates schemas with `$ref`/`$defs` before sending, so subagents and other extensions don't break.
-- **Tested against the live API.** Thinking config, parameter constraints, protocol compatibility, and streaming behavior are all verified against Kimi's Coding endpoint — not assumed from docs. When the API rejects something (wrong `temperature`, unsupported `tool_choice`), the provider strips it before you see a 400.
+- **Tested against the live API.** Thinking config, parameter constraints, protocol compatibility, and streaming behavior are all verified against Kimi's Coding endpoint — not assumed from docs. When the API rejects something (wrong `temperature`, unsupported `tool_choice`), the provider normalizes the request before you see a 400.
 - **Turn on Kimi-native tools when you want them.** `moonshot_search`, `moonshot_fetch`, and `kimi_datasource` are opt-in, configurable per user or per project.
 - **Embed in your own build.** `KimiCode()` factory lets you ship Kimi Code support inside a custom Pi agent with programmatic config overrides — no file-based extension path needed.
 
 ## What this package adds
 
 - Kimi account login in Pi, plus `KIMI_API_KEY` for CI or pay-per-token use.
-- `kimi-code` credential reuse from `~/.kimi/credentials/kimi-code.json`.
+- `kimi-code` credential reuse from `~/.kimi-code/credentials/kimi-code.json`, with read-only support for the legacy `~/.kimi` path.
 - Kimi Files API uploads for large inline images.
-- Live model metadata from Kimi at login, refresh, and `/kimi-settings` time.
+- Live model metadata combined with membership-aware K3 and HighSpeed availability.
 - OpenAI-compatible mode by default, Anthropic-compatible mode on request.
-- Kimi K2.7 reasoning level mapping for Pi's reasoning controls.
+- K2.7 and K3 reasoning level mapping for Pi's reasoning controls.
 - Tool schema dedup to stay under Moonshot's 15 KB per-tool-schema limit.
-- K2.7 parameter guard: strips `temperature`, `top_p`, and `tool_choice` values that the API rejects.
+- K2.7 parameter guard: removes rejected `temperature` and `top_p` values and rewrites unsupported `tool_choice` values to `auto`.
 - Stream cleanup for Kimi's thinking-only placeholder text.
 - Optional `moonshot_search`, `moonshot_fetch`, and unified datasource `kimi_datasource` tools via `/kimi-settings`.
 - Programmatic `KimiCode()` factory for embedding in custom Pi builds.
@@ -84,15 +84,21 @@ Inside Pi, run:
 /login kimi-coding
 ```
 
-A browser tab opens, you sign into your Kimi account, and Pi stores the credential at `~/.pi/agent/auth.json`. Tokens refresh automatically.
+A browser tab opens, you sign into your Kimi account, and Pi stores the credential at `~/.pi/agent/auth.json`. Tokens refresh automatically. The extension also syncs refreshed credentials to the current `kimi-code` credential file:
 
-If you already use `kimi-code`, this extension can reuse its credential file:
+```text
+~/.kimi-code/credentials/kimi-code.json
+```
+
+If you already use `kimi-code`, the extension can reuse that session. Set `KIMI_CODE_HOME` if its home directory lives somewhere else.
+
+The legacy credential path is also supported:
 
 ```text
 ~/.kimi/credentials/kimi-code.json
 ```
 
-The file is read-only from this extension's side. Set `KIMI_SHARE_DIR` if your `kimi-code` share directory lives somewhere else.
+Legacy credentials are read-only. Set `KIMI_SHARE_DIR` to override the legacy `~/.kimi` directory.
 
 For CI or pay-per-token use, set `KIMI_API_KEY` instead:
 
@@ -100,20 +106,24 @@ For CI or pay-per-token use, set `KIMI_API_KEY` instead:
 KIMI_API_KEY=sk-... pi
 ```
 
-## Model
+## Models
 
-This provider publishes two Pi model IDs:
+This provider publishes three Pi model IDs:
 
-```text
-kimi-coding/kimi-for-coding
-kimi-coding/kimi-for-coding-highspeed
-```
+| Pi model ID                             | Upstream model           | Access                                                 |
+| --------------------------------------- | ------------------------ | ------------------------------------------------------ |
+| `kimi-coding/kimi-for-coding`           | Kimi K2.7 Code           | All Kimi Code members                                  |
+| `kimi-coding/kimi-for-coding-highspeed` | Kimi K2.7 Code HighSpeed | Allegretto and above                                   |
+| `kimi-coding/k3`                        | Kimi K3                  | Moderato: 256K context; Allegretto and above: up to 1M |
 
-Select standard or highspeed mode inside Pi:
+Plans below Moderato cannot use K3. The provider reads the current membership level from `/usages` and combines it with `/models`: server catalog availability remains authoritative, while known plan limits can only hide unavailable selections or lower K3's advertised context window. Unknown or unavailable membership data falls back to the server catalog instead of guessing.
+
+Select a model inside Pi:
 
 ```text
 /model kimi-coding/kimi-for-coding
 /model kimi-coding/kimi-for-coding-highspeed
+/model kimi-coding/k3
 ```
 
 Kimi keeps Coding models behind aliases. Rather than hardcoding a stale model list, this extension asks Kimi for the current model info when you log in or refresh. If your account is on a newer rollout (e.g., Kimi K2.7) or internal test, Pi can pick up the latest model name and context size without waiting for a package release.
@@ -125,7 +135,9 @@ Fallback values:
 - Input: text and image
 - Reasoning: enabled
 
-The provider maps Pi's reasoning levels to Kimi's top-level `thinking` parameter. It sends `thinking.effort` only when `/models` advertises supported effort values. The mapping refreshes automatically on credential refresh. Opening `/kimi-settings` also re-discovers the latest model metadata.
+The provider maps Pi's reasoning levels to Kimi's top-level `thinking` parameter. K3 currently advertises only `max`; `max` and `xhigh` map to `max`, `high` and `medium` map to `high`, and `low` and `minimal` map to `low`. It sends `thinking.effort` only when `/models` advertises the mapped value. The mapping refreshes automatically on credential refresh. Opening `/kimi-settings` also re-discovers the latest model and membership metadata.
+
+Switching models or thinking effort invalidates Kimi's existing context cache. Start a new session when switching to avoid re-prefilling a long conversation and consuming extra quota.
 
 ## Optional tools
 
@@ -143,8 +155,8 @@ Configurable settings include protocol mode, upload threshold, and per-tool enab
 
 Config files are JSON:
 
-- Home: `~/.pi/pi-provider-kimi-code.json`
-- Project override: `<cwd>/.pi/pi-provider-kimi-code.json`
+- Home: `~/.pi/providers/kimi-coding/config.json`
+- Project override: `<cwd>/.pi/providers/kimi-coding/config.json`
 
 Project config overrides home config with a deep merge. Missing files or missing keys mean all tools stay off.
 
@@ -296,7 +308,7 @@ In OpenAI mode this extension maps the `developer` role to `system` (Kimi's Codi
 
 ## Credits
 
-Based on the login implementation from Kimi Code by Moonshot AI. Built as a Pi extension by [@badlogic](https://github.com/badlogic).
+Based on the login implementation from Kimi Code by Moonshot AI. Pi was originally created by [@badlogic](https://github.com/badlogic).
 
 ## License
 

@@ -45,8 +45,8 @@ export const PROVIDER_VERSION = "0.6.5";
 
 // Upstream kimi-code CLI version — used in User-Agent and X-Msh-Version
 // headers to match the official client's identity. Update this when
-// syncing with https://github.com/anthropics/kimi-code.
-export const KIMI_UPSTREAM_VERSION = "0.23.4";
+// syncing with https://github.com/MoonshotAI/kimi-code.
+export const KIMI_UPSTREAM_VERSION = "0.26.0";
 export const KIMI_CODE_USER_AGENT = `kimi-code-cli/${KIMI_UPSTREAM_VERSION}`;
 export const KIMI_PLATFORM = "kimi_code_cli";
 

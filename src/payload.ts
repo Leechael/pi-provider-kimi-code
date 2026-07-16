@@ -488,6 +488,28 @@ export async function applyKimiPayloadMutations(
     }
   }
 
+  // Preserved-thinking Kimi endpoints require every replayed assistant turn to
+  // carry reasoning_content, including turns whose reasoning delta was empty.
+  // pi-ai drops empty thinking blocks while building Chat Completions history,
+  // so restore the explicit empty field after the final thinking mode is known.
+  if (
+    ctx.api === "openai-completions" &&
+    isRecord(payload.thinking) &&
+    payload.thinking.type !== "disabled" &&
+    payload.thinking.keep === "all" &&
+    Array.isArray(payload.messages)
+  ) {
+    for (const message of payload.messages) {
+      if (
+        isRecord(message) &&
+        message.role === "assistant" &&
+        message.reasoning_content === undefined
+      ) {
+        message.reasoning_content = "";
+      }
+    }
+  }
+
   // 8. K2.7 Code API constraints: the server rejects non-default values for
   //    temperature (must be 1.0) and top_p (must be 0.95), and tool_choice
   //    "required" / function-specific when thinking is enabled (always-on).

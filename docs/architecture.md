@@ -67,9 +67,9 @@ Every OAuth request and model API request includes Kimi Code-style headers:
 
 | Header               | Value                               |
 | -------------------- | ----------------------------------- |
-| `User-Agent`         | `kimi-code-cli/0.23.4`              |
+| `User-Agent`         | `kimi-code-cli/0.26.0`              |
 | `X-Msh-Platform`     | `kimi_code_cli`                     |
-| `X-Msh-Version`      | `0.23.4`                            |
+| `X-Msh-Version`      | `0.26.0`                            |
 | `X-Msh-Device-Name`  | Hostname                            |
 | `X-Msh-Device-Model` | OS + kernel release + architecture  |
 | `X-Msh-Os-Version`   | `os.release()`                      |
@@ -80,11 +80,13 @@ fix for Linux / non-ASCII hostnames.
 
 ### Models
 
-| ID                | Name            | Reasoning | Input       | Context | Max Output |
-| ----------------- | --------------- | --------- | ----------- | ------- | ---------- |
-| `kimi-for-coding` | Kimi for Coding | yes       | text, image | 256k    | 32k        |
+| ID                          | Name                     | Access                | Context    | Max Output |
+| --------------------------- | ------------------------ | --------------------- | ---------- | ---------- |
+| `kimi-for-coding`           | Kimi K2.7 Code           | all Kimi Code members | 256K       | 32K        |
+| `kimi-for-coding-highspeed` | Kimi K2.7 Code HighSpeed | Allegretto and above  | 256K       | 32K        |
+| `k3`                        | Kimi K3                  | Moderato and above    | 256K or 1M | 32K        |
 
-All costs are set to zero (free tier / OAuth-authenticated usage).
+K3 is capped at 256K for Moderato and reaches 1M for Allegretto and above. Model reasoning and input modalities are refreshed from `/models`; access and K3 context are narrowed by the membership level returned from `/usages` when that level is known.
 
 ## OAuth Device-Code Flow
 

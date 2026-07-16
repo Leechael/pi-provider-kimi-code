@@ -36,6 +36,11 @@ export interface UsageFormatOptions {
   timeZone?: string;
 }
 
+export interface KimiUsageSnapshot {
+  summary: string;
+  membershipLevel: string | null;
+}
+
 interface BoosterWalletInfo {
   balanceCents: bigint;
   monthlyChargeLimitEnabled: boolean;
@@ -232,7 +237,7 @@ function formatWindowLabel(value: unknown, fallbackLabel: string): string {
   return `Current ${minutes}m window`;
 }
 
-export function parseMembership(record: Record<string, unknown>): string | null {
+export function parseMembershipLevel(record: Record<string, unknown>): string | null {
   const user = record.user;
   if (typeof user !== "object" || user === null || Array.isArray(user)) return null;
   const membership = (user as Record<string, unknown>).membership;
@@ -240,7 +245,12 @@ export function parseMembership(record: Record<string, unknown>): string | null 
     return null;
   }
   const level = (membership as Record<string, unknown>).level;
-  if (typeof level !== "string" || !level) return null;
+  return typeof level === "string" && level ? level : null;
+}
+
+export function parseMembership(record: Record<string, unknown>): string | null {
+  const level = parseMembershipLevel(record);
+  if (!level) return null;
   const name = MEMBERSHIP_LEVEL_NAMES[level];
   return name ? `Membership: ${name} (${level})` : `Membership: ${level}`;
 }
@@ -343,24 +353,42 @@ function fetchKimiUsage(token: string, signal: AbortSignal): Promise<Response> {
   });
 }
 
-export async function fetchKimiUsageSummary(): Promise<string> {
-  const token = getKimiUsageToken();
-  if (!token) return "Usage: missing credentials. Run /login kimi-coding.";
+export async function fetchKimiUsageSnapshot(
+  options: { timeoutMs?: number; token?: string; refreshOnUnauthorized?: boolean } = {},
+): Promise<KimiUsageSnapshot> {
+  const token = options.token ?? getKimiUsageToken();
+  if (!token) {
+    return {
+      summary: "Usage: missing credentials. Run /login kimi-coding.",
+      membershipLevel: null,
+    };
+  }
 
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 15_000);
+  const timeout = setTimeout(() => controller.abort(), options.timeoutMs ?? 15_000);
   try {
     let response = await fetchKimiUsage(token, controller.signal);
-    if (response.status === 401) {
-      const refreshed = await refreshKimiAuthToken(token);
+    if (response.status === 401 && options.refreshOnUnauthorized !== false) {
+      const refreshed = await refreshKimiAuthToken(token, { signal: controller.signal });
       if (refreshed) response = await fetchKimiUsage(refreshed, controller.signal);
     }
-    if (!response.ok) return `Usage: fetch failed (${response.status})`;
-    return parseUsageSummary(await response.json());
+    if (!response.ok) {
+      return { summary: `Usage: fetch failed (${response.status})`, membershipLevel: null };
+    }
+    const payload = (await response.json()) as unknown;
+    const membershipLevel =
+      typeof payload === "object" && payload !== null && !Array.isArray(payload)
+        ? parseMembershipLevel(payload as Record<string, unknown>)
+        : null;
+    return { summary: parseUsageSummary(payload), membershipLevel };
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    return `Usage: fetch failed (${message})`;
+    return { summary: `Usage: fetch failed (${message})`, membershipLevel: null };
   } finally {
     clearTimeout(timeout);
   }
+}
+
+export async function fetchKimiUsageSummary(): Promise<string> {
+  return (await fetchKimiUsageSnapshot()).summary;
 }

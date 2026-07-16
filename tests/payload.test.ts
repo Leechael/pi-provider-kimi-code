@@ -325,6 +325,24 @@ describe("applyKimiPayloadMutations", () => {
     assert.deepEqual(payload.thinking, { type: "enabled", effort: "high", keep: "all" });
   });
 
+  it("sends K3 max effort for Pi max and xhigh levels", async () => {
+    for (const reasoning of ["max", "xhigh"] as ThinkingLevel[]) {
+      const payload: JsonRecord = { messages: [{ role: "user", content: "hi" }] };
+      await applyKimiPayloadMutations(
+        payload,
+        baseCtx({
+          reasoning,
+          modelConfig: {
+            ...defaultModelConfig,
+            supportEfforts: ["max"],
+            defaultEffort: "max",
+          },
+        }),
+      );
+      assert.deepEqual(payload.thinking, { type: "enabled", effort: "max", keep: "all" });
+    }
+  });
+
   it("applies thinkingKeep only when reasoning is enabled", async () => {
     const enabledPayload: JsonRecord = {
       messages: [{ role: "user", content: "hi" }],
@@ -336,7 +354,15 @@ describe("applyKimiPayloadMutations", () => {
     assert.deepEqual(enabledPayload.thinking, { type: "enabled", keep: "all" });
 
     const disabledPayload: JsonRecord = {
-      messages: [{ role: "user", content: "hi" }],
+      messages: [
+        {
+          role: "assistant",
+          tool_calls: [
+            { id: "call-1", type: "function", function: { name: "read", arguments: "{}" } },
+          ],
+        },
+        { role: "tool", tool_call_id: "call-1", content: "ok" },
+      ],
       extra_body: { thinking: { keep: "all" } },
     };
     await applyKimiPayloadMutations(
@@ -348,6 +374,33 @@ describe("applyKimiPayloadMutations", () => {
     );
     assert.deepEqual(disabledPayload.thinking, { type: "disabled" });
     assert.equal(disabledPayload.reasoning_effort, undefined);
+    assert.equal((disabledPayload.messages as JsonRecord[])[0]?.reasoning_content, undefined);
+  });
+
+  it("replays empty reasoning for preserved-thinking assistant history", async () => {
+    const payload: JsonRecord = {
+      messages: [
+        {
+          role: "assistant",
+          tool_calls: [
+            { id: "call-1", type: "function", function: { name: "read", arguments: "{}" } },
+          ],
+        },
+        { role: "tool", tool_call_id: "call-1", content: "ok" },
+      ],
+    };
+
+    await applyKimiPayloadMutations(
+      payload,
+      baseCtx({
+        api: "openai-completions",
+        reasoning: "high",
+        modelConfig: { ...defaultModelConfig, thinkingKeep: "all" },
+      }),
+    );
+
+    const messages = payload.messages as JsonRecord[];
+    assert.equal(messages[0]?.reasoning_content, "");
   });
 
   it("renames deprecated max_tokens to max_completion_tokens on OpenAI path", async () => {
@@ -549,7 +602,7 @@ describe("resolveReasoningForLevel", () => {
       enabled: true,
     });
     assert.deepEqual(resolveReasoningForLevel("xhigh", defaultModelConfig), {
-      effort: "high",
+      effort: "max",
       enabled: true,
     });
   });
