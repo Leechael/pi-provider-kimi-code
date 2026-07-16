@@ -7,7 +7,7 @@ import os from "node:os";
 import { dirname, join } from "node:path";
 
 import type { OAuthCredentials, OAuthLoginCallbacks } from "@earendil-works/pi-ai";
-import { getAgentDir, readStoredCredential } from "@earendil-works/pi-coding-agent";
+import { getAgentDir } from "@earendil-works/pi-coding-agent";
 
 // Structural mirrors of pi's stored credential shapes. The exported names
 // moved between pi versions (pi-coding-agent <=0.79 vs pi-ai >=0.80.8), so
@@ -24,14 +24,33 @@ export interface StoredOAuthCredential {
 
 // Pi owns OAuth persistence. Emergency 401 recovery is cached only in this
 // process until ModelRuntime performs its next normal refresh callback.
-let transientCredential: { agentDir: string; baseAccess: string; value: StoredOAuthCredential } | undefined;
+let transientCredential:
+  | { agentDir: string; baseAccess: string; value: StoredOAuthCredential }
+  | undefined;
 
 export function readStoredOAuthCredential(providerId: string): StoredOAuthCredential | null {
-  const credential = readStoredCredential(providerId) as StoredCredential | undefined;
+  // Extension transpilers can host a compatible Pi runtime whose top-level
+  // export surface differs from the package resolved during type-checking.
+  // Keep this one-off read local and read-only; Pi's registered OAuth
+  // callbacks remain the sole owner of auth.json persistence.
+  let credential: StoredCredential | undefined;
+  try {
+    const stored = JSON.parse(readFileSync(join(getAgentDir(), "auth.json"), "utf8")) as Record<
+      string,
+      StoredCredential
+    >;
+    credential = stored[providerId];
+  } catch {
+    return null;
+  }
   if (credential?.type !== "oauth") return null;
-  const stored = credential as StoredOAuthCredential;
-  if (transientCredential?.agentDir === getAgentDir() && transientCredential.baseAccess === stored.access) return transientCredential.value;
-  return stored;
+  const oauth = credential as StoredOAuthCredential;
+  if (
+    transientCredential?.agentDir === getAgentDir() &&
+    transientCredential.baseAccess === oauth.access
+  )
+    return transientCredential.value;
+  return oauth;
 }
 
 import { CLIENT_ID, PROVIDER_ID, RETRYABLE_REFRESH_STATUSES, getOAuthHost } from "./constants.ts";
@@ -500,7 +519,11 @@ export async function refreshKimiAuthToken(
             refresh: kimiCred.refresh_token,
             expires: kimiExpiresMs,
           };
-          transientCredential = { agentDir: getAgentDir(), baseAccess: piOAuth.access, value: recovered };
+          transientCredential = {
+            agentDir: getAgentDir(),
+            baseAccess: piOAuth.access,
+            value: recovered,
+          };
           console.error("[kimi-coding] auth refresh: recovered newer kimi-code token");
           return recovered.access;
         }

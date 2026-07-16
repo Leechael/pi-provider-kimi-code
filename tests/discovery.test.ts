@@ -15,6 +15,7 @@ import {
 import {
   getKimiApiKey,
   isKimiAuthErrorMessage,
+  readStoredOAuthCredential,
   refreshAccessToken,
   refreshKimiAuthToken,
   refreshKimiCodeToken,
@@ -577,6 +578,43 @@ describe("refreshKimiAuthToken", () => {
       },
     };
   }
+
+  it("reads Pi OAuth credentials without changing auth.json", () => {
+    const auth = withTempAuthFile({
+      type: "oauth",
+      access: "stored-access",
+      refresh: "stored-refresh",
+      expires: Date.now() + 60_000,
+    });
+    const before = readFileSync(join(auth.dir, "auth.json"), "utf8");
+
+    try {
+      assert.deepEqual(readStoredOAuthCredential(PROVIDER_ID), {
+        type: "oauth",
+        access: "stored-access",
+        refresh: "stored-refresh",
+        expires: JSON.parse(before)[PROVIDER_ID].expires,
+      });
+      assert.equal(readFileSync(join(auth.dir, "auth.json"), "utf8"), before);
+    } finally {
+      auth.cleanup();
+    }
+  });
+
+  it("treats malformed Pi auth storage as unavailable without rewriting it", () => {
+    const dir = mkdtempSync(join(tmpdir(), "pi-kimi-auth-malformed-"));
+    const authPath = join(dir, "auth.json");
+    writeFileSync(authPath, "{malformed", "utf8");
+    process.env.PI_CODING_AGENT_DIR = dir;
+
+    try {
+      assert.equal(readStoredOAuthCredential(PROVIDER_ID), null);
+      assert.equal(readFileSync(authPath, "utf8"), "{malformed");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+      delete process.env.PI_CODING_AGENT_DIR;
+    }
+  });
 
   it("reuses a newer on-disk access token without calling the refresh endpoint", async () => {
     const auth = withTempAuthFile({
