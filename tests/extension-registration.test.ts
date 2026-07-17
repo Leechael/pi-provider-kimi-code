@@ -384,7 +384,7 @@ describe("extension tool registration", () => {
     }
   });
 
-  it("adapts K3 and highspeed availability to the current membership plan", async () => {
+  it("exposes K3 when /usages reports a Moderato account as LEVEL_BASIC", async () => {
     const cwd = tempDir("kimi-extension-cwd");
     const { pi, providerConfigs } = makePi();
     const auth = withTempAuthFile({
@@ -409,7 +409,7 @@ describe("extension tool registration", () => {
         );
       }
       if (url.endsWith("/usages")) {
-        return new Response(JSON.stringify({ user: { membership: { level: "LEVEL_STANDARD" } } }), {
+        return new Response(JSON.stringify({ user: { membership: { level: "LEVEL_BASIC" } } }), {
           status: 200,
           headers: { "content-type": "application/json" },
         });

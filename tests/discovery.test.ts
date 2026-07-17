@@ -291,7 +291,8 @@ describe("discoverKimiModelMetadata", () => {
 
 describe("Kimi membership model limits", () => {
   it("applies the documented model access matrix for known plans", () => {
-    assert.equal(isKimiModelAvailableForMembership("k3", "LEVEL_BASIC"), false);
+    assert.equal(isKimiModelAvailableForMembership("k3", "LEVEL_FREE"), false);
+    assert.equal(isKimiModelAvailableForMembership("k3", "LEVEL_BASIC"), true);
     assert.equal(isKimiModelAvailableForMembership("k3", "LEVEL_STANDARD"), true);
     assert.equal(isKimiModelAvailableForMembership("k3", "LEVEL_INTERMEDIATE"), true);
     assert.equal(
@@ -311,6 +312,7 @@ describe("Kimi membership model limits", () => {
       contextWindow: 1048576,
     } as Model<Api>;
 
+    assert.equal(applyKimiMembershipLimitsToModel(model, "LEVEL_BASIC").contextWindow, 262144);
     assert.equal(applyKimiMembershipLimitsToModel(model, "LEVEL_STANDARD").contextWindow, 262144);
     assert.equal(
       applyKimiMembershipLimitsToModel(model, "LEVEL_INTERMEDIATE").contextWindow,

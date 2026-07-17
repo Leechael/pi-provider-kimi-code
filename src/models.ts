@@ -69,7 +69,8 @@ const KIMI_MEMBERSHIP_RANK: Readonly<Record<string, number>> = {
   LEVEL_ADVANCED: 4,
   LEVEL_PREMIUM: 5,
 };
-const KIMI_MODERATO_RANK = KIMI_MEMBERSHIP_RANK.LEVEL_STANDARD;
+// `/usages` currently reports Moderato accounts as LEVEL_BASIC.
+const KIMI_MODERATO_RANK = KIMI_MEMBERSHIP_RANK.LEVEL_BASIC;
 const KIMI_ALLEGRETTO_RANK = KIMI_MEMBERSHIP_RANK.LEVEL_INTERMEDIATE;
 
 export function isKimiModelAvailableForMembership(
