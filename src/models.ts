@@ -1,8 +1,13 @@
 // Model identity: discovery against the server's /v1/models endpoint, plus the
 // extras-merging helpers used by both registration and the OAuth modifyModels hook.
 
-import type { Api, Model, OAuthCredentials } from "@earendil-works/pi-ai";
-import type { KimiInputModality, KimiResolvedModelConfig, ModelConfig } from "./config.ts";
+import type { Api, Model, OAuthCredentials, ThinkingLevelMap } from "@earendil-works/pi-ai";
+import type {
+  KimiInputModality,
+  KimiResolvedModelConfig,
+  ModelConfig,
+  ModelReasoningMap,
+} from "./config.ts";
 
 import { type KimiWireProtocol, getBaseUrl } from "./constants.ts";
 import { getKimiProviderHeaders } from "./device.ts";
@@ -279,9 +284,36 @@ export function getKimiModelMetadata(extras: KimiOAuthExtras, modelId: string): 
   return modelId === KIMI_CODING_MODEL_ID ? extras : {};
 }
 
+// pi-ai's thinking-level selector only offers xhigh/max when the model sets
+// an explicit thinkingLevelMap entry, and hides levels mapped to null. Derive
+// the map from the configured reasoningMap, restricted to the efforts the
+// server advertised for this model, so the selector exposes exactly the levels
+// the account can use (K3 advertises [low, high, max] → minimal..max).
+// Returns undefined when the server advertised no effort control, preserving
+// pi's default level set (off..high) for those models.
+export function buildKimiThinkingLevelMap(
+  reasoningMap: ModelReasoningMap,
+  extras: Pick<KimiModelMetadata, "supportEfforts" | "supportsThinkingType">,
+): ThinkingLevelMap | undefined {
+  if (!extras.supportEfforts || extras.supportEfforts.length === 0) return undefined;
+  const map: ThinkingLevelMap = {};
+  // Thinking-only models cannot disable reasoning; everything else keeps off.
+  map.off = extras.supportsThinkingType === "only" ? null : "off";
+  for (const level of ["minimal", "low", "medium", "high", "xhigh", "max"] as const) {
+    const entry = reasoningMap[level];
+    const effort = entry?.enabled ? entry.effort : null;
+    map[level] =
+      effort !== null && effort !== undefined && extras.supportEfforts.includes(effort)
+        ? effort
+        : null;
+  }
+  return map;
+}
+
 export function applyKimiOAuthExtrasToModel(
   model: Model<Api>,
   extras: KimiModelMetadata,
+  reasoningMap?: ModelReasoningMap,
 ): Model<Api> {
   const next: Model<Api> & {
     wireModelId?: string;
@@ -317,5 +349,9 @@ export function applyKimiOAuthExtrasToModel(
   if (extras.protocol) next.wireProtocol = extras.protocol;
   if (extras.supportEfforts) next.supportEfforts = [...extras.supportEfforts];
   if (extras.defaultEffort) next.defaultEffort = extras.defaultEffort;
+  if (reasoningMap) {
+    const thinkingLevelMap = buildKimiThinkingLevelMap(reasoningMap, extras);
+    if (thinkingLevelMap) next.thinkingLevelMap = thinkingLevelMap;
+  }
   return next;
 }

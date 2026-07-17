@@ -400,6 +400,7 @@ function registerKimiProvider(pi: ExtensionAPI, state: KimiRuntimeState): void {
     applyKimiOAuthExtrasToModel(
       buildKimiModelFromConfig(state.config.model),
       getKimiModelMetadata(state.modelExtras, KIMI_CODING_MODEL_ID),
+      state.config.model.reasoningMap,
     ),
     state.membershipLevel,
   );
@@ -407,6 +408,7 @@ function registerKimiProvider(pi: ExtensionAPI, state: KimiRuntimeState): void {
     applyKimiOAuthExtrasToModel(
       buildKimiModelFromConfig(state.config.model, KIMI_CODING_HIGHSPEED_MODEL_ID),
       getKimiModelMetadata(state.modelExtras, KIMI_CODING_HIGHSPEED_MODEL_ID),
+      state.config.model.reasoningMap,
     ),
     state.membershipLevel,
   );
@@ -414,6 +416,7 @@ function registerKimiProvider(pi: ExtensionAPI, state: KimiRuntimeState): void {
     applyKimiOAuthExtrasToModel(
       buildKimiModelFromConfig(state.config.model, KIMI_K3_MODEL_ID),
       getKimiModelMetadata(state.modelExtras, KIMI_K3_MODEL_ID),
+      state.config.model.reasoningMap,
     ),
     state.membershipLevel,
   );
@@ -476,7 +479,11 @@ function registerKimiProvider(pi: ExtensionAPI, state: KimiRuntimeState): void {
           .map((model) =>
             model.provider === PROVIDER_ID
               ? applyKimiMembershipLimitsToModel(
-                  applyKimiOAuthExtrasToModel(model, getKimiModelMetadata(extras, model.id)),
+                  applyKimiOAuthExtrasToModel(
+                    model,
+                    getKimiModelMetadata(extras, model.id),
+                    state.config.model.reasoningMap,
+                  ),
                   state.membershipLevel,
                 )
               : model,
