@@ -310,6 +310,11 @@ export function buildKimiThinkingLevelMap(
   return map;
 }
 
+// Merges server-discovered extras onto a model. Rebuild-safe: fields derived
+// from extras are DELETED when the new extras omit them, because modifyModels
+// re-applies this onto previously modified models. Always pass reasoningMap
+// (all runtime call sites do) — the 2-arg form exists only for pre-existing
+// tests and skips thinkingLevelMap maintenance entirely, including clearing.
 export function applyKimiOAuthExtrasToModel(
   model: Model<Api>,
   extras: KimiModelMetadata,
