@@ -111,4 +111,27 @@ describe("thinking levels through pi-ai's real selector gate", () => {
     const model = applyKimiOAuthExtrasToModel(baseK3Model(), K3_EXTRAS);
     assert.equal(model.thinkingLevelMap, undefined);
   });
+
+  it("a catalog refresh that drops effort control clears the derived map and efforts", () => {
+    // modifyModels re-applies extras onto previously modified models, so the
+    // merge must be rebuild-safe: capability removal must not leave a stale
+    // selector map or stale efforts the payload would keep sending.
+    const withEfforts = applyKimiOAuthExtrasToModel(baseK3Model(), K3_EXTRAS, DEFAULT_REASONING_MAP);
+    assert.ok(getSupportedThinkingLevels(withEfforts).includes("max"));
+    const refreshed = applyKimiOAuthExtrasToModel(
+      withEfforts,
+      { supportsThinkingType: "only" },
+      DEFAULT_REASONING_MAP,
+    );
+    assert.equal(refreshed.thinkingLevelMap, undefined);
+    assert.equal(
+      (refreshed as { supportEfforts?: string[] }).supportEfforts,
+      undefined,
+    );
+    assert.equal((refreshed as { defaultEffort?: string }).defaultEffort, undefined);
+    const levels = getSupportedThinkingLevels(refreshed);
+    assert.ok(levels.includes("high"));
+    assert.ok(!levels.includes("max"));
+    assert.ok(!levels.includes("xhigh"));
+  });
 });

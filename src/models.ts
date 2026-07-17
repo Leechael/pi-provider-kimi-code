@@ -347,11 +347,18 @@ export function applyKimiOAuthExtrasToModel(
     (next as unknown as { input: string[] }).input = input;
   }
   if (extras.protocol) next.wireProtocol = extras.protocol;
+  // Clear on omission: modifyModels re-applies extras onto previously
+  // modified models, so a catalog refresh that drops effort control must not
+  // retain the stale map/efforts (selector would keep offering — and the
+  // payload keep sending — a no-longer-advertised effort like max).
   if (extras.supportEfforts) next.supportEfforts = [...extras.supportEfforts];
+  else delete next.supportEfforts;
   if (extras.defaultEffort) next.defaultEffort = extras.defaultEffort;
+  else delete next.defaultEffort;
   if (reasoningMap) {
     const thinkingLevelMap = buildKimiThinkingLevelMap(reasoningMap, extras);
     if (thinkingLevelMap) next.thinkingLevelMap = thinkingLevelMap;
+    else delete next.thinkingLevelMap;
   }
   return next;
 }
