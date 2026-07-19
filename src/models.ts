@@ -123,6 +123,9 @@ export function buildKimiModelFromConfig(
     id: modelId,
     name,
     reasoning: config.reasoning,
+    // Pi gates "xhigh"/"max" behind thinkingLevelMap entries; the payload
+    // layer maps both onto Kimi's "max" effort via config.reasoningMap.
+    thinkingLevelMap: { xhigh: "max", max: "max" },
     input: [...config.input] as unknown as ("text" | "image" | "video")[],
     cost: { ...(isHighSpeed ? COST_HIGH_SPEED : COST_STANDARD) },
     contextWindow: config.contextWindow,

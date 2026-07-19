@@ -135,7 +135,7 @@ Fallback values:
 - Input: text and image
 - Reasoning: enabled
 
-The provider maps Pi's reasoning levels to Kimi's top-level `thinking` parameter. K3 currently advertises only `max`; `max` and `xhigh` map to `max`, `high` and `medium` map to `high`, and `low` and `minimal` map to `low`. It sends `thinking.effort` only when `/models` advertises the mapped value. The mapping refreshes automatically on credential refresh. Opening `/kimi-settings` also re-discovers the latest model and membership metadata.
+The provider maps Pi's reasoning levels to Kimi's top-level `thinking` parameter. K3 currently advertises `low`, `high`, and `max`; `max` and `xhigh` map to `max`, `high` and `medium` map to `high`, and `low` and `minimal` map to `low`. It sends `thinking.effort` only when `/models` advertises the mapped value. The mapping refreshes automatically on credential refresh. Opening `/kimi-settings` also re-discovers the latest model and membership metadata.
 
 Switching models or thinking effort invalidates Kimi's existing context cache. Start a new session when switching to avoid re-prefilling a long conversation and consuming extra quota.
 
