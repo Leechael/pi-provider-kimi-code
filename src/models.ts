@@ -119,18 +119,21 @@ export function buildKimiModelFromConfig(
       : isHighSpeed
         ? "Kimi for Coding High Speed"
         : "Kimi for Coding";
-  return {
+  const model = {
     id: modelId,
     name,
     reasoning: config.reasoning,
-    // Pi gates "xhigh"/"max" behind thinkingLevelMap entries; the payload
-    // layer maps both onto Kimi's "max" effort via config.reasoningMap.
-    thinkingLevelMap: { xhigh: "max", max: "max" },
     input: [...config.input] as unknown as ("text" | "image" | "video")[],
     cost: { ...(isHighSpeed ? COST_HIGH_SPEED : COST_STANDARD) },
     contextWindow: config.contextWindow,
     maxTokens: config.maxTokens,
   } as Model<Api>;
+  // Pi gates "xhigh"/"max" behind thinkingLevelMap entries; the payload
+  // layer maps both onto Kimi's "max" effort via config.reasoningMap. Cast
+  // through the model's own field type because "max" only exists in pi-ai
+  // >= 0.80's level union; older releases ignore it and top out at "xhigh".
+  model.thinkingLevelMap = { xhigh: "max", max: "max" } as Model<Api>["thinkingLevelMap"];
+  return model;
 }
 
 export function resolveKimiModelConfig(

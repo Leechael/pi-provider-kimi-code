@@ -18,7 +18,8 @@ function piKnowsMaxLevel(): boolean {
     reasoning: true,
     thinkingLevelMap: { max: "max" },
   } as unknown as Model<Api>;
-  return getSupportedThinkingLevels(probe).includes("max");
+  const levels: string[] = getSupportedThinkingLevels(probe);
+  return levels.includes("max");
 }
 
 function buildK3Model(): Model<Api> {
@@ -26,7 +27,7 @@ function buildK3Model(): Model<Api> {
 }
 
 function assertTopLevelsExposed(model: Model<Api>): void {
-  const levels = getSupportedThinkingLevels(model);
+  const levels: string[] = getSupportedThinkingLevels(model);
   assert.ok(levels.includes("xhigh"), `expected "xhigh" in [${levels.join(", ")}]`);
   if (piKnowsMaxLevel()) {
     assert.ok(levels.includes("max"), `expected "max" in [${levels.join(", ")}]`);
