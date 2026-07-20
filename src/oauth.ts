@@ -63,13 +63,10 @@ async function acquireSharedFileLock(
       return await acquireFileLock(path, {
         realpath: false,
         stale: options.stale,
-        retries: {
-          retries: options.maxRetries,
-          factor: 1,
-          minTimeout: options.minTimeout,
-          maxTimeout: options.maxTimeout,
-          randomize: true,
-        },
+        // Retry via the outer abortable sleep below. proper-lockfile's own
+        // retry loop is not signal-aware and would otherwise ignore an abort
+        // for the full configured retry window.
+        retries: 0,
       });
     } catch (error) {
       const code =

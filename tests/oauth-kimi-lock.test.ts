@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { describe, it } from "node:test";
 import { promisify } from "node:util";
 import { lock as acquireFileLock } from "proper-lockfile";
@@ -181,6 +181,42 @@ describe("Kimi Code credential locking", () => {
       assert.equal(credential.access_token, "access-1");
       assert.equal(credential.expires_at > Math.floor(Date.now() / 1000), true);
     } finally {
+      f.cleanup();
+    }
+  });
+
+  it("honors cancellation while waiting for Kimi Code's OAuth lock", async () => {
+    const f = fixture(false);
+    const target = join(f.kimiHome, "oauth", "kimi-code");
+    mkdirSync(dirname(target), { recursive: true });
+    writeFileSync(target, "", { encoding: "utf8", flag: "a" });
+    const release = await acquireFileLock(target, { realpath: false, stale: 5_000 });
+
+    try {
+      process.env.PI_CODING_AGENT_DIR = f.piAgentDir;
+      process.env.KIMI_CODE_HOME = f.kimiHome;
+      process.env.KIMI_SHARE_DIR = f.legacyDir;
+      process.env.KIMI_OAUTH_HOST = f.tokenUrl;
+      const { refreshKimiAuthToken } = await import("../src/oauth.ts");
+      globalThis.fetch = async () => {
+        throw new Error("fetch should not be called while waiting for the lock");
+      };
+
+      const controller = new AbortController();
+      const pending = refreshKimiAuthToken("stale-access", { signal: controller.signal });
+      setTimeout(() => controller.abort(), 100);
+      const started = Date.now();
+      const result = await pending;
+
+      assert.equal(result, null);
+      assert.equal(Date.now() - started < 1_000, true);
+      assert.equal(readFileSync(f.tokenUrl, "utf8"), "0");
+    } finally {
+      delete process.env.PI_CODING_AGENT_DIR;
+      delete process.env.KIMI_CODE_HOME;
+      delete process.env.KIMI_SHARE_DIR;
+      delete process.env.KIMI_OAUTH_HOST;
+      await release();
       f.cleanup();
     }
   });
