@@ -52,15 +52,33 @@ export function readStoredOAuthCredential(providerId: string): StoredOAuthCreden
 // while held, recovers stale locks from crashed processes, and retries for
 // ~40s so a live holder running a slow network refresh inside the lock is
 // waited out.
-async function acquireAuthFileLock(
-  authPath: string,
-  signal?: AbortSignal,
-): Promise<() => Promise<void>> {
+interface AuthFileLock {
+  release(): Promise<void>;
+  throwIfCompromised(): void;
+}
+
+async function acquireAuthFileLock(authPath: string, signal?: AbortSignal): Promise<AuthFileLock> {
   const maxRetries = 10;
+  let compromisedError: Error | undefined;
   for (let attempt = 0; ; attempt++) {
     signal?.throwIfAborted();
     try {
-      return await acquireFileLock(authPath, { realpath: false, stale: 30_000 });
+      // Without an onCompromised handler proper-lockfile rethrows inside its
+      // mtime-updater callback, crashing the process. Record it instead and
+      // refuse to persist outside an effective lock, like pi's auth storage.
+      const release = await acquireFileLock(authPath, {
+        realpath: false,
+        stale: 30_000,
+        onCompromised: (err) => {
+          compromisedError = err instanceof Error ? err : new Error(String(err));
+        },
+      });
+      return {
+        release,
+        throwIfCompromised() {
+          if (compromisedError) throw compromisedError;
+        },
+      };
     } catch (error) {
       const code =
         typeof error === "object" && error !== null && "code" in error
@@ -92,7 +110,8 @@ async function lockStoredOAuthCredential(
     writeFileSync(authPath, "{}", { encoding: "utf-8", mode: 0o600 });
     chmodSync(authPath, 0o600);
   }
-  const release = await acquireAuthFileLock(authPath, signal);
+  const lock = await acquireAuthFileLock(authPath, signal);
+  lock.throwIfCompromised();
   let data: Record<string, unknown> = {};
   try {
     const parsed = JSON.parse(readFileSync(authPath, "utf-8")) as unknown;
@@ -106,6 +125,9 @@ async function lockStoredOAuthCredential(
   return {
     credential: stored?.type === "oauth" ? (stored as unknown as StoredOAuthCredential) : null,
     store(credential) {
+      // Never persist outside an effective lock: a compromised lock means
+      // another process may legitimately hold a newer (rotated) credential.
+      lock.throwIfCompromised();
       data[providerId] = credential;
       writeFileSync(authPath, JSON.stringify(data, null, 2), {
         encoding: "utf-8",
@@ -113,7 +135,7 @@ async function lockStoredOAuthCredential(
       });
       chmodSync(authPath, 0o600);
     },
-    release,
+    release: lock.release,
   };
 }
 
@@ -637,6 +659,13 @@ export async function refreshKimiAuthToken(
     }
     return null;
   } finally {
-    await locked?.release();
+    if (locked) {
+      try {
+        await locked.release();
+      } catch {
+        // Unlock failures (e.g. a compromised lock) must not override the
+        // refresh result above.
+      }
+    }
   }
 }
