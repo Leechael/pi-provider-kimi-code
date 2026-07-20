@@ -199,18 +199,29 @@ function getModelsUrl(protocol?: KimiWireProtocol): string {
   return buildModelsUrl(getBaseUrl(protocol));
 }
 
+export function isOfficialKimiModelsUrl(url: string): boolean {
+  try {
+    const parsed = new URL(url);
+    return parsed.origin === "https://api.kimi.com" && parsed.pathname === "/coding/v1/models";
+  } catch {
+    return false;
+  }
+}
+
 export async function discoverKimiModelMetadata(
   accessToken: string,
   protocol?: KimiWireProtocol,
   options: DiscoverKimiModelMetadataOptions = {},
 ): Promise<KimiOAuthExtras> {
   if (!accessToken) return {};
+  const modelsUrl = getModelsUrl(protocol);
+  if (!isOfficialKimiModelsUrl(modelsUrl)) return {};
   const timeoutMs = options.timeoutMs ?? DEFAULT_DISCOVERY_TIMEOUT_MS;
   const controller = new AbortController();
   const timeout =
     timeoutMs > 0 ? setTimeout(() => controller.abort(), timeoutMs).unref() : undefined;
   try {
-    const response = await fetch(getModelsUrl(protocol), {
+    const response = await fetch(modelsUrl, {
       signal: controller.signal,
       headers: {
         ...getKimiProviderHeaders(),

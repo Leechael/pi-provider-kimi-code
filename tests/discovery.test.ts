@@ -9,6 +9,7 @@ import {
   applyKimiOAuthExtrasToModel,
   buildKimiModelFromConfig,
   discoverKimiModelMetadata,
+  isOfficialKimiModelsUrl,
   resolveKimiModelConfig,
 } from "../src/models.ts";
 import {
@@ -260,35 +261,25 @@ describe("discoverKimiModelMetadata", () => {
     });
   });
 
-  it("respects KIMI_CODE_BASE_URL when computing the discovery endpoint", async () => {
+  it("does not trust a custom KIMI_CODE_BASE_URL as an entitlement catalog", async () => {
     process.env.KIMI_CODE_BASE_URL = "https://proxy.example.com/kimi";
-    mock = mockFetch(() =>
-      jsonResponse({ data: [{ id: "kimi-for-coding", context_length: 100 }] }),
-    );
+    mock = mockFetch(() => jsonResponse({ data: [] }));
 
-    await discoverKimiModelMetadata("tok-1");
-    assert.equal(mock.calls[0]?.url, "https://proxy.example.com/kimi/v1/models");
+    assert.deepEqual(await discoverKimiModelMetadata("tok-1"), {});
+    assert.equal(mock.calls.length, 0);
   });
 
-  it("accepts official KIMI_BASE_URL as a base URL alias", async () => {
+  it("does not trust a custom KIMI_BASE_URL as an entitlement catalog", async () => {
     process.env.KIMI_BASE_URL = "https://official.example.com/kimi";
-    mock = mockFetch(() =>
-      jsonResponse({ data: [{ id: "kimi-for-coding", context_length: 100 }] }),
-    );
+    mock = mockFetch(() => jsonResponse({ data: [] }));
 
-    await discoverKimiModelMetadata("tok-1");
-    assert.equal(mock.calls[0]?.url, "https://official.example.com/kimi/v1/models");
+    assert.deepEqual(await discoverKimiModelMetadata("tok-1"), {});
+    assert.equal(mock.calls.length, 0);
   });
 
-  it("keeps KIMI_CODE_BASE_URL precedence over KIMI_BASE_URL", async () => {
-    process.env.KIMI_CODE_BASE_URL = "https://code.example.com/kimi";
-    process.env.KIMI_BASE_URL = "https://official.example.com/kimi";
-    mock = mockFetch(() =>
-      jsonResponse({ data: [{ id: "kimi-for-coding", context_length: 100 }] }),
-    );
-
-    await discoverKimiModelMetadata("tok-1");
-    assert.equal(mock.calls[0]?.url, "https://code.example.com/kimi/v1/models");
+  it("accepts the canonical Kimi Code catalog URL", () => {
+    assert.equal(isOfficialKimiModelsUrl("https://api.kimi.com/coding/v1/models"), true);
+    assert.equal(isOfficialKimiModelsUrl("https://api.kimi.com/coding/models"), false);
   });
 });
 
