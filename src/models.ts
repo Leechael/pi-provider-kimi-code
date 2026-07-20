@@ -267,7 +267,9 @@ export function buildKimiThinkingLevelMap(
   extras: Pick<KimiModelMetadata, "supportEfforts" | "supportsThinkingType">,
 ): ThinkingLevelMap | undefined {
   if (!extras.supportEfforts?.length) return undefined;
-  const map: ThinkingLevelMap = { off: extras.supportsThinkingType === "only" ? null : "off" };
+  const map = {
+    off: extras.supportsThinkingType === "only" ? null : "off",
+  } as ThinkingLevelMap & Record<string, string | null>;
   for (const level of ["minimal", "low", "medium", "high", "xhigh", "max"] as const) {
     const entry = reasoningMap[level];
     map[level] =
