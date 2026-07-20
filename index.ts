@@ -396,6 +396,7 @@ function buildKimiCatalogModels(state: KimiRuntimeState) {
     applyKimiOAuthExtrasToModel(
       buildKimiModelFromConfig(state.config.model, modelId),
       getKimiModelMetadata(state.modelExtras, modelId),
+      state.config.model.reasoningMap,
     ),
   );
 }
@@ -439,7 +440,11 @@ function registerKimiProvider(pi: ExtensionAPI, state: KimiRuntimeState): void {
             ...models
               .filter((model) => model.provider === PROVIDER_ID)
               .map((model) =>
-                applyKimiOAuthExtrasToModel(model, getKimiModelMetadata(extras, model.id)),
+                applyKimiOAuthExtrasToModel(
+                  model,
+                  getKimiModelMetadata(extras, model.id),
+                  state.config.model.reasoningMap,
+                ),
               ),
           ];
         }
@@ -450,6 +455,7 @@ function registerKimiProvider(pi: ExtensionAPI, state: KimiRuntimeState): void {
           return applyKimiOAuthExtrasToModel(
             existing ?? buildKimiModelFromConfig(state.config.model, modelId),
             getKimiModelMetadata(extras, modelId),
+            state.config.model.reasoningMap,
           );
         });
         let insertedCatalog = false;

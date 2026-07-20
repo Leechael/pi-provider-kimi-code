@@ -1,8 +1,13 @@
 // Model identity: discovery against the server's /v1/models endpoint, plus the
 // extras-merging helpers used by both registration and the OAuth modifyModels hook.
 
-import type { Api, Model, OAuthCredentials } from "@earendil-works/pi-ai";
-import type { KimiInputModality, KimiResolvedModelConfig, ModelConfig } from "./config.ts";
+import type { Api, Model, OAuthCredentials, ThinkingLevelMap } from "@earendil-works/pi-ai";
+import type {
+  KimiInputModality,
+  KimiResolvedModelConfig,
+  ModelConfig,
+  ModelReasoningMap,
+} from "./config.ts";
 
 import { type KimiWireProtocol, getBaseUrl } from "./constants.ts";
 import { getKimiProviderHeaders } from "./device.ts";
@@ -257,9 +262,26 @@ export function getKimiModelMetadata(extras: KimiOAuthExtras, modelId: string): 
   return modelId === KIMI_CODING_MODEL_ID ? extras : {};
 }
 
+export function buildKimiThinkingLevelMap(
+  reasoningMap: ModelReasoningMap,
+  extras: Pick<KimiModelMetadata, "supportEfforts" | "supportsThinkingType">,
+): ThinkingLevelMap | undefined {
+  if (!extras.supportEfforts?.length) return undefined;
+  const map: ThinkingLevelMap = { off: extras.supportsThinkingType === "only" ? null : "off" };
+  for (const level of ["minimal", "low", "medium", "high", "xhigh", "max"] as const) {
+    const entry = reasoningMap[level];
+    map[level] =
+      entry?.enabled && entry.effort && extras.supportEfforts.includes(entry.effort)
+        ? entry.effort
+        : null;
+  }
+  return map;
+}
+
 export function applyKimiOAuthExtrasToModel(
   model: Model<Api>,
   extras: KimiModelMetadata,
+  reasoningMap?: ModelReasoningMap,
 ): Model<Api> {
   const next: Model<Api> & {
     wireModelId?: string;
@@ -294,6 +316,13 @@ export function applyKimiOAuthExtrasToModel(
   }
   if (extras.protocol) next.wireProtocol = extras.protocol;
   if (extras.supportEfforts) next.supportEfforts = [...extras.supportEfforts];
+  else delete next.supportEfforts;
   if (extras.defaultEffort) next.defaultEffort = extras.defaultEffort;
+  else delete next.defaultEffort;
+  if (reasoningMap) {
+    const thinkingLevelMap = buildKimiThinkingLevelMap(reasoningMap, extras);
+    if (thinkingLevelMap) next.thinkingLevelMap = thinkingLevelMap;
+    else delete next.thinkingLevelMap;
+  }
   return next;
 }

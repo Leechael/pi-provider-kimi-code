@@ -8,6 +8,7 @@ import { DEFAULT_KIMI_MODEL_INPUT, PROVIDER_ID } from "../src/constants.ts";
 import {
   applyKimiOAuthExtrasToModel,
   buildKimiModelFromConfig,
+  buildKimiThinkingLevelMap,
   discoverKimiModelMetadata,
   isOfficialKimiModelsUrl,
   resolveKimiModelConfig,
@@ -295,6 +296,26 @@ describe("Kimi model pricing", () => {
     assert.deepEqual(standard.cost, { input: 0.95, output: 4, cacheRead: 0.19, cacheWrite: 0.95 });
     assert.deepEqual(highSpeed.cost, { input: 1.9, output: 8, cacheRead: 0.38, cacheWrite: 1.9 });
     assert.deepEqual(k3.cost, { input: 3, output: 15, cacheRead: 0.3, cacheWrite: 3 });
+  });
+});
+
+describe("buildKimiThinkingLevelMap", () => {
+  it("exposes only Pi levels backed by server-advertised efforts", () => {
+    assert.deepEqual(
+      buildKimiThinkingLevelMap(DEFAULT_KIMI_CODE_CONFIG.model.reasoningMap, {
+        supportsThinkingType: "only",
+        supportEfforts: ["low", "high", "max"],
+      }),
+      {
+        off: null,
+        minimal: "low",
+        low: "low",
+        medium: "high",
+        high: "high",
+        xhigh: "max",
+        max: "max",
+      },
+    );
   });
 });
 
