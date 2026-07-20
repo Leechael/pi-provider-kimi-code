@@ -577,6 +577,32 @@ describe("refreshKimiAuthToken", () => {
     };
   }
 
+  function controlledRefresh() {
+    let markStarted!: () => void;
+    let release!: () => void;
+    const started = new Promise<void>((resolve) => {
+      markStarted = resolve;
+    });
+    const released = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    return {
+      started,
+      release,
+      async respond() {
+        markStarted();
+        await released;
+        return jsonResponse({
+          access_token: "fresh-access",
+          refresh_token: "refresh-2",
+          expires_in: 900,
+          scope: "kimi-code",
+          token_type: "Bearer",
+        });
+      },
+    };
+  }
+
   it("reuses a newer on-disk access token without calling the refresh endpoint", async () => {
     const auth = withTempAuthFile({
       type: "oauth",
@@ -593,6 +619,58 @@ describe("refreshKimiAuthToken", () => {
       assert.equal(result, "newer-access");
       assert.equal(mock.calls.length, 0);
     } finally {
+      auth.cleanup();
+    }
+  });
+
+  it("serializes concurrent forced refreshes of a rotating token", async () => {
+    const auth = withTempAuthFile({
+      type: "oauth",
+      access: "stale-access",
+      refresh: "refresh-1",
+      expires: Date.now() - 1,
+    });
+    const refresh = controlledRefresh();
+    mock = mockFetch(refresh.respond);
+
+    try {
+      const first = refreshKimiAuthToken("stale-access");
+      await refresh.started;
+      const second = refreshKimiAuthToken("stale-access");
+      refresh.release();
+
+      assert.deepEqual(await Promise.all([first, second]), ["fresh-access", "fresh-access"]);
+      assert.equal(mock.calls.length, 1);
+      assert.equal(auth.readCredential().refresh, "refresh-2");
+    } finally {
+      refresh.release();
+      auth.cleanup();
+    }
+  });
+
+  it("honors cancellation while waiting for another refresh", async () => {
+    const auth = withTempAuthFile({
+      type: "oauth",
+      access: "stale-access",
+      refresh: "refresh-1",
+      expires: Date.now() - 1,
+    });
+    const refresh = controlledRefresh();
+    mock = mockFetch(refresh.respond);
+
+    try {
+      const first = refreshKimiAuthToken("stale-access");
+      await refresh.started;
+      const controller = new AbortController();
+      const second = refreshKimiAuthToken("stale-access", { signal: controller.signal });
+      controller.abort();
+
+      assert.equal(await second, null);
+      refresh.release();
+      assert.equal(await first, "fresh-access");
+      assert.equal(mock.calls.length, 1);
+    } finally {
+      refresh.release();
       auth.cleanup();
     }
   });

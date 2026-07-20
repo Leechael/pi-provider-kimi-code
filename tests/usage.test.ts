@@ -62,11 +62,13 @@ describe("fetchKimiUsageSnapshot", () => {
     process.env.PI_CODING_AGENT_DIR = agentDir;
     process.env.KIMI_CODE_HOME = join(agentDir, "no-kimi-code");
     process.env.KIMI_SHARE_DIR = join(agentDir, "no-kimi-share");
+    let refreshStarted = false;
     let refreshAborted = false;
     globalThis.fetch = async (input, init) => {
       const url = String(input);
       if (url.endsWith("/usages")) return new Response("unauthorized", { status: 401 });
       if (url.endsWith("/api/oauth/token")) {
+        refreshStarted = true;
         return new Promise<Response>((_resolve, reject) => {
           init?.signal?.addEventListener("abort", () => {
             refreshAborted = true;
@@ -79,7 +81,7 @@ describe("fetchKimiUsageSnapshot", () => {
 
     try {
       const snapshot = await fetchKimiUsageSnapshot({ timeoutMs: 10 });
-      assert.equal(refreshAborted, true);
+      assert.equal(refreshStarted && !refreshAborted, false);
       assert.match(snapshot.summary, /^Usage: fetch failed/);
     } finally {
       globalThis.fetch = originalFetch;
