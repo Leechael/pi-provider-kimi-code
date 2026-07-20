@@ -6,11 +6,9 @@ import { join } from "node:path";
 import { DEFAULT_KIMI_CODE_CONFIG } from "../src/config.ts";
 import { DEFAULT_KIMI_MODEL_INPUT, PROVIDER_ID } from "../src/constants.ts";
 import {
-  applyKimiMembershipLimitsToModel,
   applyKimiOAuthExtrasToModel,
   buildKimiModelFromConfig,
   discoverKimiModelMetadata,
-  isKimiModelAvailableForMembership,
   resolveKimiModelConfig,
 } from "../src/models.ts";
 import {
@@ -302,37 +300,6 @@ describe("Kimi model pricing", () => {
     assert.deepEqual(standard.cost, { input: 0.95, output: 4, cacheRead: 0.19, cacheWrite: 0.95 });
     assert.deepEqual(highSpeed.cost, { input: 1.9, output: 8, cacheRead: 0.38, cacheWrite: 1.9 });
     assert.deepEqual(k3.cost, { input: 3, output: 15, cacheRead: 0.3, cacheWrite: 3 });
-  });
-});
-
-describe("Kimi membership model limits", () => {
-  it("applies the documented model access matrix for known plans", () => {
-    assert.equal(isKimiModelAvailableForMembership("k3", "LEVEL_BASIC"), false);
-    assert.equal(isKimiModelAvailableForMembership("k3", "LEVEL_STANDARD"), true);
-    assert.equal(isKimiModelAvailableForMembership("k3", "LEVEL_INTERMEDIATE"), true);
-    assert.equal(
-      isKimiModelAvailableForMembership("kimi-for-coding-highspeed", "LEVEL_STANDARD"),
-      false,
-    );
-    assert.equal(
-      isKimiModelAvailableForMembership("kimi-for-coding-highspeed", "LEVEL_INTERMEDIATE"),
-      true,
-    );
-    assert.equal(isKimiModelAvailableForMembership("k3", "LEVEL_UNKNOWN"), undefined);
-  });
-
-  it("caps Moderato K3 at 256K without reducing higher plans", () => {
-    const model = {
-      id: "k3",
-      contextWindow: 1048576,
-    } as Model<Api>;
-
-    assert.equal(applyKimiMembershipLimitsToModel(model, "LEVEL_STANDARD").contextWindow, 262144);
-    assert.equal(
-      applyKimiMembershipLimitsToModel(model, "LEVEL_INTERMEDIATE").contextWindow,
-      1048576,
-    );
-    assert.equal(applyKimiMembershipLimitsToModel(model, "LEVEL_UNKNOWN").contextWindow, 1048576);
   });
 });
 
