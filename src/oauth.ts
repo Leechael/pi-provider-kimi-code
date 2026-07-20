@@ -52,25 +52,66 @@ export function readStoredOAuthCredential(providerId: string): StoredOAuthCreden
 // while held, recovers stale locks from crashed processes, and retries for
 // ~40s so a live holder running a slow network refresh inside the lock is
 // waited out.
-async function acquireAuthFileLock(
-  authPath: string,
-  signal?: AbortSignal,
+async function acquireSharedFileLock(
+  path: string,
+  signal: AbortSignal | undefined,
+  options: { maxRetries: number; stale: number; minTimeout: number; maxTimeout: number },
 ): Promise<() => Promise<void>> {
-  const maxRetries = 10;
   for (let attempt = 0; ; attempt++) {
     signal?.throwIfAborted();
     try {
-      return await acquireFileLock(authPath, { realpath: false, stale: 30_000 });
+      return await acquireFileLock(path, {
+        realpath: false,
+        stale: options.stale,
+        retries: {
+          retries: options.maxRetries,
+          factor: 1,
+          minTimeout: options.minTimeout,
+          maxTimeout: options.maxTimeout,
+          randomize: true,
+        },
+      });
     } catch (error) {
       const code =
         typeof error === "object" && error !== null && "code" in error
           ? String((error as { code?: unknown }).code)
           : undefined;
-      if (code !== "ELOCKED" || attempt >= maxRetries) throw error;
-      const baseDelay = Math.min(100 * 2 ** attempt, 10_000);
+      if (code !== "ELOCKED" || attempt >= options.maxRetries) throw error;
+      const baseDelay = Math.min(options.minTimeout * 2 ** attempt, options.maxTimeout);
       await sleep(baseDelay * (1 + Math.random()), signal);
     }
   }
+}
+
+async function acquireAuthFileLock(
+  authPath: string,
+  signal?: AbortSignal,
+): Promise<() => Promise<void>> {
+  return acquireSharedFileLock(authPath, signal, {
+    maxRetries: 10,
+    stale: 30_000,
+    minTimeout: 100,
+    maxTimeout: 10_000,
+  });
+}
+
+async function acquireKimiCodeRefreshLock(signal?: AbortSignal): Promise<() => Promise<void>> {
+  if (process.platform === "win32" || process.env.KIMI_DISABLE_OAUTH_LOCK === "1") {
+    return async () => {};
+  }
+  const target = join(
+    process.env.KIMI_CODE_HOME || join(os.homedir(), ".kimi-code"),
+    "oauth",
+    "kimi-code",
+  );
+  mkdirSync(dirname(target), { recursive: true, mode: 0o700 });
+  writeFileSync(target, "", { encoding: "utf-8", flag: "a" });
+  return acquireSharedFileLock(target, signal, {
+    maxRetries: 120,
+    stale: 5_000,
+    minTimeout: 500,
+    maxTimeout: 1_000,
+  });
 }
 
 interface LockedOAuthCredential {
@@ -372,7 +413,7 @@ function kimiCodeCredentialExists(): boolean {
 function writeKimiCodeCredentials(access: string, refresh: string, expiresMs: number): void {
   const path = getKimiCodeCredentialPath();
   const dir = dirname(path);
-  mkdirSync(dir, { recursive: true });
+  mkdirSync(dir, { recursive: true, mode: 0o700 });
   const data: KimiCliCredentialsFile = {
     access_token: access,
     refresh_token: refresh,
@@ -381,7 +422,24 @@ function writeKimiCodeCredentials(access: string, refresh: string, expiresMs: nu
     token_type: "Bearer",
     expires_in: Math.max(0, Math.floor((expiresMs - Date.now()) / 1000)),
   };
-  writeFileSync(path, `${JSON.stringify(data, null, 2)}\n`, "utf-8");
+  writeFileSync(path, `${JSON.stringify(data, null, 2)}\n`, { encoding: "utf-8", mode: 0o600 });
+  chmodSync(path, 0o600);
+}
+
+interface LockedKimiCodeCredentials {
+  credential: KimiCliCredentialsFile | null;
+  store(access: string, refresh: string, expiresMs: number): void;
+  release(): Promise<void>;
+}
+
+async function lockKimiCodeCredentials(signal?: AbortSignal): Promise<LockedKimiCodeCredentials> {
+  const release = await acquireKimiCodeRefreshLock(signal);
+  const credential = readKimiCliCredentials();
+  return {
+    credential,
+    store: writeKimiCodeCredentials,
+    release,
+  };
 }
 
 async function tryReuseKimiCliCredentials(
@@ -559,21 +617,22 @@ export async function refreshKimiAuthToken(
   options: { signal?: AbortSignal } = {},
 ): Promise<string | null> {
   let locked: LockedOAuthCredential | undefined;
+  let kimiLocked: LockedKimiCodeCredentials | undefined;
   try {
     locked = await lockStoredOAuthCredential(PROVIDER_ID, options.signal);
-    const kimiCred = readKimiCliCredentials();
     const piOAuth = locked.credential;
 
     if (piOAuth) {
       if (piOAuth.access !== currentKey && Date.now() < piOAuth.expires) {
-        console.error("[kimi-coding] auth refresh: reusing newer on-disk token");
         return piOAuth.access;
       }
 
       let refreshed: Awaited<ReturnType<typeof refreshAccessToken>>;
+      kimiLocked = await lockKimiCodeCredentials(options.signal);
       try {
         refreshed = await refreshAccessToken(piOAuth.refresh, { signal: options.signal });
       } catch (error) {
+        const kimiCred = readKimiCliCredentials();
         if (!kimiCred?.refresh_token || kimiCred.refresh_token === piOAuth.refresh) throw error;
         const kimiExpiresMs = (kimiCred.expires_at ?? 0) * 1000;
         if (kimiCred.access_token !== currentKey && Date.now() < kimiExpiresMs) {
@@ -585,14 +644,29 @@ export async function refreshKimiAuthToken(
             expires: kimiExpiresMs,
           };
           locked.store(recovered);
-          console.error("[kimi-coding] auth refresh: recovered newer kimi-code token");
           return recovered.access;
         }
-        console.error("[kimi-coding] auth refresh: pi token rejected, trying kimi-code token");
         refreshed = await refreshAccessToken(kimiCred.refresh_token, { signal: options.signal });
       }
 
       const newExpiresMs = Date.now() + refreshed.expires_in * 1000;
+      const kimiCredentialAfterRefresh = readKimiCliCredentials();
+      const peerAccess = kimiCredentialAfterRefresh?.access_token;
+      const peerExpiresMs = (kimiCredentialAfterRefresh?.expires_at ?? 0) * 1000;
+      const peerIsNewerValid =
+        peerAccess !== undefined && peerAccess !== currentKey && Date.now() < peerExpiresMs;
+      if (peerIsNewerValid) {
+        const peerCred: StoredOAuthCredential = {
+          ...piOAuth,
+          type: "oauth",
+          access: peerAccess,
+          refresh: kimiCredentialAfterRefresh!.refresh_token!,
+          expires: peerExpiresMs,
+        };
+        locked.store(peerCred);
+        return peerCred.access;
+      }
+      kimiLocked.store(refreshed.access_token, refreshed.refresh_token, newExpiresMs);
       const newCred: StoredOAuthCredential = {
         ...piOAuth,
         type: "oauth",
@@ -601,30 +675,31 @@ export async function refreshKimiAuthToken(
         expires: newExpiresMs,
       };
       locked.store(newCred);
-      writeKimiCodeCredentials(refreshed.access_token, refreshed.refresh_token, newExpiresMs);
       return newCred.access;
     }
 
+    kimiLocked = await lockKimiCodeCredentials(options.signal);
+    const kimiCred = kimiLocked.credential;
     if (!kimiCred) {
-      console.error(
-        `[kimi-coding] auth refresh skipped: no OAuth credentials for ${PROVIDER_ID} on disk`,
-      );
       return null;
     }
 
     const kimiExpiresMs = (kimiCred.expires_at ?? 0) * 1000;
     if (kimiCred.access_token !== currentKey && Date.now() < kimiExpiresMs) {
-      console.error("[kimi-coding] auth refresh: reusing newer kimi-code token");
       return kimiCred.access_token!;
     }
 
-    console.error("[kimi-coding] auth refresh: requesting new access token via kimi-code");
     const refreshed = await refreshAccessToken(kimiCred.refresh_token!, {
       signal: options.signal,
     });
     const newExpiresMs = Date.now() + refreshed.expires_in * 1000;
-    writeKimiCodeCredentials(refreshed.access_token, refreshed.refresh_token, newExpiresMs);
-    console.error("[kimi-coding] auth refresh: new token persisted to kimi-code");
+    const kimiCredentialAfterRefresh = readKimiCliCredentials();
+    const peerAccess = kimiCredentialAfterRefresh?.access_token;
+    const peerExpiresMs = (kimiCredentialAfterRefresh?.expires_at ?? 0) * 1000;
+    if (peerAccess !== undefined && peerAccess !== currentKey && Date.now() < peerExpiresMs) {
+      return peerAccess;
+    }
+    kimiLocked.store(refreshed.access_token, refreshed.refresh_token, newExpiresMs);
     return refreshed.access_token;
   } catch (err) {
     if (options.signal?.aborted) return null;
@@ -635,6 +710,11 @@ export async function refreshKimiAuthToken(
     }
     return null;
   } finally {
-    await locked?.release();
+    if (kimiLocked) {
+      await kimiLocked.release().catch(() => {});
+    }
+    if (locked) {
+      await locked.release().catch(() => {});
+    }
   }
 }
