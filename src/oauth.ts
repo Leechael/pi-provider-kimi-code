@@ -52,43 +52,69 @@ export function readStoredOAuthCredential(providerId: string): StoredOAuthCreden
 // while held, recovers stale locks from crashed processes, and retries for
 // ~40s so a live holder running a slow network refresh inside the lock is
 // waited out.
-async function acquireAuthFileLock(authPath: string): Promise<() => Promise<void>> {
-  return acquireFileLock(authPath, {
-    realpath: false,
-    stale: 30_000,
-    retries: { retries: 10, factor: 2, minTimeout: 100, maxTimeout: 10_000, randomize: true },
-  });
+async function acquireAuthFileLock(
+  authPath: string,
+  signal?: AbortSignal,
+): Promise<() => Promise<void>> {
+  const maxRetries = 10;
+  for (let attempt = 0; ; attempt++) {
+    signal?.throwIfAborted();
+    try {
+      return await acquireFileLock(authPath, { realpath: false, stale: 30_000 });
+    } catch (error) {
+      const code =
+        typeof error === "object" && error !== null && "code" in error
+          ? String((error as { code?: unknown }).code)
+          : undefined;
+      if (code !== "ELOCKED" || attempt >= maxRetries) throw error;
+      const baseDelay = Math.min(100 * 2 ** attempt, 10_000);
+      await sleep(baseDelay * (1 + Math.random()), signal);
+    }
+  }
 }
 
-async function writeStoredCredential(
+interface LockedOAuthCredential {
+  credential: StoredOAuthCredential | null;
+  store(credential: StoredOAuthCredential): void;
+  release(): Promise<void>;
+}
+
+async function lockStoredOAuthCredential(
   providerId: string,
-  credential: StoredOAuthCredential,
-): Promise<void> {
-  const AuthStorage = piAgentRuntime.AuthStorage;
-  if (AuthStorage) {
-    AuthStorage.create().set(providerId, credential);
-    return;
-  }
-  // pi >=0.80.8: no exported write path, so do a locked read-modify-write of
-  // auth.json in pi's on-disk format (indent 2). The read happens inside the
-  // lock so concurrent updates from other processes are never clobbered, and
-  // the explicit chmod covers pre-existing files (writeFileSync's mode only
-  // applies on creation).
+  signal?: AbortSignal,
+): Promise<LockedOAuthCredential> {
+  // Hold the same lock Pi uses across the complete read-refresh-write
+  // transaction. Kimi rotates refresh tokens, so locking only the write lets
+  // concurrent Pi processes exchange the same token twice.
   const authPath = join(piAgentRuntime.getAgentDir(), "auth.json");
-  const release = await acquireAuthFileLock(authPath);
-  try {
-    let data: Record<string, unknown> = {};
-    try {
-      data = JSON.parse(readFileSync(authPath, "utf-8"));
-    } catch {
-      // Missing or unreadable auth.json — start from an empty store.
-    }
-    data[providerId] = credential;
-    writeFileSync(authPath, JSON.stringify(data, null, 2), { encoding: "utf-8", mode: 0o600 });
+  mkdirSync(dirname(authPath), { recursive: true, mode: 0o700 });
+  if (!existsSync(authPath)) {
+    writeFileSync(authPath, "{}", { encoding: "utf-8", mode: 0o600 });
     chmodSync(authPath, 0o600);
-  } finally {
-    await release();
   }
+  const release = await acquireAuthFileLock(authPath, signal);
+  let data: Record<string, unknown> = {};
+  try {
+    const parsed = JSON.parse(readFileSync(authPath, "utf-8")) as unknown;
+    if (typeof parsed === "object" && parsed !== null && !Array.isArray(parsed)) {
+      data = parsed as Record<string, unknown>;
+    }
+  } catch {
+    // Missing or unreadable auth.json — treat it as an empty store.
+  }
+  const stored = data[providerId] as StoredCredential | undefined;
+  return {
+    credential: stored?.type === "oauth" ? (stored as unknown as StoredOAuthCredential) : null,
+    store(credential) {
+      data[providerId] = credential;
+      writeFileSync(authPath, JSON.stringify(data, null, 2), {
+        encoding: "utf-8",
+        mode: 0o600,
+      });
+      chmodSync(authPath, 0o600);
+    },
+    release,
+  };
 }
 
 import { CLIENT_ID, PROVIDER_ID, RETRYABLE_REFRESH_STATUSES, getOAuthHost } from "./constants.ts";
@@ -532,9 +558,11 @@ export async function refreshKimiAuthToken(
   currentKey: string,
   options: { signal?: AbortSignal } = {},
 ): Promise<string | null> {
+  let locked: LockedOAuthCredential | undefined;
   try {
+    locked = await lockStoredOAuthCredential(PROVIDER_ID, options.signal);
     const kimiCred = readKimiCliCredentials();
-    const piOAuth = readStoredOAuthCredential(PROVIDER_ID);
+    const piOAuth = locked.credential;
 
     if (piOAuth) {
       if (piOAuth.access !== currentKey && Date.now() < piOAuth.expires) {
@@ -556,7 +584,7 @@ export async function refreshKimiAuthToken(
             refresh: kimiCred.refresh_token,
             expires: kimiExpiresMs,
           };
-          await writeStoredCredential(PROVIDER_ID, recovered);
+          locked.store(recovered);
           console.error("[kimi-coding] auth refresh: recovered newer kimi-code token");
           return recovered.access;
         }
@@ -572,7 +600,7 @@ export async function refreshKimiAuthToken(
         refresh: refreshed.refresh_token,
         expires: newExpiresMs,
       };
-      await writeStoredCredential(PROVIDER_ID, newCred);
+      locked.store(newCred);
       writeKimiCodeCredentials(refreshed.access_token, refreshed.refresh_token, newExpiresMs);
       return newCred.access;
     }
@@ -606,5 +634,7 @@ export async function refreshKimiAuthToken(
       console.error("[kimi-coding] auth refresh failed:", err);
     }
     return null;
+  } finally {
+    await locked?.release();
   }
 }
