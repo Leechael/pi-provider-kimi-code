@@ -230,9 +230,10 @@ describe("extension tool registration", () => {
       models.map((model) => model.id),
       ["kimi-for-coding", "kimi-for-coding-highspeed", "k3"],
     );
-    assert.equal(models[0]?.cost.input, 0.897);
-    assert.equal(models[1]?.cost.input, 1.793);
+    assert.equal(models[0]?.cost.input, 0.95);
+    assert.equal(models[1]?.cost.input, 1.9);
     assert.equal(models[2]?.name, "Kimi K3");
+    assert.equal(models[2]?.cost.input, 3);
   });
 
   it("applies discovered metadata to each registered Coding model", async () => {

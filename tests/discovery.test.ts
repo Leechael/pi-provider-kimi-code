@@ -8,6 +8,7 @@ import { DEFAULT_KIMI_MODEL_INPUT, PROVIDER_ID } from "../src/constants.ts";
 import {
   applyKimiMembershipLimitsToModel,
   applyKimiOAuthExtrasToModel,
+  buildKimiModelFromConfig,
   discoverKimiModelMetadata,
   isKimiModelAvailableForMembership,
   resolveKimiModelConfig,
@@ -286,6 +287,21 @@ describe("discoverKimiModelMetadata", () => {
 
     await discoverKimiModelMetadata("tok-1");
     assert.equal(mock.calls[0]?.url, "https://code.example.com/kimi/v1/models");
+  });
+});
+
+describe("Kimi model pricing", () => {
+  it("uses the official international USD prices for the current catalog", () => {
+    const standard = buildKimiModelFromConfig(DEFAULT_KIMI_CODE_CONFIG.model);
+    const highSpeed = buildKimiModelFromConfig(
+      DEFAULT_KIMI_CODE_CONFIG.model,
+      "kimi-for-coding-highspeed",
+    );
+    const k3 = buildKimiModelFromConfig(DEFAULT_KIMI_CODE_CONFIG.model, "k3");
+
+    assert.deepEqual(standard.cost, { input: 0.95, output: 4, cacheRead: 0.19, cacheWrite: 0.95 });
+    assert.deepEqual(highSpeed.cost, { input: 1.9, output: 8, cacheRead: 0.38, cacheWrite: 1.9 });
+    assert.deepEqual(k3.cost, { input: 3, output: 15, cacheRead: 0.3, cacheWrite: 3 });
   });
 });
 

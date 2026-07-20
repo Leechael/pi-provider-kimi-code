@@ -50,10 +50,12 @@ function mergeInputModalities(
   return (["text", "image", "video"] as const).filter((modality) => next.has(modality));
 }
 
-// Pricing per million tokens in USD (CNY converted at ~7.25).
-// Source: https://platform.kimi.com/docs/pricing/chat-k27-code
-const COST_STANDARD = { input: 0.897, output: 3.724, cacheRead: 0.179, cacheWrite: 0.897 };
-const COST_HIGH_SPEED = { input: 1.793, output: 7.448, cacheRead: 0.359, cacheWrite: 1.793 };
+// Pricing per million tokens in USD.
+// Sources: https://www.kimi.com/resources/kimi-k2-7-code-pricing
+//          https://www.kimi.com/resources/kimi-k3-pricing
+const COST_STANDARD = { input: 0.95, output: 4, cacheRead: 0.19, cacheWrite: 0.95 };
+const COST_HIGH_SPEED = { input: 1.9, output: 8, cacheRead: 0.38, cacheWrite: 1.9 };
+const COST_K3 = { input: 3, output: 15, cacheRead: 0.3, cacheWrite: 3 };
 
 export const KIMI_CODING_MODEL_ID = "kimi-for-coding";
 export const KIMI_CODING_HIGHSPEED_MODEL_ID = "kimi-for-coding-highspeed";
@@ -98,13 +100,19 @@ export function applyKimiMembershipLimitsToModel(
   };
 }
 
-function resolveModelCost(modelDisplay: string | undefined): {
+function resolveModelCost(
+  modelId: string,
+  modelDisplay?: string,
+): {
   input: number;
   output: number;
   cacheRead: number;
   cacheWrite: number;
 } {
-  if (modelDisplay && /high\s*speed/i.test(modelDisplay)) return COST_HIGH_SPEED;
+  if (modelId === KIMI_K3_MODEL_ID) return COST_K3;
+  if (modelId === KIMI_CODING_HIGHSPEED_MODEL_ID || /high\s*speed/i.test(modelDisplay ?? "")) {
+    return COST_HIGH_SPEED;
+  }
   return COST_STANDARD;
 }
 
@@ -124,7 +132,7 @@ export function buildKimiModelFromConfig(
     name,
     reasoning: config.reasoning,
     input: [...config.input] as unknown as ("text" | "image" | "video")[],
-    cost: { ...(isHighSpeed ? COST_HIGH_SPEED : COST_STANDARD) },
+    cost: { ...resolveModelCost(modelId) },
     contextWindow: config.contextWindow,
     maxTokens: config.maxTokens,
   } as Model<Api>;
@@ -295,7 +303,7 @@ export function applyKimiOAuthExtrasToModel(
       model.id === KIMI_K3_MODEL_ID && /^k3$/i.test(extras.modelDisplay)
         ? "Kimi K3"
         : extras.modelDisplay;
-    next.cost = resolveModelCost(extras.modelDisplay);
+    next.cost = resolveModelCost(model.id, extras.modelDisplay);
   }
   if (typeof extras.contextLength === "number" && extras.contextLength > 0) {
     next.contextWindow = extras.contextLength;
