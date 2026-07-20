@@ -542,7 +542,6 @@ export async function refreshKimiAuthToken(
         return piOAuth.access;
       }
 
-      console.error("[kimi-coding] auth refresh: requesting new access token");
       let refreshed: Awaited<ReturnType<typeof refreshAccessToken>>;
       try {
         refreshed = await refreshAccessToken(piOAuth.refresh, { signal: options.signal });
@@ -575,7 +574,6 @@ export async function refreshKimiAuthToken(
       };
       await writeStoredCredential(PROVIDER_ID, newCred);
       writeKimiCodeCredentials(refreshed.access_token, refreshed.refresh_token, newExpiresMs);
-      console.error("[kimi-coding] auth refresh: new token persisted");
       return newCred.access;
     }
 
