@@ -453,7 +453,12 @@ function registerKimiProvider(pi: ExtensionAPI, state: KimiRuntimeState): void {
             (model) => model.provider === PROVIDER_ID && model.id === modelId,
           );
           return applyKimiOAuthExtrasToModel(
-            existing ?? buildKimiModelFromConfig(state.config.model, modelId),
+            existing ?? {
+              ...buildKimiModelFromConfig(state.config.model, modelId),
+              api: getKimiApiType(state.config.protocol),
+              provider: PROVIDER_ID,
+              baseUrl: getBaseUrl(state.config.protocol),
+            },
             getKimiModelMetadata(extras, modelId),
             state.config.model.reasoningMap,
           );

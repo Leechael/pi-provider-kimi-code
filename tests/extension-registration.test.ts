@@ -301,7 +301,12 @@ describe("extension tool registration", () => {
     const modifyModels = provider?.oauth?.modifyModels;
     assert.ok(modifyModels);
     const models = modifyModels(
-      provider.models?.map((model) => ({ ...model, provider: "kimi-coding" })) as never,
+      provider.models?.map((model) => ({
+        ...model,
+        api: provider.api,
+        provider: PROVIDER_ID,
+        baseUrl: provider.baseUrl,
+      })) as never,
       {
         access: "oauth-token",
         refresh: "refresh-token",
@@ -326,6 +331,11 @@ describe("extension tool registration", () => {
         ["kimi-experimental", "Kimi Experimental", 512000, 0],
       ],
     );
+    for (const model of models) {
+      assert.equal(model.api, provider.api);
+      assert.equal(model.provider, PROVIDER_ID);
+      assert.equal(model.baseUrl, provider.baseUrl);
+    }
   });
 
   it("regression: does not let a legacy cached catalog hide newly added models", async () => {
