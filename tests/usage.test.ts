@@ -9,8 +9,6 @@ import {
   fetchKimiUsageSnapshot,
   formatResetTime,
   formatUsageRow,
-  parseMembership,
-  parseMembershipLevel,
   parseUsageRow,
   parseUsageSummary,
 } from "../src/usage.ts";
@@ -83,7 +81,6 @@ describe("fetchKimiUsageSnapshot", () => {
       const snapshot = await fetchKimiUsageSnapshot({ timeoutMs: 10 });
       assert.equal(refreshAborted, true);
       assert.match(snapshot.summary, /^Usage: fetch failed/);
-      assert.equal(snapshot.membershipLevel, null);
     } finally {
       globalThis.fetch = originalFetch;
       rmSync(agentDir, { recursive: true, force: true });
@@ -98,7 +95,7 @@ describe("fetchKimiUsageSnapshot", () => {
 });
 
 describe("parseUsageSummary", () => {
-  it("formats membership, weekly usage, and limit details like Claude Code", () => {
+  it("formats weekly usage and limit details", () => {
     const summary = parseUsageSummary(
       {
         user: { membership: { level: "LEVEL_ADVANCED" } },
@@ -120,17 +117,13 @@ describe("parseUsageSummary", () => {
     );
 
     const lines = summary.split("\n");
-    assert.deepEqual(lines.slice(0, 3), [
-      "Membership: Allegro (LEVEL_ADVANCED)",
-      "",
-      "Current week",
-    ]);
-    assert.match(lines[3], /^████████████▌ {37} 25% used$/);
-    assert.equal(lines[4], "Resets May 19 at 12:12pm (Asia/Shanghai)");
-    assert.equal(lines[5], "");
-    assert.equal(lines[6], "Current 5h window");
-    assert.match(lines[7], /^███████████████████████████████████ {15} 70% used$/);
-    assert.deepEqual(lines.slice(8), [
+    assert.equal(lines[0], "Current week");
+    assert.match(lines[1], /^████████████▌ {37} 25% used$/);
+    assert.equal(lines[2], "Resets May 19 at 12:12pm (Asia/Shanghai)");
+    assert.equal(lines[3], "");
+    assert.equal(lines[4], "Current 5h window");
+    assert.match(lines[5], /^███████████████████████████████████ {15} 70% used$/);
+    assert.deepEqual(lines.slice(6), [
       "",
       "Daily",
       "██████████████████████████████████████████████████ 100% used",
@@ -215,23 +208,6 @@ describe("parseUsageSummary", () => {
     assert.equal(parseUsageSummary(null), "Usage: unavailable");
     assert.equal(parseUsageSummary([]), "Usage: unavailable");
     assert.equal(parseUsageSummary({}), "Usage: no usage data");
-  });
-});
-
-describe("parseMembership", () => {
-  it("returns the raw plan level used for model entitlement checks", () => {
-    assert.equal(
-      parseMembershipLevel({ user: { membership: { level: "LEVEL_STANDARD" } } }),
-      "LEVEL_STANDARD",
-    );
-    assert.equal(parseMembershipLevel({}), null);
-  });
-
-  it("keeps unknown membership levels readable", () => {
-    assert.equal(
-      parseMembership({ user: { membership: { level: "LEVEL_UNKNOWN" } } }),
-      "Membership: LEVEL_UNKNOWN",
-    );
   });
 });
 

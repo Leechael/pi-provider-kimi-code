@@ -1,8 +1,13 @@
 // Model identity: discovery against the server's /v1/models endpoint, plus the
 // extras-merging helpers used by both registration and the OAuth modifyModels hook.
 
-import type { Api, Model, OAuthCredentials } from "@earendil-works/pi-ai";
-import type { KimiInputModality, KimiResolvedModelConfig, ModelConfig } from "./config.ts";
+import type { Api, Model, OAuthCredentials, ThinkingLevelMap } from "@earendil-works/pi-ai";
+import type {
+  KimiInputModality,
+  KimiResolvedModelConfig,
+  ModelConfig,
+  ModelReasoningMap,
+} from "./config.ts";
 
 import { type KimiWireProtocol, getBaseUrl } from "./constants.ts";
 import { getKimiProviderHeaders } from "./device.ts";
@@ -50,62 +55,33 @@ function mergeInputModalities(
   return (["text", "image", "video"] as const).filter((modality) => next.has(modality));
 }
 
-// Pricing per million tokens in USD (CNY converted at ~7.25).
-// Source: https://platform.kimi.com/docs/pricing/chat-k27-code
-const COST_STANDARD = { input: 0.897, output: 3.724, cacheRead: 0.179, cacheWrite: 0.897 };
-const COST_HIGH_SPEED = { input: 1.793, output: 7.448, cacheRead: 0.359, cacheWrite: 1.793 };
+// Pricing per million tokens in USD.
+// Sources: https://www.kimi.com/resources/kimi-k2-7-code-pricing
+//          https://www.kimi.com/resources/kimi-k3-pricing
+const COST_STANDARD = { input: 0.95, output: 4, cacheRead: 0.19, cacheWrite: 0.95 };
+const COST_HIGH_SPEED = { input: 1.9, output: 8, cacheRead: 0.38, cacheWrite: 1.9 };
+const COST_K3 = { input: 3, output: 15, cacheRead: 0.3, cacheWrite: 3 };
 
 export const KIMI_CODING_MODEL_ID = "kimi-for-coding";
 export const KIMI_CODING_HIGHSPEED_MODEL_ID = "kimi-for-coding-highspeed";
 export const KIMI_K3_MODEL_ID = "k3";
 export const KIMI_MODEL_CATALOG_VERSION = 1;
 
-const KIMI_K3_MODERATO_CONTEXT_WINDOW = 262144;
-const KIMI_MEMBERSHIP_RANK: Readonly<Record<string, number>> = {
-  LEVEL_FREE: 0,
-  LEVEL_BASIC: 1,
-  LEVEL_STANDARD: 2,
-  LEVEL_INTERMEDIATE: 3,
-  LEVEL_ADVANCED: 4,
-  LEVEL_PREMIUM: 5,
-};
-const KIMI_MODERATO_RANK = KIMI_MEMBERSHIP_RANK.LEVEL_STANDARD;
-const KIMI_ALLEGRETTO_RANK = KIMI_MEMBERSHIP_RANK.LEVEL_INTERMEDIATE;
-
-export function isKimiModelAvailableForMembership(
+function resolveModelCost(
   modelId: string,
-  membershipLevel: string | null | undefined,
-): boolean | undefined {
-  if (!membershipLevel) return undefined;
-  const rank = KIMI_MEMBERSHIP_RANK[membershipLevel];
-  if (rank === undefined) return undefined;
-  if (modelId === KIMI_K3_MODEL_ID) return rank >= KIMI_MODERATO_RANK;
-  if (modelId === KIMI_CODING_HIGHSPEED_MODEL_ID) return rank >= KIMI_ALLEGRETTO_RANK;
-  return true;
-}
-
-export function applyKimiMembershipLimitsToModel(
-  model: Model<Api>,
-  membershipLevel: string | null | undefined,
-): Model<Api> {
-  const rank = membershipLevel ? KIMI_MEMBERSHIP_RANK[membershipLevel] : undefined;
-  if (model.id !== KIMI_K3_MODEL_ID || rank === undefined || rank >= KIMI_ALLEGRETTO_RANK) {
-    return model;
-  }
-  return {
-    ...model,
-    contextWindow: Math.min(model.contextWindow, KIMI_K3_MODERATO_CONTEXT_WINDOW),
-  };
-}
-
-function resolveModelCost(modelDisplay: string | undefined): {
+  modelDisplay?: string,
+): {
   input: number;
   output: number;
   cacheRead: number;
   cacheWrite: number;
 } {
-  if (modelDisplay && /high\s*speed/i.test(modelDisplay)) return COST_HIGH_SPEED;
-  return COST_STANDARD;
+  if (modelId === KIMI_K3_MODEL_ID) return COST_K3;
+  if (modelId === KIMI_CODING_MODEL_ID) return COST_STANDARD;
+  if (modelId === KIMI_CODING_HIGHSPEED_MODEL_ID || /high\s*speed/i.test(modelDisplay ?? "")) {
+    return COST_HIGH_SPEED;
+  }
+  return { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 };
 }
 
 export function buildKimiModelFromConfig(
@@ -118,13 +94,15 @@ export function buildKimiModelFromConfig(
       ? "Kimi K3"
       : isHighSpeed
         ? "Kimi for Coding High Speed"
-        : "Kimi for Coding";
+        : modelId === KIMI_CODING_MODEL_ID
+          ? "Kimi for Coding"
+          : modelId;
   return {
     id: modelId,
     name,
     reasoning: config.reasoning,
     input: [...config.input] as unknown as ("text" | "image" | "video")[],
-    cost: { ...(isHighSpeed ? COST_HIGH_SPEED : COST_STANDARD) },
+    cost: { ...resolveModelCost(modelId) },
     contextWindow: config.contextWindow,
     maxTokens: config.maxTokens,
   } as Model<Api>;
@@ -226,18 +204,29 @@ function getModelsUrl(protocol?: KimiWireProtocol): string {
   return buildModelsUrl(getBaseUrl(protocol));
 }
 
+export function isOfficialKimiModelsUrl(url: string): boolean {
+  try {
+    const parsed = new URL(url);
+    return parsed.origin === "https://api.kimi.com" && parsed.pathname === "/coding/v1/models";
+  } catch {
+    return false;
+  }
+}
+
 export async function discoverKimiModelMetadata(
   accessToken: string,
   protocol?: KimiWireProtocol,
   options: DiscoverKimiModelMetadataOptions = {},
 ): Promise<KimiOAuthExtras> {
   if (!accessToken) return {};
+  const modelsUrl = getModelsUrl(protocol);
+  if (!isOfficialKimiModelsUrl(modelsUrl)) return {};
   const timeoutMs = options.timeoutMs ?? DEFAULT_DISCOVERY_TIMEOUT_MS;
   const controller = new AbortController();
   const timeout =
     timeoutMs > 0 ? setTimeout(() => controller.abort(), timeoutMs).unref() : undefined;
   try {
-    const response = await fetch(getModelsUrl(protocol), {
+    const response = await fetch(modelsUrl, {
       signal: controller.signal,
       headers: {
         ...getKimiProviderHeaders(),
@@ -248,16 +237,10 @@ export async function discoverKimiModelMetadata(
     if (!response.ok) return {};
     const json = (await response.json()) as { data?: unknown };
     const list = Array.isArray(json.data) ? (json.data as KimiServerModel[]) : [];
-    const supportedIds = new Set([
-      KIMI_CODING_MODEL_ID,
-      KIMI_CODING_HIGHSPEED_MODEL_ID,
-      KIMI_K3_MODEL_ID,
-    ]);
     const modelCatalog: Record<string, KimiModelMetadata> = {};
     for (const model of list) {
-      if (typeof model.id !== "string" || !supportedIds.has(model.id)) continue;
       const metadata = parseKimiModelMetadata(model);
-      if (metadata) modelCatalog[model.id] = metadata;
+      if (metadata) modelCatalog[metadata.wireModelId!] = metadata;
     }
     const preferred = modelCatalog[KIMI_CODING_MODEL_ID];
     if (!preferred) {
@@ -279,9 +262,49 @@ export function getKimiModelMetadata(extras: KimiOAuthExtras, modelId: string): 
   return modelId === KIMI_CODING_MODEL_ID ? extras : {};
 }
 
+const KIMI_DISCOVERY_KEYS = [
+  "wireModelId",
+  "modelDisplay",
+  "contextLength",
+  "supportsReasoning",
+  "supportsImageIn",
+  "supportsVideoIn",
+  "supportsThinkingType",
+  "protocol",
+  "supportEfforts",
+  "defaultEffort",
+  "modelCatalog",
+] as const;
+
+// Credentials always carry access/refresh/expires, so discovery presence must
+// be checked on the metadata fields themselves. Empty means either a legacy
+// pre-discovery credential or a failed discovery during login/refresh.
+export function hasKimiModelMetadata(extras: KimiOAuthExtras): boolean {
+  return KIMI_DISCOVERY_KEYS.some((key) => extras[key] !== undefined);
+}
+
+export function buildKimiThinkingLevelMap(
+  reasoningMap: ModelReasoningMap,
+  extras: Pick<KimiModelMetadata, "supportEfforts" | "supportsThinkingType">,
+): ThinkingLevelMap | undefined {
+  if (!extras.supportEfforts?.length) return undefined;
+  const map = {
+    off: extras.supportsThinkingType === "only" ? null : "off",
+  } as ThinkingLevelMap & Record<string, string | null>;
+  for (const level of ["minimal", "low", "medium", "high", "xhigh", "max"] as const) {
+    const entry = reasoningMap[level];
+    map[level] =
+      entry?.enabled && entry.effort && extras.supportEfforts.includes(entry.effort)
+        ? entry.effort
+        : null;
+  }
+  return map;
+}
+
 export function applyKimiOAuthExtrasToModel(
   model: Model<Api>,
   extras: KimiModelMetadata,
+  reasoningMap?: ModelReasoningMap,
 ): Model<Api> {
   const next: Model<Api> & {
     wireModelId?: string;
@@ -295,7 +318,7 @@ export function applyKimiOAuthExtrasToModel(
       model.id === KIMI_K3_MODEL_ID && /^k3$/i.test(extras.modelDisplay)
         ? "Kimi K3"
         : extras.modelDisplay;
-    next.cost = resolveModelCost(extras.modelDisplay);
+    next.cost = resolveModelCost(model.id, extras.modelDisplay);
   }
   if (typeof extras.contextLength === "number" && extras.contextLength > 0) {
     next.contextWindow = extras.contextLength;
@@ -316,6 +339,13 @@ export function applyKimiOAuthExtrasToModel(
   }
   if (extras.protocol) next.wireProtocol = extras.protocol;
   if (extras.supportEfforts) next.supportEfforts = [...extras.supportEfforts];
+  else delete next.supportEfforts;
   if (extras.defaultEffort) next.defaultEffort = extras.defaultEffort;
+  else delete next.defaultEffort;
+  if (reasoningMap) {
+    const thinkingLevelMap = buildKimiThinkingLevelMap(reasoningMap, extras);
+    if (thinkingLevelMap) next.thinkingLevelMap = thinkingLevelMap;
+    else delete next.thinkingLevelMap;
+  }
   return next;
 }

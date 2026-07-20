@@ -6,10 +6,11 @@ import { join } from "node:path";
 import { DEFAULT_KIMI_CODE_CONFIG } from "../src/config.ts";
 import { DEFAULT_KIMI_MODEL_INPUT, PROVIDER_ID } from "../src/constants.ts";
 import {
-  applyKimiMembershipLimitsToModel,
   applyKimiOAuthExtrasToModel,
+  buildKimiModelFromConfig,
+  buildKimiThinkingLevelMap,
   discoverKimiModelMetadata,
-  isKimiModelAvailableForMembership,
+  isOfficialKimiModelsUrl,
   resolveKimiModelConfig,
 } from "../src/models.ts";
 import {
@@ -160,7 +161,7 @@ describe("discoverKimiModelMetadata", () => {
     });
   });
 
-  it("returns empty when no kimi-for-coding is present", async () => {
+  it("retains catalog models outside the original static set", async () => {
     mock = mockFetch(() =>
       jsonResponse({
         data: [{ id: "k2p7-beta", display_name: "Beta K2.7", context_length: 1048576 }],
@@ -168,7 +169,11 @@ describe("discoverKimiModelMetadata", () => {
     );
 
     const result = await discoverKimiModelMetadata("tok-1");
-    assert.deepEqual(result, {});
+    assert.deepEqual(result.modelCatalog?.["k2p7-beta"], {
+      wireModelId: "k2p7-beta",
+      modelDisplay: "Beta K2.7",
+      contextLength: 1048576,
+    });
   });
 
   it("returns empty when the server replies non-2xx", async () => {
@@ -257,66 +262,60 @@ describe("discoverKimiModelMetadata", () => {
     });
   });
 
-  it("respects KIMI_CODE_BASE_URL when computing the discovery endpoint", async () => {
+  it("does not trust a custom KIMI_CODE_BASE_URL as an entitlement catalog", async () => {
     process.env.KIMI_CODE_BASE_URL = "https://proxy.example.com/kimi";
-    mock = mockFetch(() =>
-      jsonResponse({ data: [{ id: "kimi-for-coding", context_length: 100 }] }),
-    );
+    mock = mockFetch(() => jsonResponse({ data: [] }));
 
-    await discoverKimiModelMetadata("tok-1");
-    assert.equal(mock.calls[0]?.url, "https://proxy.example.com/kimi/v1/models");
+    assert.deepEqual(await discoverKimiModelMetadata("tok-1"), {});
+    assert.equal(mock.calls.length, 0);
   });
 
-  it("accepts official KIMI_BASE_URL as a base URL alias", async () => {
+  it("does not trust a custom KIMI_BASE_URL as an entitlement catalog", async () => {
     process.env.KIMI_BASE_URL = "https://official.example.com/kimi";
-    mock = mockFetch(() =>
-      jsonResponse({ data: [{ id: "kimi-for-coding", context_length: 100 }] }),
-    );
+    mock = mockFetch(() => jsonResponse({ data: [] }));
 
-    await discoverKimiModelMetadata("tok-1");
-    assert.equal(mock.calls[0]?.url, "https://official.example.com/kimi/v1/models");
+    assert.deepEqual(await discoverKimiModelMetadata("tok-1"), {});
+    assert.equal(mock.calls.length, 0);
   });
 
-  it("keeps KIMI_CODE_BASE_URL precedence over KIMI_BASE_URL", async () => {
-    process.env.KIMI_CODE_BASE_URL = "https://code.example.com/kimi";
-    process.env.KIMI_BASE_URL = "https://official.example.com/kimi";
-    mock = mockFetch(() =>
-      jsonResponse({ data: [{ id: "kimi-for-coding", context_length: 100 }] }),
-    );
-
-    await discoverKimiModelMetadata("tok-1");
-    assert.equal(mock.calls[0]?.url, "https://code.example.com/kimi/v1/models");
+  it("accepts the canonical Kimi Code catalog URL", () => {
+    assert.equal(isOfficialKimiModelsUrl("https://api.kimi.com/coding/v1/models"), true);
+    assert.equal(isOfficialKimiModelsUrl("https://api.kimi.com/coding/models"), false);
   });
 });
 
-describe("Kimi membership model limits", () => {
-  it("applies the documented model access matrix for known plans", () => {
-    assert.equal(isKimiModelAvailableForMembership("k3", "LEVEL_BASIC"), false);
-    assert.equal(isKimiModelAvailableForMembership("k3", "LEVEL_STANDARD"), true);
-    assert.equal(isKimiModelAvailableForMembership("k3", "LEVEL_INTERMEDIATE"), true);
-    assert.equal(
-      isKimiModelAvailableForMembership("kimi-for-coding-highspeed", "LEVEL_STANDARD"),
-      false,
+describe("Kimi model pricing", () => {
+  it("uses the official international USD prices for the current catalog", () => {
+    const standard = buildKimiModelFromConfig(DEFAULT_KIMI_CODE_CONFIG.model);
+    const highSpeed = buildKimiModelFromConfig(
+      DEFAULT_KIMI_CODE_CONFIG.model,
+      "kimi-for-coding-highspeed",
     );
-    assert.equal(
-      isKimiModelAvailableForMembership("kimi-for-coding-highspeed", "LEVEL_INTERMEDIATE"),
-      true,
-    );
-    assert.equal(isKimiModelAvailableForMembership("k3", "LEVEL_UNKNOWN"), undefined);
+    const k3 = buildKimiModelFromConfig(DEFAULT_KIMI_CODE_CONFIG.model, "k3");
+
+    assert.deepEqual(standard.cost, { input: 0.95, output: 4, cacheRead: 0.19, cacheWrite: 0.95 });
+    assert.deepEqual(highSpeed.cost, { input: 1.9, output: 8, cacheRead: 0.38, cacheWrite: 1.9 });
+    assert.deepEqual(k3.cost, { input: 3, output: 15, cacheRead: 0.3, cacheWrite: 3 });
   });
+});
 
-  it("caps Moderato K3 at 256K without reducing higher plans", () => {
-    const model = {
-      id: "k3",
-      contextWindow: 1048576,
-    } as Model<Api>;
-
-    assert.equal(applyKimiMembershipLimitsToModel(model, "LEVEL_STANDARD").contextWindow, 262144);
-    assert.equal(
-      applyKimiMembershipLimitsToModel(model, "LEVEL_INTERMEDIATE").contextWindow,
-      1048576,
+describe("buildKimiThinkingLevelMap", () => {
+  it("exposes only Pi levels backed by server-advertised efforts", () => {
+    assert.deepEqual(
+      buildKimiThinkingLevelMap(DEFAULT_KIMI_CODE_CONFIG.model.reasoningMap, {
+        supportsThinkingType: "only",
+        supportEfforts: ["low", "high", "max"],
+      }),
+      {
+        off: null,
+        minimal: "low",
+        low: "low",
+        medium: "high",
+        high: "high",
+        xhigh: "max",
+        max: "max",
+      },
     );
-    assert.equal(applyKimiMembershipLimitsToModel(model, "LEVEL_UNKNOWN").contextWindow, 1048576);
   });
 });
 

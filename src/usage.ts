@@ -2,15 +2,6 @@ import { PROVIDER_ID, getBaseUrl } from "./constants.ts";
 import { getKimiProviderHeaders } from "./device.ts";
 import { readStoredOAuthCredential, refreshKimiAuthToken } from "./oauth.ts";
 
-const MEMBERSHIP_LEVEL_NAMES: Record<string, string> = {
-  LEVEL_FREE: "Free",
-  LEVEL_BASIC: "Adagio",
-  LEVEL_STANDARD: "Moderato",
-  LEVEL_INTERMEDIATE: "Allegretto",
-  LEVEL_ADVANCED: "Allegro",
-  LEVEL_PREMIUM: "Vivace",
-};
-
 const RESET_TIME_KEYS = [
   "resetTime",
   "reset_time",
@@ -36,7 +27,6 @@ export interface UsageFormatOptions {
 
 export interface KimiUsageSnapshot {
   summary: string;
-  membershipLevel: string | null;
 }
 
 interface BoosterWalletInfo {
@@ -174,9 +164,6 @@ export function parseUsageSummary(payload: unknown, options: UsageFormatOptions 
 
   const record = payload as Record<string, unknown>;
   const lines: string[] = [];
-  const membership = parseMembership(record);
-  if (membership) lines.push(membership, "");
-
   const summary = parseUsageRow(record.usage, "Current week");
   if (summary)
     lines.push(formatUsageRow({ ...summary, label: normalizeUsageLabel(summary.label) }, options));
@@ -233,24 +220,6 @@ function formatWindowLabel(value: unknown, fallbackLabel: string): string {
   if (!minutes) return fallbackLabel;
   if (minutes % 60 === 0) return `Current ${minutes / 60}h window`;
   return `Current ${minutes}m window`;
-}
-
-export function parseMembershipLevel(record: Record<string, unknown>): string | null {
-  const user = record.user;
-  if (typeof user !== "object" || user === null || Array.isArray(user)) return null;
-  const membership = (user as Record<string, unknown>).membership;
-  if (typeof membership !== "object" || membership === null || Array.isArray(membership)) {
-    return null;
-  }
-  const level = (membership as Record<string, unknown>).level;
-  return typeof level === "string" && level ? level : null;
-}
-
-export function parseMembership(record: Record<string, unknown>): string | null {
-  const level = parseMembershipLevel(record);
-  if (!level) return null;
-  const name = MEMBERSHIP_LEVEL_NAMES[level];
-  return name ? `Membership: ${name} (${level})` : `Membership: ${level}`;
 }
 
 export function formatUsageRow(row: UsageRow, options: UsageFormatOptions = {}): string {
@@ -356,10 +325,7 @@ export async function fetchKimiUsageSnapshot(
 ): Promise<KimiUsageSnapshot> {
   const token = options.token ?? getKimiUsageToken();
   if (!token) {
-    return {
-      summary: "Usage: missing credentials. Run /login kimi-coding.",
-      membershipLevel: null,
-    };
+    return { summary: "Usage: missing credentials. Run /login kimi-coding." };
   }
 
   const controller = new AbortController();
@@ -371,17 +337,13 @@ export async function fetchKimiUsageSnapshot(
       if (refreshed) response = await fetchKimiUsage(refreshed, controller.signal);
     }
     if (!response.ok) {
-      return { summary: `Usage: fetch failed (${response.status})`, membershipLevel: null };
+      return { summary: `Usage: fetch failed (${response.status})` };
     }
     const payload = (await response.json()) as unknown;
-    const membershipLevel =
-      typeof payload === "object" && payload !== null && !Array.isArray(payload)
-        ? parseMembershipLevel(payload as Record<string, unknown>)
-        : null;
-    return { summary: parseUsageSummary(payload), membershipLevel };
+    return { summary: parseUsageSummary(payload) };
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    return { summary: `Usage: fetch failed (${message})`, membershipLevel: null };
+    return { summary: `Usage: fetch failed (${message})` };
   } finally {
     clearTimeout(timeout);
   }

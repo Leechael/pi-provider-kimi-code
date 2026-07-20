@@ -230,9 +230,10 @@ describe("extension tool registration", () => {
       models.map((model) => model.id),
       ["kimi-for-coding", "kimi-for-coding-highspeed", "k3"],
     );
-    assert.equal(models[0]?.cost.input, 0.897);
-    assert.equal(models[1]?.cost.input, 1.793);
+    assert.equal(models[0]?.cost.input, 0.95);
+    assert.equal(models[1]?.cost.input, 1.9);
     assert.equal(models[2]?.name, "Kimi K3");
+    assert.equal(models[2]?.cost.input, 3);
   });
 
   it("applies discovered metadata to each registered Coding model", async () => {
@@ -288,6 +289,109 @@ describe("extension tool registration", () => {
       (models[2] as (typeof models)[number] & { supportEfforts?: string[] }).supportEfforts,
       ["max"],
     );
+  });
+
+  it("registers every model advertised by a fresh catalog", async () => {
+    const cwd = tempDir("kimi-extension-cwd");
+    const { pi, providerConfigs } = makePi();
+
+    await withCwd(cwd, () => registerKimiCodeExtension(pi));
+
+    const provider = providerConfigs.get("kimi-coding");
+    const modifyModels = provider?.oauth?.modifyModels;
+    assert.ok(modifyModels);
+    const models = modifyModels(
+      provider.models?.map((model) => ({
+        ...model,
+        api: provider.api,
+        provider: PROVIDER_ID,
+        baseUrl: provider.baseUrl,
+      })) as never,
+      {
+        access: "oauth-token",
+        refresh: "refresh-token",
+        expires: Date.now() + 60_000,
+        modelCatalogVersion: 1,
+        modelCatalog: {
+          "kimi-for-coding": { wireModelId: "kimi-for-coding", contextLength: 262144 },
+          "kimi-experimental": {
+            wireModelId: "kimi-experimental",
+            modelDisplay: "Kimi Experimental",
+            contextLength: 512000,
+            supportsImageIn: true,
+          },
+        },
+      } as never,
+    );
+
+    assert.deepEqual(
+      models.map((model) => [model.id, model.name, model.contextWindow, model.cost.input]),
+      [
+        ["kimi-for-coding", "Kimi for Coding", 262144, 0.95],
+        ["kimi-experimental", "Kimi Experimental", 512000, 0],
+      ],
+    );
+    for (const model of models) {
+      assert.equal(model.api, provider.api);
+      assert.equal(model.provider, PROVIDER_ID);
+      assert.equal(model.baseUrl, provider.baseUrl);
+    }
+  });
+
+  it("regression: keeps discovered thinking metadata when credentials carry none", async () => {
+    const cwd = tempDir("kimi-extension-cwd");
+    const { pi, providerConfigs } = makePi();
+
+    await withCwd(cwd, () => registerKimiCodeExtension(pi));
+
+    const provider = providerConfigs.get("kimi-coding");
+    const modifyModels = provider?.oauth?.modifyModels;
+    assert.ok(modifyModels);
+    const registered = provider.models?.map((model) => ({
+      ...model,
+      api: provider.api,
+      provider: PROVIDER_ID,
+      baseUrl: provider.baseUrl,
+    })) as never;
+    type ExtrasModel = {
+      id: string;
+      supportEfforts?: string[];
+      defaultEffort?: string;
+      thinkingLevelMap?: Record<string, string | null>;
+    };
+    const enriched = modifyModels(registered, {
+      access: "oauth-token",
+      refresh: "refresh-token",
+      expires: Date.now() + 60_000,
+      modelCatalogVersion: 1,
+      modelCatalog: {
+        "kimi-for-coding": {
+          wireModelId: "kimi-for-coding",
+          contextLength: 262144,
+          supportsThinkingType: "both",
+          supportEfforts: ["low", "high"],
+          defaultEffort: "high",
+        },
+      },
+    } as never) as ExtrasModel[];
+    const standard = enriched.find((model) => model.id === "kimi-for-coding");
+    assert.deepEqual(standard?.supportEfforts, ["low", "high"]);
+
+    // A credential with no discovery extras (legacy format, or discovery
+    // failed during login/refresh) must not strip metadata discovered
+    // earlier; stripping would silently disable thinking levels.
+    const kept = modifyModels(
+      enriched as never,
+      {
+        access: "oauth-token-2",
+        refresh: "refresh-token-2",
+        expires: Date.now() + 60_000,
+      } as never,
+    ) as ExtrasModel[];
+    const keptStandard = kept.find((model) => model.id === "kimi-for-coding");
+    assert.deepEqual(keptStandard?.supportEfforts, ["low", "high"]);
+    assert.equal(keptStandard?.defaultEffort, "high");
+    assert.ok(keptStandard?.thinkingLevelMap);
   });
 
   it("regression: does not let a legacy cached catalog hide newly added models", async () => {
@@ -384,7 +488,7 @@ describe("extension tool registration", () => {
     }
   });
 
-  it("adapts K3 and highspeed availability to the current membership plan", async () => {
+  it("uses catalog availability and context regardless of usage membership", async () => {
     const cwd = tempDir("kimi-extension-cwd");
     const { pi, providerConfigs } = makePi();
     const auth = withTempAuthFile({
@@ -422,16 +526,16 @@ describe("extension tool registration", () => {
       const models = providerConfigs.get("kimi-coding")?.models ?? [];
       assert.deepEqual(
         models.map((model) => model.id),
-        ["kimi-for-coding", "k3"],
+        ["kimi-for-coding", "kimi-for-coding-highspeed", "k3"],
       );
-      assert.equal(models[1]?.contextWindow, 262144);
+      assert.equal(models[2]?.contextWindow, 1048576);
     } finally {
       globalThis.fetch = originalFetch;
       auth.cleanup();
     }
   });
 
-  it("retries model discovery when the membership probe refreshes an expired token", async () => {
+  it("falls back to static models when catalog discovery cannot authenticate", async () => {
     const cwd = tempDir("kimi-extension-cwd");
     const { pi, providerConfigs } = makePi();
     const auth = withTempAuthFile({
@@ -489,7 +593,7 @@ describe("extension tool registration", () => {
         [
           ["kimi-for-coding", 262144],
           ["kimi-for-coding-highspeed", 262144],
-          ["k3", 1048576],
+          ["k3", 262144],
         ],
       );
     } finally {
@@ -498,7 +602,7 @@ describe("extension tool registration", () => {
     }
   });
 
-  it("refreshes membership before applying OAuth model metadata", async () => {
+  it("does not fetch usage while applying OAuth model metadata", async () => {
     const cwd = tempDir("kimi-extension-cwd");
     const { pi, providerConfigs } = makePi();
     const auth = withTempAuthFile({
@@ -564,12 +668,13 @@ describe("extension tool registration", () => {
         credentials as never,
       );
 
-      assert.equal(usageRequests, 2);
+      assert.equal(usageRequests, 0);
       assert.deepEqual(
         models.map((model) => [model.id, model.contextWindow]),
         [
           ["kimi-for-coding", 262144],
-          ["k3", 262144],
+          ["kimi-for-coding-highspeed", 262144],
+          ["k3", 1048576],
         ],
       );
     } finally {
@@ -578,7 +683,7 @@ describe("extension tool registration", () => {
     }
   });
 
-  it("refreshes membership limits when settings re-fetches account metadata", async () => {
+  it("keeps catalog limits when settings re-fetches usage", async () => {
     const cwd = tempDir("kimi-extension-cwd");
     const { commands, pi, providerConfigs } = makePi();
     const originalFetch = globalThis.fetch;
@@ -617,7 +722,8 @@ describe("extension tool registration", () => {
         providerConfigs.get("kimi-coding")?.models?.map((model) => [model.id, model.contextWindow]),
         [
           ["kimi-for-coding", 262144],
-          ["k3", 262144],
+          ["kimi-for-coding-highspeed", 262144],
+          ["k3", 1048576],
         ],
       );
 
@@ -1136,11 +1242,7 @@ describe("extension tool registration", () => {
       auth.cleanup();
     }
 
-    assert.deepEqual(usageTokens, [
-      "Bearer stale-access",
-      "Bearer fresh-access",
-      "Bearer fresh-access",
-    ]);
+    assert.deepEqual(usageTokens, ["Bearer stale-access", "Bearer fresh-access"]);
     assert.deepEqual(notifications, []);
   });
 
