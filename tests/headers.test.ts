@@ -31,7 +31,7 @@ describe("asciiHeaderValue", () => {
 
 describe("getCommonHeaders", () => {
   it("identifies requests as the synced Kimi Code release", () => {
-    assert.equal(KIMI_UPSTREAM_VERSION, "0.26.0");
+    assert.equal(KIMI_UPSTREAM_VERSION, "0.28.0");
   });
 
   it("uses Kimi Code-compatible identity headers", () => {
