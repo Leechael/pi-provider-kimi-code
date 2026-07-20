@@ -94,6 +94,7 @@ async function acquireAuthFileLock(authPath: string, signal?: AbortSignal): Prom
 interface LockedOAuthCredential {
   credential: StoredOAuthCredential | null;
   store(credential: StoredOAuthCredential): void;
+  throwIfCompromised(): void;
   release(): Promise<void>;
 }
 
@@ -135,6 +136,7 @@ async function lockStoredOAuthCredential(
       });
       chmodSync(authPath, 0o600);
     },
+    throwIfCompromised: lock.throwIfCompromised,
     release: lock.release,
   };
 }
@@ -646,6 +648,10 @@ export async function refreshKimiAuthToken(
     const refreshed = await refreshAccessToken(kimiCred.refresh_token!, {
       signal: options.signal,
     });
+    // The refresh above awaited the network: if the lock was compromised in
+    // that window, another process may hold a newer rotated token, and this
+    // sidecar write would clobber it with an already-invalid one.
+    locked.throwIfCompromised();
     const newExpiresMs = Date.now() + refreshed.expires_in * 1000;
     writeKimiCodeCredentials(refreshed.access_token, refreshed.refresh_token, newExpiresMs);
     console.error("[kimi-coding] auth refresh: new token persisted to kimi-code");

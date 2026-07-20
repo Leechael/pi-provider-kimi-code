@@ -32,17 +32,32 @@ const { refreshKimiAuthToken } = await import("../src/oauth.ts");
 
 const PROVIDER_ID = "kimi-coding";
 
-function withTempAuthFile(credential: Record<string, unknown>) {
+function withTempAuthFile(
+  credential: Record<string, unknown>,
+  kimiCredential?: Record<string, unknown>,
+) {
   const dir = mkdtempSync(join(tmpdir(), "pi-kimi-auth-lock-"));
   const kimiHome = join(dir, "kimi-code");
+  const kimiCredentialPath = join(kimiHome, "credentials", "kimi-code.json");
   mkdirSync(dir, { recursive: true });
-  writeFileSync(join(dir, "auth.json"), JSON.stringify({ [PROVIDER_ID]: credential }), "utf8");
+  writeFileSync(
+    join(dir, "auth.json"),
+    JSON.stringify(credential ? { [PROVIDER_ID]: credential } : {}),
+    "utf8",
+  );
+  if (kimiCredential) {
+    mkdirSync(join(kimiHome, "credentials"), { recursive: true });
+    writeFileSync(kimiCredentialPath, JSON.stringify(kimiCredential), "utf8");
+  }
   process.env.PI_CODING_AGENT_DIR = dir;
   process.env.KIMI_CODE_HOME = kimiHome;
   process.env.KIMI_SHARE_DIR = join(dir, "no-legacy-credentials");
   return {
     readCredential() {
       return JSON.parse(readFileSync(join(dir, "auth.json"), "utf8"))[PROVIDER_ID];
+    },
+    readKimiCredential() {
+      return JSON.parse(readFileSync(kimiCredentialPath, "utf8"));
     },
     cleanup() {
       rmSync(dir, { recursive: true, force: true });
@@ -85,6 +100,42 @@ describe("refreshKimiAuthToken lock safety", () => {
       assert.equal(await refreshKimiAuthToken("stale-access"), null);
       assert.equal(fetchCalled, false);
       assert.equal(auth.readCredential().refresh, "refresh-1");
+    } finally {
+      auth.cleanup();
+    }
+  });
+
+  it("does not write the kimi-code sidecar when the lock breaks mid-refresh", async () => {
+    // No pi credential on disk: the kimi-code-only fallback awaits the token
+    // endpoint and then writes the sidecar. If the lock is compromised during
+    // that await, another process may already hold the rotated token.
+    let compromise: ((err: Error) => void) | undefined;
+    lockControl.onAcquire = (options) => {
+      compromise = options.onCompromised;
+    };
+    const auth = withTempAuthFile(null as unknown as Record<string, unknown>, {
+      access_token: "stale-access",
+      refresh_token: "refresh-1",
+      expires_at: Math.floor((Date.now() - 1000) / 1000),
+    });
+    realFetch = globalThis.fetch;
+    globalThis.fetch = (async () => {
+      compromise?.(new Error("lock compromised"));
+      return new Response(
+        JSON.stringify({
+          access_token: "fresh-access",
+          refresh_token: "refresh-2",
+          expires_in: 900,
+          scope: "kimi-code",
+          token_type: "Bearer",
+        }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      );
+    }) as typeof fetch;
+
+    try {
+      assert.equal(await refreshKimiAuthToken("stale-access"), null);
+      assert.equal(auth.readKimiCredential().refresh_token, "refresh-1");
     } finally {
       auth.cleanup();
     }
