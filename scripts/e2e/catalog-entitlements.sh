@@ -55,7 +55,15 @@ if not isinstance(models, list):
 print(f"MODELS_COUNT {len(models)}")
 for model in models:
     if not isinstance(model, dict):
-        continue
+        print("FAIL /models: every entry must be an object")
+        sys.exit(1)
+    if not isinstance(model.get("id"), str) or not model["id"]:
+        print("FAIL /models: model is missing a non-empty id")
+        sys.exit(1)
+    context_length = model.get("context_length")
+    if not isinstance(context_length, int) or context_length <= 0:
+        print(f"FAIL /models: {model['id']} is missing a positive integer context_length")
+        sys.exit(1)
     print(
         json.dumps(
             {
