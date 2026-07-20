@@ -338,6 +338,62 @@ describe("extension tool registration", () => {
     }
   });
 
+  it("regression: keeps discovered thinking metadata when credentials carry none", async () => {
+    const cwd = tempDir("kimi-extension-cwd");
+    const { pi, providerConfigs } = makePi();
+
+    await withCwd(cwd, () => registerKimiCodeExtension(pi));
+
+    const provider = providerConfigs.get("kimi-coding");
+    const modifyModels = provider?.oauth?.modifyModels;
+    assert.ok(modifyModels);
+    const registered = provider.models?.map((model) => ({
+      ...model,
+      api: provider.api,
+      provider: PROVIDER_ID,
+      baseUrl: provider.baseUrl,
+    })) as never;
+    type ExtrasModel = {
+      id: string;
+      supportEfforts?: string[];
+      defaultEffort?: string;
+      thinkingLevelMap?: Record<string, string | null>;
+    };
+    const enriched = modifyModels(registered, {
+      access: "oauth-token",
+      refresh: "refresh-token",
+      expires: Date.now() + 60_000,
+      modelCatalogVersion: 1,
+      modelCatalog: {
+        "kimi-for-coding": {
+          wireModelId: "kimi-for-coding",
+          contextLength: 262144,
+          supportsThinkingType: "both",
+          supportEfforts: ["low", "high"],
+          defaultEffort: "high",
+        },
+      },
+    } as never) as ExtrasModel[];
+    const standard = enriched.find((model) => model.id === "kimi-for-coding");
+    assert.deepEqual(standard?.supportEfforts, ["low", "high"]);
+
+    // A credential with no discovery extras (legacy format, or discovery
+    // failed during login/refresh) must not strip metadata discovered
+    // earlier; stripping would silently disable thinking levels.
+    const kept = modifyModels(
+      enriched as never,
+      {
+        access: "oauth-token-2",
+        refresh: "refresh-token-2",
+        expires: Date.now() + 60_000,
+      } as never,
+    ) as ExtrasModel[];
+    const keptStandard = kept.find((model) => model.id === "kimi-for-coding");
+    assert.deepEqual(keptStandard?.supportEfforts, ["low", "high"]);
+    assert.equal(keptStandard?.defaultEffort, "high");
+    assert.ok(keptStandard?.thinkingLevelMap);
+  });
+
   it("regression: does not let a legacy cached catalog hide newly added models", async () => {
     const cwd = tempDir("kimi-extension-cwd");
     const { pi, providerConfigs } = makePi();

@@ -50,6 +50,7 @@ import {
   KIMI_MODEL_CATALOG_VERSION,
   discoverKimiModelMetadata,
   getKimiModelMetadata,
+  hasKimiModelMetadata,
   resolveKimiModelConfig,
 } from "./src/models.ts";
 import { getKimiApiKey, loginKimiCode, refreshKimiCodeToken } from "./src/oauth.ts";
@@ -428,7 +429,10 @@ function registerKimiProvider(pi: ExtensionAPI, state: KimiRuntimeState): void {
       // request payload by streamSimpleKimi.
       modifyModels: (models, cred) => {
         const extras = cred as KimiOAuthCredentials;
-        state.modelExtras = extras;
+        // Retain previously discovered extras when this credential carries
+        // none (legacy format or failed discovery): applying empty metadata
+        // would strip thinking levels the startup discovery already found.
+        if (hasKimiModelMetadata(extras)) state.modelExtras = extras;
         reloadEffectiveKimiRuntimeConfig(state, state.cwd, state.projectTrusted);
         const available =
           extras.modelCatalogVersion === KIMI_MODEL_CATALOG_VERSION && extras.modelCatalog
@@ -439,13 +443,15 @@ function registerKimiProvider(pi: ExtensionAPI, state: KimiRuntimeState): void {
             ...models.filter((model) => model.provider !== PROVIDER_ID),
             ...models
               .filter((model) => model.provider === PROVIDER_ID)
-              .map((model) =>
-                applyKimiOAuthExtrasToModel(
+              .map((model) => {
+                const metadata = getKimiModelMetadata(extras, model.id);
+                if (!hasKimiModelMetadata(metadata)) return model;
+                return applyKimiOAuthExtrasToModel(
                   model,
-                  getKimiModelMetadata(extras, model.id),
+                  metadata,
                   state.config.model.reasoningMap,
-                ),
-              ),
+                );
+              }),
           ];
         }
         const catalogModels = catalogModelIds(extras).map((modelId) => {

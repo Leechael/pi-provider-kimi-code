@@ -262,6 +262,27 @@ export function getKimiModelMetadata(extras: KimiOAuthExtras, modelId: string): 
   return modelId === KIMI_CODING_MODEL_ID ? extras : {};
 }
 
+const KIMI_DISCOVERY_KEYS = [
+  "wireModelId",
+  "modelDisplay",
+  "contextLength",
+  "supportsReasoning",
+  "supportsImageIn",
+  "supportsVideoIn",
+  "supportsThinkingType",
+  "protocol",
+  "supportEfforts",
+  "defaultEffort",
+  "modelCatalog",
+] as const;
+
+// Credentials always carry access/refresh/expires, so discovery presence must
+// be checked on the metadata fields themselves. Empty means either a legacy
+// pre-discovery credential or a failed discovery during login/refresh.
+export function hasKimiModelMetadata(extras: KimiOAuthExtras): boolean {
+  return KIMI_DISCOVERY_KEYS.some((key) => extras[key] !== undefined);
+}
+
 export function buildKimiThinkingLevelMap(
   reasoningMap: ModelReasoningMap,
   extras: Pick<KimiModelMetadata, "supportEfforts" | "supportsThinkingType">,
