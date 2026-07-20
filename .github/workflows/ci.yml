@@ -47,7 +47,7 @@ jobs:
         shell: bash
         run: |
           set +e
-          node --test --experimental-test-coverage tests/*.test.ts 2>&1 | tee coverage.txt
+          node --experimental-test-module-mocks --test --experimental-test-coverage tests/*.test.ts 2>&1 | tee coverage.txt
           status=${PIPESTATUS[0]}
           set -e
 
