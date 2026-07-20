@@ -185,6 +185,37 @@ describe("Kimi Code credential locking", () => {
     }
   });
 
+  it("recovers concurrent proactive refreshes when Kimi Code's OAuth lock is disabled", async () => {
+    const f = fixture(false);
+    const env = childEnv(f);
+    env.KIMI_E2E_PROACTIVE_REFRESH = "1";
+    env.KIMI_DISABLE_OAUTH_LOCK = "1";
+
+    try {
+      await Promise.all([
+        execFileAsync(process.execPath, ["--input-type=module", "-e", CHILD_PROGRAM], {
+          env,
+          timeout: 30_000,
+          maxBuffer: 1024 * 1024,
+        }),
+        execFileAsync(process.execPath, ["--input-type=module", "-e", CHILD_PROGRAM], {
+          env,
+          timeout: 30_000,
+          maxBuffer: 1024 * 1024,
+        }),
+      ]);
+
+      const attempts = Number(readFileSync(f.tokenUrl, "utf8"));
+      assert.equal(attempts >= 1 && attempts <= 2, true);
+      const credential = JSON.parse(
+        readFileSync(join(f.kimiHome, "credentials", "kimi-code.json"), "utf8"),
+      );
+      assert.equal(credential.expires_at > Math.floor(Date.now() / 1000), true);
+    } finally {
+      f.cleanup();
+    }
+  });
+
   it("honors cancellation while waiting for Kimi Code's OAuth lock", async () => {
     const f = fixture(false);
     const target = join(f.kimiHome, "oauth", "kimi-code");

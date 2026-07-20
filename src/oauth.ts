@@ -576,7 +576,36 @@ export async function refreshKimiCodeToken(
         ...extras,
       };
     }
-    const token = await refreshAccessToken(activeRefreshToken);
+    let token: Awaited<ReturnType<typeof refreshAccessToken>>;
+    try {
+      token = await refreshAccessToken(activeRefreshToken);
+    } catch (error) {
+      // Lock-disabled platforms (Windows / KIMI_DISABLE_OAUTH_LOCK=1) use
+      // storage re-read as the only coordinator. A peer may have rotated the
+      // shared sidecar while this process was exchanging the old refresh
+      // token; recover from that newer valid credential instead of surfacing
+      // the stale-token invalid_grant as a login failure.
+      await sleep(100);
+      const peerCredential = readKimiCliCredentials();
+      const peerAccess = peerCredential?.access_token;
+      const peerRefresh = peerCredential?.refresh_token;
+      const peerExpiresMs = (peerCredential?.expires_at ?? 0) * 1000;
+      if (
+        peerAccess !== undefined &&
+        peerRefresh !== undefined &&
+        peerAccess !== credentials.access &&
+        Date.now() < peerExpiresMs
+      ) {
+        const extras = await discoverKimiModelMetadata(peerAccess);
+        return {
+          access: peerAccess,
+          refresh: peerRefresh,
+          expires: peerExpiresMs,
+          ...extras,
+        };
+      }
+      throw error;
+    }
     const expiresMs = Date.now() + token.expires_in * 1000;
     const kimiCredentialAfterRefresh = readKimiCliCredentials();
     const peerAccess = kimiCredentialAfterRefresh?.access_token;
