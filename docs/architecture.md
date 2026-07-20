@@ -67,7 +67,7 @@ Every OAuth request and model API request includes Kimi Code-style headers:
 
 | Header               | Value                               |
 | -------------------- | ----------------------------------- |
-| `User-Agent`         | `kimi-code-cli/0.26.0`              |
+| `User-Agent`         | `kimi-code-cli/0.28.0`              |
 | `X-Msh-Platform`     | `kimi_code_cli`                     |
 | `X-Msh-Version`      | `0.28.0`                            |
 | `X-Msh-Device-Name`  | Hostname                            |
@@ -80,13 +80,15 @@ fix for Linux / non-ASCII hostnames.
 
 ### Models
 
-| ID                          | Name                     | Access                | Context    | Max Output |
-| --------------------------- | ------------------------ | --------------------- | ---------- | ---------- |
-| `kimi-for-coding`           | Kimi K2.7 Code           | all Kimi Code members | 256K       | 32K        |
-| `kimi-for-coding-highspeed` | Kimi K2.7 Code HighSpeed | Allegretto and above  | 256K       | 32K        |
-| `k3`                        | Kimi K3                  | Moderato and above    | 256K or 1M | 32K        |
+The official catalog determines the models this provider publishes. These default IDs are used when catalog discovery is unavailable:
 
-K3 is capped at 256K for Moderato and reaches 1M for Allegretto and above. Model reasoning and input modalities are refreshed from `/models`; access and K3 context are narrowed by the membership level returned from `/usages` when that level is known.
+| ID                          | Default Name             | Default Context | Max Output |
+| --------------------------- | ------------------------ | --------------- | ---------- |
+| `kimi-for-coding`           | Kimi K2.7 Code           | 256K            | 32K        |
+| `kimi-for-coding-highspeed` | Kimi K2.7 Code HighSpeed | 256K            | 32K        |
+| `k3`                        | Kimi K3                  | 256K            | 32K        |
+
+The official catalog at `https://api.kimi.com/coding/v1/models` is authoritative for model availability and context windows. It also refreshes model reasoning and input modalities. If discovery is unavailable, the extension uses the default IDs and fallback metadata above.
 
 ## OAuth Device-Code Flow
 

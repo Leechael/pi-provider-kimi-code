@@ -7,7 +7,7 @@
 
 Pi already has a basic `kimi-coding` provider. This extension is for the parts that start to matter once Kimi Code becomes part of your real Pi workflow: account login reuse, file uploads, tool schema compatibility, live model metadata, measured cache behavior, and API-tested parameter handling.
 
-> **Kimi K3 supported.** The provider combines Kimi's live `/v1/models` catalog with your membership level from `/usages`, exposing only eligible models and advertising the correct K3 context limit. It refreshes this metadata at startup and through `/kimi-settings`; OAuth login and token refresh also update the model catalog.
+> **Kimi K3 supported.** The provider reads Kimi's live `/v1/models` catalog as the source of truth for model availability and context limits. It refreshes the catalog at startup and through `/kimi-settings`; OAuth login and token refresh also update it.
 
 ## Why this exists
 
@@ -28,7 +28,7 @@ Kimi's API surface goes beyond the LLM itself. It includes file uploads, web sea
 - Kimi account login in Pi, plus `KIMI_API_KEY` for CI or pay-per-token use.
 - `kimi-code` credential reuse from `~/.kimi-code/credentials/kimi-code.json`, with read-only support for the legacy `~/.kimi` path.
 - Kimi Files API uploads for large inline images.
-- Live model metadata combined with membership-aware K3 and HighSpeed availability.
+- Live model metadata from Kimi's official catalog, including server-advertised model availability and context limits.
 - OpenAI-compatible mode by default, Anthropic-compatible mode on request.
 - K2.7 and K3 reasoning level mapping for Pi's reasoning controls.
 - Tool schema dedup to stay under Moonshot's 15 KB per-tool-schema limit.
@@ -108,15 +108,15 @@ KIMI_API_KEY=sk-... pi
 
 ## Models
 
-This provider publishes three Pi model IDs:
+The official catalog determines the models this provider publishes. The following IDs are the fallback set when catalog discovery is unavailable:
 
-| Pi model ID                             | Upstream model           | Access                                                 |
-| --------------------------------------- | ------------------------ | ------------------------------------------------------ |
-| `kimi-coding/kimi-for-coding`           | Kimi K2.7 Code           | All Kimi Code members                                  |
-| `kimi-coding/kimi-for-coding-highspeed` | Kimi K2.7 Code HighSpeed | Allegretto and above                                   |
-| `kimi-coding/k3`                        | Kimi K3                  | Moderato: 256K context; Allegretto and above: up to 1M |
+| Pi model ID                             | Default name             | Availability and context |
+| --------------------------------------- | ------------------------ | ------------------------ |
+| `kimi-coding/kimi-for-coding`           | Kimi K2.7 Code           | Official catalog         |
+| `kimi-coding/kimi-for-coding-highspeed` | Kimi K2.7 Code HighSpeed | Official catalog         |
+| `kimi-coding/k3`                        | Kimi K3                  | Official catalog         |
 
-Plans below Moderato cannot use K3. The provider reads the current membership level from `/usages` and combines it with `/models`: server catalog availability remains authoritative, while known plan limits can only hide unavailable selections or lower K3's advertised context window. Unknown or unavailable membership data falls back to the server catalog instead of guessing.
+Kimi's official catalog at `https://api.kimi.com/coding/v1/models` is authoritative for model availability and context windows. When discovery is unavailable, the extension uses the fallback models and defaults below.
 
 Select a model inside Pi:
 
@@ -126,7 +126,7 @@ Select a model inside Pi:
 /model kimi-coding/k3
 ```
 
-Kimi keeps Coding models behind aliases. Rather than hardcoding a stale model list, this extension asks Kimi for the current model info when you log in or refresh. If your account is on a newer rollout (e.g., Kimi K2.7) or internal test, Pi can pick up the latest model name and context size without waiting for a package release.
+Kimi keeps Coding models behind aliases. Rather than hardcoding a stale model list, this extension reads the official catalog at startup, when credentials change, and through `/kimi-settings`. If your account is on a newer rollout (e.g., Kimi K2.7) or internal test, Pi can pick up the latest model IDs, names, and context sizes without waiting for a package release.
 
 Fallback values:
 
@@ -135,7 +135,7 @@ Fallback values:
 - Input: text and image
 - Reasoning: enabled
 
-The provider maps Pi's reasoning levels to Kimi's top-level `thinking` parameter. K3 currently advertises only `max`; `max` and `xhigh` map to `max`, `high` and `medium` map to `high`, and `low` and `minimal` map to `low`. It sends `thinking.effort` only when `/models` advertises the mapped value. The mapping refreshes automatically on credential refresh. Opening `/kimi-settings` also re-discovers the latest model and membership metadata.
+The provider maps Pi's reasoning levels to Kimi's top-level `thinking` parameter. It sends `thinking.effort` only when the official catalog advertises the mapped value. The mapping refreshes automatically on credential refresh. Opening `/kimi-settings` also re-discovers the latest model metadata.
 
 Switching models or thinking effort invalidates Kimi's existing context cache. Start a new session when switching to avoid re-prefilling a long conversation and consuming extra quota.
 
