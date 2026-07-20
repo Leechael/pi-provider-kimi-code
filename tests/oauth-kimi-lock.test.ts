@@ -93,7 +93,13 @@ const CHILD_PROGRAM = `
 const { mkdirSync, readFileSync, writeFileSync } = await import("node:fs");
 const { dirname, join } = await import("node:path");
 const { refreshKimiAuthToken } = await import(${JSON.stringify(new URL("../src/oauth.ts", import.meta.url).href)});
-globalThis.fetch = async () => {
+globalThis.fetch = async (url) => {
+  if (String(url).endsWith("/models")) {
+    return new Response(JSON.stringify({ data: [] }), {
+      status: 200,
+      headers: { "content-type": "application/json" },
+    });
+  }
   const statePath = process.env.KIMI_E2E_FAKE_KIMI_LOCK_PATH;
   const delayMs = Number(process.env.KIMI_E2E_FAKE_KIMI_LOCK_DELAY_MS ?? "0");
   const attempt = Number(readFileSync(statePath, "utf8")) + 1;
@@ -113,9 +119,19 @@ globalThis.fetch = async () => {
     { status: 200, headers: { "content-type": "application/json" } },
   );
 };
-const token = await refreshKimiAuthToken("stale-access");
-if (token === null) {
-  throw new Error("refreshKimiAuthToken returned null");
+if (process.env.KIMI_E2E_PROACTIVE_REFRESH === "1") {
+  const { refreshKimiCodeToken } = await import(${JSON.stringify(new URL("../src/oauth.ts", import.meta.url).href)});
+  const refreshed = await refreshKimiCodeToken({
+    access: "stale-access",
+    refresh: "refresh-0",
+    expires: Date.now() - 1,
+  });
+  if (!refreshed.access) throw new Error("refreshKimiCodeToken returned no access token");
+} else {
+  const token = await refreshKimiAuthToken("stale-access");
+  if (token === null) {
+    throw new Error("refreshKimiAuthToken returned null");
+  }
 }
 `;
 
@@ -125,6 +141,37 @@ describe("Kimi Code credential locking", () => {
 
     try {
       await Promise.all([runForcedRefresh(f), runForcedRefresh(f)]);
+
+      assert.equal(readFileSync(f.tokenUrl, "utf8"), "1");
+      const credential = JSON.parse(
+        readFileSync(join(f.kimiHome, "credentials", "kimi-code.json"), "utf8"),
+      );
+      assert.equal(credential.refresh_token, "refresh-1");
+      assert.equal(credential.access_token, "access-1");
+      assert.equal(credential.expires_at > Math.floor(Date.now() / 1000), true);
+    } finally {
+      f.cleanup();
+    }
+  });
+
+  it("serializes concurrent proactive refreshes on Kimi Code's native OAuth lock", async () => {
+    const f = fixture(false);
+    const env = childEnv(f);
+    env.KIMI_E2E_PROACTIVE_REFRESH = "1";
+
+    try {
+      await Promise.all([
+        execFileAsync(process.execPath, ["--input-type=module", "-e", CHILD_PROGRAM], {
+          env,
+          timeout: 30_000,
+          maxBuffer: 1024 * 1024,
+        }),
+        execFileAsync(process.execPath, ["--input-type=module", "-e", CHILD_PROGRAM], {
+          env,
+          timeout: 30_000,
+          maxBuffer: 1024 * 1024,
+        }),
+      ]);
 
       assert.equal(readFileSync(f.tokenUrl, "utf8"), "1");
       const credential = JSON.parse(

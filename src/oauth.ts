@@ -406,10 +406,6 @@ function readKimiCliCredentials(): KimiCliCredentialsFile | null {
   return null;
 }
 
-function kimiCodeCredentialExists(): boolean {
-  return existsSync(getKimiCodeCredentialPath());
-}
-
 function writeKimiCodeCredentials(access: string, refresh: string, expiresMs: number): void {
   const path = getKimiCodeCredentialPath();
   const dir = dirname(path);
@@ -560,26 +556,54 @@ export async function loginKimiCode(callbacks: OAuthLoginCallbacks): Promise<Kim
 export async function refreshKimiCodeToken(
   credentials: OAuthCredentials,
 ): Promise<KimiOAuthCredentials> {
-  const kimiCred = kimiCodeCredentialExists() ? readKimiCliCredentials() : null;
-  let token: Awaited<ReturnType<typeof refreshAccessToken>>;
+  const kimiLocked = await lockKimiCodeCredentials();
   try {
-    token = await refreshAccessToken(credentials.refresh);
-  } catch (error) {
-    if (kimiCred?.refresh_token && kimiCred.refresh_token !== credentials.refresh) {
-      token = await refreshAccessToken(kimiCred.refresh_token);
-    } else {
-      throw error;
+    const initialKimiCred = kimiLocked.credential;
+    const initialKimiExpiresMs = (initialKimiCred?.expires_at ?? 0) * 1000;
+    const peerHasNewerValidAccess =
+      initialKimiCred?.access_token !== undefined &&
+      initialKimiCred.access_token !== credentials.access &&
+      Date.now() < initialKimiExpiresMs;
+    const activeRefreshToken = peerHasNewerValidAccess
+      ? initialKimiCred.refresh_token!
+      : credentials.refresh;
+    const activeAccessToken = peerHasNewerValidAccess
+      ? initialKimiCred.access_token!
+      : credentials.access;
+    if (peerHasNewerValidAccess && initialKimiCred.refresh_token !== credentials.refresh) {
+      const extras = await discoverKimiModelMetadata(activeAccessToken);
+      return {
+        access: activeAccessToken,
+        refresh: activeRefreshToken,
+        expires: initialKimiExpiresMs,
+        ...extras,
+      };
     }
+    const token = await refreshAccessToken(activeRefreshToken);
+    const expiresMs = Date.now() + token.expires_in * 1000;
+    const kimiCredentialAfterRefresh = readKimiCliCredentials();
+    const peerAccess = kimiCredentialAfterRefresh?.access_token;
+    const peerRefresh = kimiCredentialAfterRefresh?.refresh_token;
+    const peerExpiresMs = (kimiCredentialAfterRefresh?.expires_at ?? 0) * 1000;
+    const accessToken =
+      peerAccess !== undefined && peerAccess !== activeAccessToken && Date.now() < peerExpiresMs
+        ? peerAccess
+        : token.access_token;
+    const refreshToken = accessToken === peerAccess ? peerRefresh! : token.refresh_token;
+    const effectiveExpiresMs = accessToken === peerAccess ? peerExpiresMs : expiresMs;
+    if (accessToken !== peerAccess) {
+      kimiLocked.store(accessToken, refreshToken, effectiveExpiresMs);
+    }
+    const extras = await discoverKimiModelMetadata(accessToken);
+    return {
+      access: accessToken,
+      refresh: refreshToken,
+      expires: effectiveExpiresMs,
+      ...extras,
+    };
+  } finally {
+    await kimiLocked.release().catch(() => {});
   }
-  const expiresMs = Date.now() + token.expires_in * 1000;
-  writeKimiCodeCredentials(token.access_token, token.refresh_token, expiresMs);
-  const extras = await discoverKimiModelMetadata(token.access_token);
-  return {
-    access: token.access_token,
-    refresh: token.refresh_token,
-    expires: expiresMs,
-    ...extras,
-  };
 }
 
 // =============================================================================
