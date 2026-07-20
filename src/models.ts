@@ -92,8 +92,11 @@ export function getKimiMembershipLevelOverride(
   const raw = env.KIMI_MEMBERSHIP_LEVEL?.trim();
   if (!raw) return null;
   const upper = raw.toUpperCase();
-  if (KIMI_MEMBERSHIP_RANK[upper] !== undefined) return upper;
-  return KIMI_MEMBERSHIP_LEVEL_ALIASES[raw.toLowerCase()] ?? null;
+  if (Object.hasOwn(KIMI_MEMBERSHIP_RANK, upper)) return upper;
+  const lower = raw.toLowerCase();
+  return Object.hasOwn(KIMI_MEMBERSHIP_LEVEL_ALIASES, lower)
+    ? KIMI_MEMBERSHIP_LEVEL_ALIASES[lower]
+    : null;
 }
 
 export function isKimiModelAvailableForMembership(

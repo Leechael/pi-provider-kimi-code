@@ -6,7 +6,7 @@ import {
   getKimiMembershipLevelOverride,
   isKimiModelAvailableForMembership,
 } from "../src/models.ts";
-import { parseMembership } from "../src/usage.ts";
+import { fetchKimiUsageSnapshot, parseMembership } from "../src/usage.ts";
 
 function withMembershipEnv<T>(value: string | undefined, fn: () => T): T {
   const previous = process.env.KIMI_MEMBERSHIP_LEVEL;
@@ -69,6 +69,86 @@ describe("getKimiMembershipLevelOverride", () => {
   it("rejects unknown values", () => {
     assert.equal(getKimiMembershipLevelOverride({ KIMI_MEMBERSHIP_LEVEL: "prestissimo" }), null);
     assert.equal(getKimiMembershipLevelOverride({ KIMI_MEMBERSHIP_LEVEL: "LEVEL_ULTRA" }), null);
+  });
+
+  it("rejects Object.prototype keys instead of returning inherited members", () => {
+    for (const key of ["constructor", "__proto__", "toString", "hasOwnProperty", "valueOf"]) {
+      assert.equal(getKimiMembershipLevelOverride({ KIMI_MEMBERSHIP_LEVEL: key }), null, key);
+    }
+  });
+});
+
+async function withMembershipEnvAsync<T>(
+  value: string | undefined,
+  fn: () => Promise<T>,
+): Promise<T> {
+  const previous = process.env.KIMI_MEMBERSHIP_LEVEL;
+  if (value === undefined) {
+    delete process.env.KIMI_MEMBERSHIP_LEVEL;
+  } else {
+    process.env.KIMI_MEMBERSHIP_LEVEL = value;
+  }
+  try {
+    return await fn();
+  } finally {
+    if (previous === undefined) {
+      delete process.env.KIMI_MEMBERSHIP_LEVEL;
+    } else {
+      process.env.KIMI_MEMBERSHIP_LEVEL = previous;
+    }
+  }
+}
+
+describe("fetchKimiUsageSnapshot failure paths with override set", () => {
+  it("returns the override when credentials are missing", async () => {
+    await withMembershipEnvAsync("vivace", async () => {
+      const snapshot = await fetchKimiUsageSnapshot({ token: "" });
+      assert.equal(snapshot.summary, "Usage: missing credentials. Run /login kimi-coding.");
+      assert.equal(snapshot.membershipLevel, "LEVEL_PREMIUM");
+    });
+  });
+
+  it("returns the override when the fetch responds non-2xx", async () => {
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = async () => new Response("server error", { status: 500 });
+    try {
+      await withMembershipEnvAsync("allegretto", async () => {
+        const snapshot = await fetchKimiUsageSnapshot({
+          token: "test-token",
+          refreshOnUnauthorized: false,
+        });
+        assert.equal(snapshot.summary, "Usage: fetch failed (500)");
+        assert.equal(snapshot.membershipLevel, "LEVEL_INTERMEDIATE");
+      });
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
+  it("returns the override when the fetch throws", async () => {
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = async () => {
+      throw new Error("network down");
+    };
+    try {
+      await withMembershipEnvAsync("vivace", async () => {
+        const snapshot = await fetchKimiUsageSnapshot({
+          token: "test-token",
+          refreshOnUnauthorized: false,
+        });
+        assert.equal(snapshot.summary, "Usage: fetch failed (network down)");
+        assert.equal(snapshot.membershipLevel, "LEVEL_PREMIUM");
+      });
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
+  it("keeps membershipLevel null on failure when the override is unset", async () => {
+    await withMembershipEnvAsync(undefined, async () => {
+      const snapshot = await fetchKimiUsageSnapshot({ token: "" });
+      assert.equal(snapshot.membershipLevel, null);
+    });
   });
 });
 
