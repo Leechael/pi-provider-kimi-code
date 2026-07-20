@@ -291,6 +291,43 @@ describe("extension tool registration", () => {
     );
   });
 
+  it("registers every model advertised by a fresh catalog", async () => {
+    const cwd = tempDir("kimi-extension-cwd");
+    const { pi, providerConfigs } = makePi();
+
+    await withCwd(cwd, () => registerKimiCodeExtension(pi));
+
+    const provider = providerConfigs.get("kimi-coding");
+    const modifyModels = provider?.oauth?.modifyModels;
+    assert.ok(modifyModels);
+    const models = modifyModels(
+      provider.models?.map((model) => ({ ...model, provider: "kimi-coding" })) as never,
+      {
+        access: "oauth-token",
+        refresh: "refresh-token",
+        expires: Date.now() + 60_000,
+        modelCatalogVersion: 1,
+        modelCatalog: {
+          "kimi-for-coding": { wireModelId: "kimi-for-coding", contextLength: 262144 },
+          "kimi-experimental": {
+            wireModelId: "kimi-experimental",
+            modelDisplay: "Kimi Experimental",
+            contextLength: 512000,
+            supportsImageIn: true,
+          },
+        },
+      } as never,
+    );
+
+    assert.deepEqual(
+      models.map((model) => [model.id, model.name, model.contextWindow, model.cost.input]),
+      [
+        ["kimi-for-coding", "Kimi for Coding", 262144, 0.95],
+        ["kimi-experimental", "Kimi Experimental", 512000, 0],
+      ],
+    );
+  });
+
   it("regression: does not let a legacy cached catalog hide newly added models", async () => {
     const cwd = tempDir("kimi-extension-cwd");
     const { pi, providerConfigs } = makePi();

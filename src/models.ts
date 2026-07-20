@@ -72,10 +72,11 @@ function resolveModelCost(
   cacheWrite: number;
 } {
   if (modelId === KIMI_K3_MODEL_ID) return COST_K3;
+  if (modelId === KIMI_CODING_MODEL_ID) return COST_STANDARD;
   if (modelId === KIMI_CODING_HIGHSPEED_MODEL_ID || /high\s*speed/i.test(modelDisplay ?? "")) {
     return COST_HIGH_SPEED;
   }
-  return COST_STANDARD;
+  return { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 };
 }
 
 export function buildKimiModelFromConfig(
@@ -88,7 +89,9 @@ export function buildKimiModelFromConfig(
       ? "Kimi K3"
       : isHighSpeed
         ? "Kimi for Coding High Speed"
-        : "Kimi for Coding";
+        : modelId === KIMI_CODING_MODEL_ID
+          ? "Kimi for Coding"
+          : modelId;
   return {
     id: modelId,
     name,
@@ -218,16 +221,10 @@ export async function discoverKimiModelMetadata(
     if (!response.ok) return {};
     const json = (await response.json()) as { data?: unknown };
     const list = Array.isArray(json.data) ? (json.data as KimiServerModel[]) : [];
-    const supportedIds = new Set([
-      KIMI_CODING_MODEL_ID,
-      KIMI_CODING_HIGHSPEED_MODEL_ID,
-      KIMI_K3_MODEL_ID,
-    ]);
     const modelCatalog: Record<string, KimiModelMetadata> = {};
     for (const model of list) {
-      if (typeof model.id !== "string" || !supportedIds.has(model.id)) continue;
       const metadata = parseKimiModelMetadata(model);
-      if (metadata) modelCatalog[model.id] = metadata;
+      if (metadata) modelCatalog[metadata.wireModelId!] = metadata;
     }
     const preferred = modelCatalog[KIMI_CODING_MODEL_ID];
     if (!preferred) {

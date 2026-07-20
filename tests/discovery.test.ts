@@ -159,7 +159,7 @@ describe("discoverKimiModelMetadata", () => {
     });
   });
 
-  it("returns empty when no kimi-for-coding is present", async () => {
+  it("retains catalog models outside the original static set", async () => {
     mock = mockFetch(() =>
       jsonResponse({
         data: [{ id: "k2p7-beta", display_name: "Beta K2.7", context_length: 1048576 }],
@@ -167,7 +167,11 @@ describe("discoverKimiModelMetadata", () => {
     );
 
     const result = await discoverKimiModelMetadata("tok-1");
-    assert.deepEqual(result, {});
+    assert.deepEqual(result.modelCatalog?.["k2p7-beta"], {
+      wireModelId: "k2p7-beta",
+      modelDisplay: "Beta K2.7",
+      contextLength: 1048576,
+    });
   });
 
   it("returns empty when the server replies non-2xx", async () => {
