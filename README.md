@@ -5,27 +5,27 @@
 
 **Use Kimi Code in Pi, with the Kimi parts handled.**
 
-Pi already has a basic `kimi-coding` provider. This extension is for the parts that start to matter once Kimi Code becomes part of your real Pi workflow: account login reuse, file uploads, tool schema compatibility, live model metadata, measured cache behavior, and API-tested parameter handling.
+Pi's built-in `kimi-coding` provider covers the model layer: K3, adaptive thinking, and a generated model catalog. What it does not cover is the account layer — it authenticates only with a manually provisioned `KIMI_API_KEY`. This extension is everything else: subscription OAuth login, kimi-code credential reuse, file uploads, tool schema compatibility, live model metadata, measured cache behavior, and API-tested parameter handling.
 
-> **Kimi K3 supported.** The provider reads Kimi's live `/v1/models` catalog as the source of truth for model availability and context limits. It refreshes the catalog at startup and through `/kimi-settings`; OAuth login and token refresh also update it.
+> **Live model catalog.** The provider reads Kimi's live `/v1/models` catalog as the source of truth for model availability and context limits, including account-side rollouts that a generated catalog cannot see. It refreshes the catalog at startup and through `/kimi-settings`; OAuth login and token refresh also update it.
 
 ## Why this exists
 
-Pi is a small harness you adapt to your own workflow. Kimi Code is Moonshot's official coding agent. This package sits between them: Kimi Code as a Pi provider, plus the Kimi-specific details that the basic provider keeps simple.
+Pi is a small harness you adapt to your own workflow. Kimi Code is Moonshot's official coding agent. This package sits between them: Kimi Code as a Pi provider, plus the account layer and Kimi-specific API surface that Pi's provider abstraction leaves to extensions.
 
 Kimi's API surface goes beyond the LLM itself. It includes file uploads, web search, page fetch, and a growing set of datasource APIs. This extension wires those capabilities into Pi so you can use them alongside the community's existing extensions — MCP servers, custom themes, skills, and any other Pi add-on — without leaving the harness.
 
-- **Use your Kimi account.** Log in with `/login kimi-coding`, or reuse an existing `kimi-code` session.
+- **Use your Kimi account.** Log in with `/login kimi-coding`, or reuse an existing `kimi-code` session — no API key to provision or rotate, and tokens refresh automatically.
 - **Send files the Kimi way.** Large inline images go through Kimi's Files API and become `ms://` references instead of huge base64 payloads.
 - **Know what the cache is doing.** Kimi caches by content prefix. This repo measures that behavior instead of pretending `prompt_cache_key` controls it.
-- **Keep Pi's tools working.** Moonshot's API rejects tool schemas over 15 KB — a limit that Pi's extension ecosystem regularly hits ([#16](https://github.com/Leechael/pi-provider-kimi-code/issues/16), [#21](https://github.com/Leechael/pi-provider-kimi-code/issues/21)). This extension automatically deduplicates schemas with `$ref`/`$defs` before sending, so subagents and other extensions don't break.
+- **Keep Pi's tools working.** Moonshot's API rejects tool schemas over 15 KB — a limit that Pi's extension ecosystem regularly hits ([#16](https://github.com/Leechael/pi-provider-kimi-code/issues/16), [#21](https://github.com/Leechael/pi-provider-kimi-code/issues/21)). Pi's dynamic tool loading can keep inactive schemas off the wire, but it requires extensions designed around loader tools, and the Kimi-native serialization is an opt-in `models.json` compat flag — off by default. A single active schema over the limit is still rejected. This extension automatically deduplicates schemas with `$ref`/`$defs` before sending, so subagents and other extensions don't break.
 - **Tested against the live API.** Thinking config, parameter constraints, protocol compatibility, and streaming behavior are all verified against Kimi's Coding endpoint — not assumed from docs. When the API rejects something (wrong `temperature`, unsupported `tool_choice`), the provider normalizes the request before you see a 400.
 - **Turn on Kimi-native tools when you want them.** `moonshot_search`, `moonshot_fetch`, and `kimi_datasource` are opt-in, configurable per user or per project.
 - **Embed in your own build.** `KimiCode()` factory lets you ship Kimi Code support inside a custom Pi agent with programmatic config overrides — no file-based extension path needed.
 
 ## What this package adds
 
-- Kimi account login in Pi, plus `KIMI_API_KEY` for CI or pay-per-token use.
+- Kimi account login in Pi, plus `KIMI_API_KEY` for CI or key-based access.
 - `kimi-code` credential reuse from `~/.kimi-code/credentials/kimi-code.json`, with read-only support for the legacy `~/.kimi` path.
 - Kimi Files API uploads for large inline images.
 - Live model metadata from Kimi's official catalog, including server-advertised model availability and context limits.
@@ -100,7 +100,7 @@ The legacy credential path is also supported:
 
 Legacy credentials are read-only. Set `KIMI_SHARE_DIR` to override the legacy `~/.kimi` directory.
 
-For CI or pay-per-token use, set `KIMI_API_KEY` instead:
+For CI or key-based access, set `KIMI_API_KEY` instead:
 
 ```bash
 KIMI_API_KEY=sk-... pi
@@ -213,7 +213,7 @@ If you already use another search or fetch tool, pick one path for a session. Ov
 
 Most users do not need environment variables. Two are worth knowing:
 
-- `KIMI_API_KEY` — static API key for CI or pay-per-token use.
+- `KIMI_API_KEY` — static API key for CI or key-based access. Usage draws on your plan quota; a topped-up balance covers overage.
 - `KIMI_CODE_PROTOCOL` — `openai` by default; set to `anthropic` if your Pi setup needs Anthropic-compatible requests. Can also be set through `/kimi-settings` or JSON config.
 
 Tools, protocol, and upload threshold are all configurable through `/kimi-settings` or JSON config files.
