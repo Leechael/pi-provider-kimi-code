@@ -119,10 +119,10 @@ describe("applyKimiPayloadMutations", () => {
     assert.equal(imageUrl.url, "ms://abc123");
   });
 
-  it("does not treat OpenAI video_url blocks as uploadable content", async () => {
-    let invocations = 0;
-    const upload = async () => {
-      invocations++;
+  it("uploads inline base64 videos in openai payloads and replaces the URL with the uploader's id", async () => {
+    const calls: Array<{ mimeType: string; data: string }> = [];
+    const upload = async (mimeType: string, data: string) => {
+      calls.push({ mimeType, data });
       return "ms://video-id";
     };
 
@@ -142,12 +142,45 @@ describe("applyKimiPayloadMutations", () => {
 
     await applyKimiPayloadMutations(payload, baseCtx({ api: "openai-completions", upload }));
 
+    assert.equal(calls.length, 1);
+    assert.equal(calls[0]?.mimeType, "video/mp4");
+    assert.equal(calls[0]?.data, "AAAA");
+    const messages = payload.messages as JsonRecord[];
+    const content = messages[0]?.content as JsonRecord[];
+    const block = content[0] as JsonRecord;
+    const videoUrl = block.video_url as JsonRecord;
+    assert.equal(videoUrl.url, "ms://video-id");
+  });
+
+  it("leaves non-data video_url values untouched", async () => {
+    let invocations = 0;
+    const upload = async () => {
+      invocations++;
+      return "ms://never";
+    };
+
+    const payload: JsonRecord = {
+      messages: [
+        {
+          role: "user",
+          content: [
+            { type: "video_url", video_url: { url: "ms://already-uploaded" } },
+            { type: "video_url", video_url: { url: "https://example.com/clip.mp4" } },
+          ],
+        },
+      ],
+    };
+
+    await applyKimiPayloadMutations(payload, baseCtx({ api: "openai-completions", upload }));
+
     assert.equal(invocations, 0);
     const messages = payload.messages as JsonRecord[];
     const content = messages[0]?.content as JsonRecord[];
     const block = content[0] as JsonRecord;
     const videoUrl = block.video_url as JsonRecord;
-    assert.equal(videoUrl.url, "data:video/mp4;base64,AAAA");
+    assert.equal(videoUrl.url, "ms://already-uploaded");
+    const httpBlock = content[1] as JsonRecord;
+    assert.equal((httpBlock.video_url as JsonRecord).url, "https://example.com/clip.mp4");
   });
 
   it("drops empty assistant content when OpenAI tool calls are present", async () => {
@@ -690,6 +723,40 @@ describe("uploadKimiFile", () => {
 
     assert.equal(result, null);
     assert.equal(fetchCalls, 1);
+  });
+
+  it("uploads videos with purpose=video regardless of the inline threshold", async () => {
+    let form: FormData | undefined;
+    const fakeFetch: typeof fetch = async (_url, init) => {
+      form = init?.body as FormData;
+      return fileResponse("video-1");
+    };
+
+    const result = await uploadKimiFile("token", "video/mp4", PNG_BASE64, 10 * 1024 * 1024, {
+      fetch: fakeFetch,
+      refreshAccessToken: async () => null,
+    });
+
+    assert.equal(result, "ms://video-1");
+    assert.ok(form);
+    assert.equal(form.get("purpose"), "video");
+    assert.equal((form.get("file") as File).name, "upload.mp4");
+  });
+
+  it("still rejects non-media mime types without fetching", async () => {
+    let fetchCalls = 0;
+    const fakeFetch: typeof fetch = async () => {
+      fetchCalls++;
+      return fileResponse("nope");
+    };
+
+    const result = await uploadKimiFile("token", "application/pdf", PNG_BASE64, 0, {
+      fetch: fakeFetch,
+      refreshAccessToken: async () => null,
+    });
+
+    assert.equal(result, null);
+    assert.equal(fetchCalls, 0);
   });
 
   it("does not attempt refresh on non-401 failures", async () => {
