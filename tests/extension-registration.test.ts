@@ -1443,3 +1443,59 @@ describe("extension tool registration", () => {
     );
   });
 });
+
+type PiAiCompatModule = {
+  streamSimple: (model: unknown, context: unknown, options?: unknown) => unknown;
+  unregisterApiProviders: (sourceId: string) => void;
+  getApiProvider: (api: string) => { streamSimple?: unknown } | undefined;
+};
+
+// Computed specifier so tsc does not statically resolve "./compat" against
+// whatever pi-ai version is installed; pi-ai <=0.79 has no "./compat" export.
+const piAiCompatModule = "@earendil-works/pi-ai/compat";
+
+describe("global api-provider fallback", () => {
+  it("regression: pi-ai's default streamSimple throws for an unregistered kimi model", async () => {
+    let compat: PiAiCompatModule;
+    try {
+      compat = (await import(piAiCompatModule)) as PiAiCompatModule;
+    } catch {
+      return;
+    }
+
+    compat.unregisterApiProviders("pi-provider-kimi-code-global-fallback");
+
+    const model = { id: "k3", provider: "kimi-coding", api: "kimi-openai-completions" };
+    assert.throws(
+      () => compat.streamSimple(model, { systemPrompt: "", messages: [] }, {}),
+      /No API provider registered for api: kimi-openai-completions/,
+    );
+  });
+
+  it("loads and registers the extension regardless of pi-ai compat availability", async () => {
+    const cwd = tempDir("kimi-extension-cwd");
+    const { pi, providers } = makePi();
+
+    await withCwd(cwd, () => registerKimiCodeExtension(pi));
+
+    assert.deepEqual(providers, ["kimi-coding"]);
+  });
+
+  it("regression: registers the custom api id in pi-ai's global registry when compat is available", async () => {
+    let compat: PiAiCompatModule;
+    try {
+      compat = (await import(piAiCompatModule)) as PiAiCompatModule;
+    } catch {
+      return;
+    }
+
+    const cwd = tempDir("kimi-extension-cwd");
+    const { pi } = makePi();
+
+    await withCwd(cwd, () => registerKimiCodeExtension(pi));
+
+    const provider = compat.getApiProvider("kimi-openai-completions");
+    assert.ok(provider, "expected kimi-openai-completions to be registered globally");
+    assert.equal(typeof provider?.streamSimple, "function");
+  });
+});

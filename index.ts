@@ -27,6 +27,9 @@ import {
 import { Input, SettingsList, type SettingItem, truncateToWidth } from "@earendil-works/pi-tui";
 import os from "node:os";
 
+// pi-ai <=0.79 has no "./compat"
+const piAiCompatModule = "@earendil-works/pi-ai/compat";
+
 import {
   type KimiCodeConfig,
   type KimiCodeConfigPatch,
@@ -165,7 +168,7 @@ async function openSettingsMenu(
   if (!modelsRefreshed && refreshedToken && refreshedToken !== modelDiscoveryToken) {
     modelsRefreshed = await refreshModelExtras(state);
   }
-  if (modelsRefreshed) registerKimiProvider(pi, state);
+  if (modelsRefreshed) await registerKimiProvider(pi, state);
   const usage = usageSnapshot.summary;
 
   const projectTrusted = await isKimiProjectConfigApproved(ctx, ctx.cwd);
@@ -402,7 +405,33 @@ function buildKimiCatalogModels(state: KimiRuntimeState) {
   );
 }
 
-function registerKimiProvider(pi: ExtensionAPI, state: KimiRuntimeState): void {
+async function registerKimiGlobalApiFallback(protocol: KimiCodeConfig["protocol"]): Promise<void> {
+  const api = getKimiApiType(protocol);
+  try {
+    const { registerApiProvider } = (await import(piAiCompatModule)) as {
+      registerApiProvider: (
+        provider: {
+          api: string;
+          stream: typeof streamSimpleKimi;
+          streamSimple: typeof streamSimpleKimi;
+        },
+        sourceId: string,
+      ) => void;
+    };
+    registerApiProvider(
+      { api, stream: streamSimpleKimi, streamSimple: streamSimpleKimi },
+      "pi-provider-kimi-code-global-fallback",
+    );
+  } catch (error: unknown) {
+    console.error(
+      `[pi-provider-kimi-code] failed to register global api fallback for "${api}":`,
+      error instanceof Error ? error.message : error,
+    );
+  }
+}
+
+async function registerKimiProvider(pi: ExtensionAPI, state: KimiRuntimeState): Promise<void> {
+  await registerKimiGlobalApiFallback(state.config.protocol);
   pi.registerProvider(PROVIDER_ID, {
     baseUrl: getBaseUrl(state.config.protocol),
     apiKey: "$KIMI_API_KEY",
@@ -509,7 +538,7 @@ export function KimiCode(overrides?: KimiCodeConfigPatch): ExtensionFactory {
       overrides,
     };
     reloadEffectiveKimiRuntimeConfig(state, cwd, false);
-    registerKimiProvider(pi, state);
+    await registerKimiProvider(pi, state);
 
     registerConfiguredMoonshotTools(pi, state.config, { updateActiveTools: false });
 
@@ -519,7 +548,7 @@ export function KimiCode(overrides?: KimiCodeConfigPatch): ExtensionFactory {
         updateActiveTools: true,
         projectTrusted,
       });
-      registerKimiProvider(pi, state);
+      await registerKimiProvider(pi, state);
     });
 
     pi.registerCommand("kimi-settings", {
