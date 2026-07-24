@@ -8,6 +8,7 @@ import {
   type KimiPayloadContext,
   resolveCacheRetention,
   resolveReasoningForLevel,
+  uploadKimiFile,
 } from "../src/payload.ts";
 import {
   filterEmptyResponseStream,
@@ -584,6 +585,73 @@ describe("applyKimiPayloadMutations", () => {
 
     assert.equal(payload.reasoning_effort, undefined);
     assert.deepEqual(payload.thinking, { type: "enabled", keep: "all" });
+  });
+});
+
+describe("uploadKimiFile", () => {
+  const PNG_BASE64 = "aGVsbG8=";
+  const fileResponse = (id: string) => new Response(JSON.stringify({ id }), { status: 200 });
+  const unauthorizedResponse = () =>
+    new Response(
+      JSON.stringify({ error: { message: "invalid", type: "invalid_authentication_error" } }),
+      {
+        status: 401,
+      },
+    );
+
+  it("retries with a refreshed token when the files endpoint returns 401", async () => {
+    const authHeaders: Array<string | undefined> = [];
+    const fakeFetch: typeof fetch = async (_url, init) => {
+      const headers = init?.headers as Record<string, string> | undefined;
+      authHeaders.push(headers?.Authorization);
+      return authHeaders.length === 1 ? unauthorizedResponse() : fileResponse("file-1");
+    };
+    const refreshCalls: string[] = [];
+    const refreshAccessToken = async (token: string) => {
+      refreshCalls.push(token);
+      return "new-token";
+    };
+
+    const result = await uploadKimiFile("old-token", "image/png", PNG_BASE64, 0, {
+      fetch: fakeFetch,
+      refreshAccessToken,
+    });
+
+    assert.equal(result, "ms://file-1");
+    assert.deepEqual(refreshCalls, ["old-token"]);
+    assert.deepEqual(authHeaders, ["Bearer old-token", "Bearer new-token"]);
+  });
+
+  it("returns null without retrying when refresh does not yield a new token", async () => {
+    let fetchCalls = 0;
+    const fakeFetch: typeof fetch = async () => {
+      fetchCalls++;
+      return unauthorizedResponse();
+    };
+
+    const result = await uploadKimiFile("old-token", "image/png", PNG_BASE64, 0, {
+      fetch: fakeFetch,
+      refreshAccessToken: async () => null,
+    });
+
+    assert.equal(result, null);
+    assert.equal(fetchCalls, 1);
+  });
+
+  it("does not attempt refresh on non-401 failures", async () => {
+    let refreshCalls = 0;
+    const fakeFetch: typeof fetch = async () => new Response("server error", { status: 500 });
+
+    const result = await uploadKimiFile("token", "image/png", PNG_BASE64, 0, {
+      fetch: fakeFetch,
+      refreshAccessToken: async () => {
+        refreshCalls++;
+        return "unused";
+      },
+    });
+
+    assert.equal(result, null);
+    assert.equal(refreshCalls, 0);
   });
 });
 
