@@ -538,22 +538,39 @@ export async function applyKimiPayloadMutations(
     const mapped = resolveReasoningForLevel(resolvedReasoning, ctx.modelConfig);
     if (mapped) {
       const oldThinking = isRecord(payload.thinking) ? payload.thinking : {};
-      const thinking: JsonRecord = {
-        ...oldThinking,
-        type: mapped.enabled ? "enabled" : "disabled",
-      };
-      delete thinking.effort;
-      if (!mapped.enabled) delete thinking.keep;
       const effort = ctx.reasoning
         ? mapped.effort
         : (ctx.modelConfig.defaultEffort ?? mapped.effort);
-      if (mapped.enabled && effort !== null && ctx.modelConfig.supportEfforts?.includes(effort)) {
-        thinking.effort = effort;
+      const effortSupported =
+        effort !== null && ctx.modelConfig.supportEfforts?.includes(effort) === true;
+      if (ctx.api === "anthropic-messages" && oldThinking.type === "adaptive") {
+        // pi-ai >=0.82 builds adaptive thinking for models carrying
+        // compat.forceAdaptiveThinking (streamSimpleKimi sets it on the
+        // anthropic runtime model). Keep the adaptive shape — effort lives in
+        // top-level output_config there, not inside thinking — and only
+        // replace it with an explicit disable when the level maps to off.
+        if (mapped.enabled) {
+          if (effortSupported) payload.output_config = { effort };
+          else delete payload.output_config;
+        } else {
+          payload.thinking = { type: "disabled" };
+          delete payload.output_config;
+        }
+      } else {
+        const thinking: JsonRecord = {
+          ...oldThinking,
+          type: mapped.enabled ? "enabled" : "disabled",
+        };
+        delete thinking.effort;
+        if (!mapped.enabled) delete thinking.keep;
+        if (mapped.enabled && effortSupported) {
+          thinking.effort = effort;
+        }
+        if (mapped.enabled && ctx.modelConfig.thinkingKeep) {
+          thinking.keep = ctx.modelConfig.thinkingKeep;
+        }
+        payload.thinking = thinking;
       }
-      if (mapped.enabled && ctx.modelConfig.thinkingKeep) {
-        thinking.keep = ctx.modelConfig.thinkingKeep;
-      }
-      payload.thinking = thinking;
     }
   }
 
