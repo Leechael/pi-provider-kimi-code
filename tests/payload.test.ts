@@ -264,7 +264,10 @@ describe("applyKimiPayloadMutations", () => {
     assert.equal(payload.seed, 42);
   });
 
-  it("strips temperature and top_p values rejected by K2.7 Code", async () => {
+  it("omits temperature and top_p when not explicitly configured (official default)", async () => {
+    // The official kimi-code client sends neither unless KIMI_MODEL_TEMPERATURE /
+    // KIMI_MODEL_TOP_P are set; any value pi-ai seeded must be dropped, including
+    // the previously pinned 1.0 / 0.95.
     const payload: JsonRecord = {
       messages: [{ role: "user", content: "hi" }],
       temperature: 0.4,
@@ -273,17 +276,29 @@ describe("applyKimiPayloadMutations", () => {
     await applyKimiPayloadMutations(payload, baseCtx());
     assert.equal(payload.temperature, undefined);
     assert.equal(payload.top_p, undefined);
-  });
 
-  it("keeps temperature 1 and top_p 0.95 (K2.7 defaults)", async () => {
-    const payload: JsonRecord = {
+    const pinned: JsonRecord = {
       messages: [{ role: "user", content: "hi" }],
       temperature: 1,
       top_p: 0.95,
     };
-    await applyKimiPayloadMutations(payload, baseCtx());
-    assert.equal(payload.temperature, 1);
-    assert.equal(payload.top_p, 0.95);
+    await applyKimiPayloadMutations(pinned, baseCtx());
+    assert.equal(pinned.temperature, undefined);
+    assert.equal(pinned.top_p, undefined);
+  });
+
+  it("sends temperature and top_p only when explicitly configured", async () => {
+    const payload: JsonRecord = {
+      messages: [{ role: "user", content: "hi" }],
+    };
+    await applyKimiPayloadMutations(
+      payload,
+      baseCtx({
+        modelConfig: { ...defaultModelConfig, generation: { temperature: 0.7, topP: 0.9 } },
+      }),
+    );
+    assert.equal(payload.temperature, 0.7);
+    assert.equal(payload.top_p, 0.9);
   });
 
   it("clamps tool_choice to auto for K2.7 Code", async () => {
