@@ -927,6 +927,21 @@ describe("isKimiAuthErrorMessage", () => {
     assert.equal(isKimiAuthErrorMessage("invalid api key"), true);
   });
 
+  it("recognizes Kimi's production 401 text even without a status-code prefix", () => {
+    assert.equal(
+      isKimiAuthErrorMessage(
+        "The API Key appears to be invalid or may have expired. Please verify your credentials and try again.",
+      ),
+      true,
+    );
+    assert.equal(
+      isKimiAuthErrorMessage(
+        '{"error":{"message":"bad credentials","type":"invalid_authentication_error"}}',
+      ),
+      true,
+    );
+  });
+
   it("does not classify membership permission failures as auth failures", () => {
     assert.equal(
       isKimiAuthErrorMessage(
