@@ -7,6 +7,7 @@ import type { KimiResolvedModelConfig, ModelReasoningEntry } from "./config.ts";
 
 import { getBaseUrl } from "./constants.ts";
 import { getKimiProviderHeaders } from "./device.ts";
+import { refreshKimiAuthToken } from "./oauth.ts";
 import { optimizeToolSchemas } from "./schema-dedup.ts";
 
 // =============================================================================
@@ -88,12 +89,20 @@ function getUploadFilename(mimeType: string): string {
 // File upload (I/O edge)
 // =============================================================================
 
+export interface UploadKimiFileDeps {
+  fetch?: typeof fetch;
+  refreshAccessToken?: (currentToken: string) => Promise<string | null>;
+}
+
 export async function uploadKimiFile(
   apiKey: string,
   mimeType: string,
   data: string,
   thresholdBytes?: number,
+  deps?: UploadKimiFileDeps,
 ): Promise<string | null> {
+  const fetchImpl = deps?.fetch ?? fetch;
+  const refreshAccessToken = deps?.refreshAccessToken ?? refreshKimiAuthToken;
   const buffer = Buffer.from(data, "base64");
   if (!mimeType.startsWith("image/")) return null;
   const threshold =
@@ -113,12 +122,26 @@ export async function uploadKimiFile(
     );
   }
 
-  try {
-    const response = await fetch(uploadUrl, {
+  const postUpload = (token: string) =>
+    fetchImpl(uploadUrl, {
       method: "POST",
-      headers: { ...getKimiProviderHeaders(), Authorization: `Bearer ${apiKey}` },
+      headers: { ...getKimiProviderHeaders(), Authorization: `Bearer ${token}` },
       body: formData,
     });
+
+  try {
+    let response = await postUpload(apiKey);
+    // Kimi access tokens are short-lived and invalidated server-side as soon
+    // as any peer process rotates them, so a 401 here usually means our key
+    // snapshot went stale mid-session, not that login is broken. Mirror the
+    // chat-stream recovery: force one refresh and retry once.
+    if (response.status === 401) {
+      const refreshed = await refreshAccessToken(apiKey);
+      if (refreshed && refreshed !== apiKey) {
+        console.error("[kimi-coding] upload got 401, retrying with refreshed token");
+        response = await postUpload(refreshed);
+      }
+    }
     if (!response.ok) throw new Error(`${response.status} ${await response.text()}`);
     const fileObj = (await response.json()) as { id?: string };
     if (!fileObj.id) throw new Error("missing file id");
