@@ -1,9 +1,10 @@
-import { describe, it } from "node:test";
+import { beforeEach, describe, it } from "node:test";
 import assert from "node:assert/strict";
 import type { Api, Model, ThinkingLevel } from "@earendil-works/pi-ai";
 import { DEFAULT_KIMI_CODE_CONFIG, type KimiResolvedModelConfig } from "../src/config.ts";
 import {
   applyKimiPayloadMutations,
+  clearKimiUploadedFileCache,
   type JsonRecord,
   type KimiPayloadContext,
   resolveCacheRetention,
@@ -28,6 +29,10 @@ const baseCtx = (overrides: Partial<KimiPayloadContext> = {}): KimiPayloadContex
 });
 
 describe("applyKimiPayloadMutations", () => {
+  beforeEach(() => {
+    clearKimiUploadedFileCache();
+  });
+
   it('rewrites role: "developer" to "system" so Kimi accepts the message', async () => {
     const payload: JsonRecord = {
       messages: [
@@ -230,6 +235,55 @@ describe("applyKimiPayloadMutations", () => {
     const source = block.source as JsonRecord;
     assert.equal(source.type, "url");
     assert.equal(source.url, "ms://anthropic-id");
+  });
+
+  it("reuses uploaded ms:// results across requests without re-uploading", async () => {
+    let invocations = 0;
+    const upload = async () => {
+      invocations++;
+      return "ms://persisted";
+    };
+    const makePayload = (): JsonRecord => ({
+      messages: [
+        {
+          role: "user",
+          content: [{ type: "image_url", image_url: { url: "data:image/png;base64,REUSE" } }],
+        },
+      ],
+    });
+
+    await applyKimiPayloadMutations(makePayload(), baseCtx({ api: "openai-completions", upload }));
+    const second = makePayload();
+    await applyKimiPayloadMutations(second, baseCtx({ api: "openai-completions", upload }));
+
+    assert.equal(invocations, 1);
+    const messages = second.messages as JsonRecord[];
+    const content = messages[0]?.content as JsonRecord[];
+    const imageUrl = (content[0] as JsonRecord).image_url as JsonRecord;
+    assert.equal(imageUrl.url, "ms://persisted");
+  });
+
+  it("reuses uploads across requests for anthropic payloads too", async () => {
+    let invocations = 0;
+    const upload = async () => {
+      invocations++;
+      return "ms://anthropic-persisted";
+    };
+    const makePayload = (): JsonRecord => ({
+      messages: [
+        {
+          role: "user",
+          content: [
+            { type: "image", source: { type: "base64", media_type: "image/jpeg", data: "CCCC" } },
+          ],
+        },
+      ],
+    });
+
+    await applyKimiPayloadMutations(makePayload(), baseCtx({ api: "anthropic-messages", upload }));
+    await applyKimiPayloadMutations(makePayload(), baseCtx({ api: "anthropic-messages", upload }));
+
+    assert.equal(invocations, 1);
   });
 
   it("caches uploads so the same image is uploaded only once per request", async () => {
