@@ -83,6 +83,16 @@ function getUploadFilename(mimeType: string): string {
     "image/png": "upload.png",
     "image/gif": "upload.gif",
     "image/webp": "upload.webp",
+    // Video extensions mirror upstream kimi-code's MIME_TO_EXT
+    // (packages/kosong/src/providers/kimi-files.ts).
+    "video/mp4": "upload.mp4",
+    "video/mpeg": "upload.mpeg",
+    "video/quicktime": "upload.mov",
+    "video/webm": "upload.webm",
+    "video/x-matroska": "upload.mkv",
+    "video/x-msvideo": "upload.avi",
+    "video/x-flv": "upload.flv",
+    "video/3gpp": "upload.3gp",
   };
   return map[mimeType] ?? "upload.bin";
 }
@@ -106,15 +116,19 @@ export async function uploadKimiFile(
   const fetchImpl = deps?.fetch ?? fetch;
   const refreshAccessToken = deps?.refreshAccessToken ?? refreshKimiAuthToken;
   const buffer = Buffer.from(data, "base64");
-  if (!mimeType.startsWith("image/")) return null;
+  const isVideo = mimeType.startsWith("video/");
+  if (!mimeType.startsWith("image/") && !isVideo) return null;
   const threshold =
     thresholdBytes ?? parseInlineUploadThreshold(process.env.KIMI_CODE_UPLOAD_THRESHOLD_BYTES);
-  if (buffer.length <= threshold) return null;
+  // The inline threshold applies to images only: the Kimi API has no inline
+  // video path (upstream kimi-code uploads every video via /files), so videos
+  // always upload.
+  if (!isVideo && buffer.length <= threshold) return null;
 
   const filename = getUploadFilename(mimeType);
   const formData = new FormData();
   formData.append("file", new Blob([buffer], { type: mimeType }), filename);
-  formData.append("purpose", "image");
+  formData.append("purpose", isVideo ? "video" : "image");
 
   const uploadUrl = `${deriveFilesBaseUrl(getBaseUrl())}/files`;
   const debug = process.env.KIMI_CODE_DEBUG === "1";
@@ -202,7 +216,8 @@ async function transformOpenAIPayloadFiles(payload: JsonRecord, upload: Uploader
 
     for (const block of message.content) {
       if (!isRecord(block)) continue;
-      const key = block.type === "image_url" ? "image_url" : null;
+      const key =
+        block.type === "image_url" ? "image_url" : block.type === "video_url" ? "video_url" : null;
       if (!key) continue;
 
       const field = block[key];
