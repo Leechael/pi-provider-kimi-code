@@ -431,6 +431,69 @@ describe("applyKimiPayloadMutations", () => {
     }
   });
 
+  it("keeps pi-ai's adaptive thinking shape and maps effort into output_config", async () => {
+    const payload: JsonRecord = {
+      messages: [{ role: "user", content: "hi" }],
+      thinking: { type: "adaptive", display: "summarized" },
+    };
+
+    await applyKimiPayloadMutations(
+      payload,
+      baseCtx({
+        reasoning: "high",
+        modelConfig: { ...defaultModelConfig, supportEfforts: ["low", "high"] },
+      }),
+    );
+
+    assert.deepEqual(payload.thinking, { type: "adaptive", display: "summarized" });
+    assert.deepEqual(payload.output_config, { effort: "high" });
+  });
+
+  it("disables adaptive thinking when the level maps to off", async () => {
+    const payload: JsonRecord = {
+      messages: [{ role: "user", content: "hi" }],
+      thinking: { type: "adaptive", display: "summarized" },
+      output_config: { effort: "high" },
+    };
+
+    await applyKimiPayloadMutations(
+      payload,
+      baseCtx({
+        reasoning: "minimal",
+        modelConfig: {
+          ...defaultModelConfig,
+          reasoningMap: {
+            ...defaultModelConfig.reasoningMap,
+            minimal: { effort: null, enabled: false },
+          },
+          supportEfforts: ["low", "high"],
+        },
+      }),
+    );
+
+    assert.deepEqual(payload.thinking, { type: "disabled" });
+    assert.equal(payload.output_config, undefined);
+  });
+
+  it("drops adaptive output_config when the mapped effort is not advertised", async () => {
+    const payload: JsonRecord = {
+      messages: [{ role: "user", content: "hi" }],
+      thinking: { type: "adaptive", display: "summarized" },
+      output_config: { effort: "stale" },
+    };
+
+    await applyKimiPayloadMutations(
+      payload,
+      baseCtx({
+        reasoning: "high",
+        modelConfig: { ...defaultModelConfig, supportEfforts: ["low"] },
+      }),
+    );
+
+    assert.deepEqual(payload.thinking, { type: "adaptive", display: "summarized" });
+    assert.equal(payload.output_config, undefined);
+  });
+
   it("applies thinkingKeep only when reasoning is enabled", async () => {
     const enabledPayload: JsonRecord = {
       messages: [{ role: "user", content: "hi" }],
@@ -895,8 +958,10 @@ describe("streamSimpleKimi", () => {
 
     const payload = await capturePayload(model);
 
-    assert.equal((payload.thinking as JsonRecord).type, "enabled");
-    assert.equal((payload.thinking as JsonRecord).keep, "all");
+    // pi-ai >=0.82 + the compat.forceAdaptiveThinking flag streamSimpleKimi
+    // sets on the anthropic runtime model: enabled thinking arrives (and is
+    // kept) in the adaptive shape rather than {type:"enabled", keep}.
+    assert.equal((payload.thinking as JsonRecord).type, "adaptive");
   });
 });
 
