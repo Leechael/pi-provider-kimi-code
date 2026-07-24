@@ -2,6 +2,8 @@
 // per-protocol message transforms, OpenAI tool-call / tool-schema normalizers,
 // and the top-level applyKimiPayloadMutations that orchestrates them.
 
+import { createHash } from "node:crypto";
+
 import type { CacheRetention, ThinkingLevel } from "@earendil-works/pi-ai";
 import type { KimiResolvedModelConfig, ModelReasoningEntry } from "./config.ts";
 
@@ -155,17 +157,45 @@ export async function uploadKimiFile(
 }
 
 // =============================================================================
-// Payload file transformers (pure given an Uploader)
+// Payload file transformers
 //
 // These walk the provider-specific payload shape and replace inline base64
 // image blocks with ms:// references returned by the injected uploader. They
 // take an Uploader rather than an apiKey so they can be unit-tested with a
 // fake uploader; all network I/O stays behind that boundary.
+//
+// Successful uploads are remembered in a module-level cache shared across
+// requests: payloads are rebuilt from session context every request, so
+// without it a conversation's images would re-upload on every turn. Keys are
+// content hashes rather than the data URLs themselves so the cache does not
+// retain every image's base64 payload in memory. Failures are not cached and
+// retry on the next request.
 // =============================================================================
+
+const MAX_UPLOADED_FILE_CACHE_ENTRIES = 512;
+const uploadedFileCache = new Map<string, string>();
+
+function uploadedFileCacheKey(mimeType: string, data: string): string {
+  return `${mimeType}:${createHash("sha256").update(data).digest("hex")}`;
+}
+
+function rememberUploadedFile(cacheKey: string, url: string): void {
+  if (
+    !uploadedFileCache.has(cacheKey) &&
+    uploadedFileCache.size >= MAX_UPLOADED_FILE_CACHE_ENTRIES
+  ) {
+    const oldest = uploadedFileCache.keys().next().value;
+    if (oldest !== undefined) uploadedFileCache.delete(oldest);
+  }
+  uploadedFileCache.set(cacheKey, url);
+}
+
+export function clearKimiUploadedFileCache(): void {
+  uploadedFileCache.clear();
+}
 
 async function transformOpenAIPayloadFiles(payload: JsonRecord, upload: Uploader): Promise<void> {
   if (!Array.isArray(payload.messages)) return;
-  const cache = new Map<string, string>();
 
   for (const message of payload.messages) {
     if (!isRecord(message) || !Array.isArray(message.content)) continue;
@@ -187,9 +217,11 @@ async function transformOpenAIPayloadFiles(payload: JsonRecord, upload: Uploader
       const parsed = parseDataUrl(urlValue);
       if (!parsed) continue;
 
-      const uploaded = cache.get(urlValue) ?? (await upload(parsed.mimeType, parsed.data));
+      const cacheKey = uploadedFileCacheKey(parsed.mimeType, parsed.data);
+      const uploaded =
+        uploadedFileCache.get(cacheKey) ?? (await upload(parsed.mimeType, parsed.data));
       if (!uploaded) continue;
-      cache.set(urlValue, uploaded);
+      rememberUploadedFile(cacheKey, uploaded);
 
       block[key] =
         typeof field === "string" ? uploaded : { ...(field as JsonRecord), url: uploaded };
@@ -355,7 +387,6 @@ async function transformAnthropicPayloadFiles(
   upload: Uploader,
 ): Promise<void> {
   if (!Array.isArray(payload.messages)) return;
-  const cache = new Map<string, string>();
 
   const transformImageBlock = async (block: unknown): Promise<unknown> => {
     if (!isRecord(block) || block.type !== "image") return block;
@@ -365,10 +396,10 @@ async function transformAnthropicPayloadFiles(
     const data = source.data;
     if (typeof mediaType !== "string" || typeof data !== "string") return block;
 
-    const cacheKey = `${mediaType}:${data}`;
-    const uploaded = cache.get(cacheKey) ?? (await upload(mediaType, data));
+    const cacheKey = uploadedFileCacheKey(mediaType, data);
+    const uploaded = uploadedFileCache.get(cacheKey) ?? (await upload(mediaType, data));
     if (!uploaded) return block;
-    cache.set(cacheKey, uploaded);
+    rememberUploadedFile(cacheKey, uploaded);
 
     const next: JsonRecord = { type: "image", source: { type: "url", url: uploaded } };
     if (block.cache_control !== undefined) next.cache_control = block.cache_control;
