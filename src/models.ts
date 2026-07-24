@@ -84,6 +84,18 @@ function resolveModelCost(
   return { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 };
 }
 
+// Policy: a model's output cap tracks its context window. pi-ai clamps the
+// request cap to contextWindow - used - 4096 (clampMaxTokensToContext in
+// @earendil-works/pi-ai), so setting maxTokens to the window yields the official
+// kimi-code behavior (computeCompletionBudgetCap: maxCtx, clamped to
+// maxCtx - usedContext) instead of a fixed small cap that truncates long
+// max-effort reasoning (reasoning_content counts toward the cap). A deliberate
+// per-request cap still wins (options.maxTokens ?? model.maxTokens). Reconcile
+// wherever contextWindow is authored so the two stay in lockstep.
+function withWindowCappedMaxTokens<M extends Model<Api>>(model: M): M {
+  return { ...model, maxTokens: model.contextWindow };
+}
+
 export function buildKimiModelFromConfig(
   config: ModelConfig,
   modelId = KIMI_CODING_MODEL_ID,
@@ -97,7 +109,7 @@ export function buildKimiModelFromConfig(
         : modelId === KIMI_CODING_MODEL_ID
           ? "Kimi for Coding"
           : modelId;
-  return {
+  return withWindowCappedMaxTokens({
     id: modelId,
     name,
     reasoning: config.reasoning,
@@ -105,7 +117,7 @@ export function buildKimiModelFromConfig(
     cost: { ...resolveModelCost(modelId) },
     contextWindow: config.contextWindow,
     maxTokens: config.maxTokens,
-  } as Model<Api>;
+  } as Model<Api>);
 }
 
 export function resolveKimiModelConfig(
@@ -347,5 +359,6 @@ export function applyKimiOAuthExtrasToModel(
     if (thinkingLevelMap) next.thinkingLevelMap = thinkingLevelMap;
     else delete next.thinkingLevelMap;
   }
-  return next;
+  // Reconcile the output cap with the (possibly discovery-updated) window.
+  return withWindowCappedMaxTokens(next);
 }
