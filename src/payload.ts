@@ -447,8 +447,17 @@ export async function applyKimiPayloadMutations(
   }
 
   const generation = ctx.modelConfig.generation;
+  // Official kimi-code sends temperature/top_p only when explicitly configured
+  // (env KIMI_MODEL_TEMPERATURE / KIMI_MODEL_TOP_P → generation.*); otherwise it
+  // omits them and lets the server apply its own defaults. Mirror that exactly:
+  // drop any value pi-ai seeded by default when the user hasn't configured one
+  // (the official client does not pin these to 1.0 / 0.95).
   if (generation.temperature !== undefined) payload.temperature = generation.temperature;
+  else delete payload.temperature;
   if (generation.topP !== undefined) payload.top_p = generation.topP;
+  else delete payload.top_p;
+  // Output cap: an explicit cap (KIMI_MODEL_MAX_COMPLETION_TOKENS / config →
+  // generation.maxCompletionTokens) is honored as a hardCap on the request value.
   if (generation.maxCompletionTokens !== undefined) {
     const maxTokensKey = ctx.api === "anthropic-messages" ? "max_tokens" : "max_completion_tokens";
     const currentMaxTokens = payload[maxTokensKey];
@@ -510,15 +519,10 @@ export async function applyKimiPayloadMutations(
     }
   }
 
-  // 8. K2.7 Code API constraints: the server rejects non-default values for
-  //    temperature (must be 1.0) and top_p (must be 0.95), and tool_choice
-  //    "required" / function-specific when thinking is enabled (always-on).
-  if (payload.temperature !== undefined && payload.temperature !== 1) {
-    delete payload.temperature;
-  }
-  if (payload.top_p !== undefined && payload.top_p !== 0.95) {
-    delete payload.top_p;
-  }
+  // 8. K2.7 Code API constraints: the server rejects tool_choice "required" /
+  //    function-specific when thinking is enabled (always-on). temperature/top_p
+  //    are handled in step 6 — omitted unless explicitly configured, matching the
+  //    official kimi-code client rather than pinned to 1.0/0.95.
   if (payload.tool_choice !== undefined) {
     const tc = payload.tool_choice;
     const isAllowed =
