@@ -36,6 +36,10 @@ const DEFAULT_DISCOVERY_TIMEOUT_MS = 2500;
 
 export interface DiscoverKimiModelMetadataOptions {
   timeoutMs?: number;
+  // 401 recovery for runtime callers (extension startup, settings menu).
+  // oauth.ts's login/refresh flows must NOT pass this: they call discovery
+  // while holding the OAuth lock, and refreshKimiAuthToken would re-enter it.
+  refreshAccessToken?: (currentToken: string) => Promise<string | null>;
 }
 
 function mergeInputModalities(
@@ -225,15 +229,23 @@ export async function discoverKimiModelMetadata(
   const controller = new AbortController();
   const timeout =
     timeoutMs > 0 ? setTimeout(() => controller.abort(), timeoutMs).unref() : undefined;
-  try {
-    const response = await fetch(modelsUrl, {
+  const requestModels = (token: string) =>
+    fetch(modelsUrl, {
       signal: controller.signal,
       headers: {
         ...getKimiProviderHeaders(),
-        Authorization: `Bearer ${accessToken}`,
+        Authorization: `Bearer ${token}`,
         Accept: "application/json",
       },
     });
+  try {
+    let response = await requestModels(accessToken);
+    if (response.status === 401 && options.refreshAccessToken) {
+      const refreshed = await options.refreshAccessToken(accessToken);
+      if (refreshed && refreshed !== accessToken) {
+        response = await requestModels(refreshed);
+      }
+    }
     if (!response.ok) return {};
     const json = (await response.json()) as { data?: unknown };
     const list = Array.isArray(json.data) ? (json.data as KimiServerModel[]) : [];
