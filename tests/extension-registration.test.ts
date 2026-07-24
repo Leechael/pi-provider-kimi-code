@@ -572,6 +572,59 @@ describe("extension tool registration", () => {
         );
       }
       if (url.endsWith("/api/oauth/token")) {
+        return new Response(JSON.stringify({ error: "invalid_grant" }), {
+          status: 401,
+          headers: { "content-type": "application/json" },
+        });
+      }
+      throw new Error(`unexpected request: ${url}`);
+    };
+
+    try {
+      await withCwd(cwd, () => registerKimiCodeExtension(pi));
+      assert.deepEqual(
+        providerConfigs.get("kimi-coding")?.models?.map((model) => [model.id, model.contextWindow]),
+        [
+          ["kimi-for-coding", 262144],
+          ["kimi-for-coding-highspeed", 262144],
+          ["k3", 262144],
+        ],
+      );
+    } finally {
+      globalThis.fetch = originalFetch;
+      auth.cleanup();
+    }
+  });
+
+  it("recovers the model catalog by refreshing a stale token during discovery", async () => {
+    const cwd = tempDir("kimi-extension-cwd");
+    const { pi, providerConfigs } = makePi();
+    const auth = withTempAuthFile({
+      type: "oauth",
+      access: "stale-access",
+      refresh: "refresh-token",
+      expires: Date.now() - 60_000,
+    });
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = async (input, init) => {
+      const url = String(input);
+      const headers = init?.headers as Record<string, string> | undefined;
+      const authorization = String(headers?.Authorization ?? "");
+      if (url.endsWith("/models")) {
+        if (authorization !== "Bearer fresh-access")
+          return new Response("expired", { status: 401 });
+        return new Response(
+          JSON.stringify({
+            data: [
+              { id: "kimi-for-coding", context_length: 262144 },
+              { id: "kimi-for-coding-highspeed", context_length: 262144 },
+              { id: "k3", context_length: 1048576 },
+            ],
+          }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        );
+      }
+      if (url.endsWith("/api/oauth/token")) {
         return new Response(
           JSON.stringify({
             access_token: "fresh-access",
@@ -593,7 +646,7 @@ describe("extension tool registration", () => {
         [
           ["kimi-for-coding", 262144],
           ["kimi-for-coding-highspeed", 262144],
-          ["k3", 262144],
+          ["k3", 1048576],
         ],
       );
     } finally {

@@ -1,13 +1,15 @@
-import { describe, it } from "node:test";
+import { beforeEach, describe, it } from "node:test";
 import assert from "node:assert/strict";
 import type { Api, Model, ThinkingLevel } from "@earendil-works/pi-ai";
 import { DEFAULT_KIMI_CODE_CONFIG, type KimiResolvedModelConfig } from "../src/config.ts";
 import {
   applyKimiPayloadMutations,
+  clearKimiUploadedFileCache,
   type JsonRecord,
   type KimiPayloadContext,
   resolveCacheRetention,
   resolveReasoningForLevel,
+  uploadKimiFile,
 } from "../src/payload.ts";
 import {
   filterEmptyResponseStream,
@@ -27,6 +29,10 @@ const baseCtx = (overrides: Partial<KimiPayloadContext> = {}): KimiPayloadContex
 });
 
 describe("applyKimiPayloadMutations", () => {
+  beforeEach(() => {
+    clearKimiUploadedFileCache();
+  });
+
   it('rewrites role: "developer" to "system" so Kimi accepts the message', async () => {
     const payload: JsonRecord = {
       messages: [
@@ -113,10 +119,10 @@ describe("applyKimiPayloadMutations", () => {
     assert.equal(imageUrl.url, "ms://abc123");
   });
 
-  it("does not treat OpenAI video_url blocks as uploadable content", async () => {
-    let invocations = 0;
-    const upload = async () => {
-      invocations++;
+  it("uploads inline base64 videos in openai payloads and replaces the URL with the uploader's id", async () => {
+    const calls: Array<{ mimeType: string; data: string }> = [];
+    const upload = async (mimeType: string, data: string) => {
+      calls.push({ mimeType, data });
       return "ms://video-id";
     };
 
@@ -136,12 +142,45 @@ describe("applyKimiPayloadMutations", () => {
 
     await applyKimiPayloadMutations(payload, baseCtx({ api: "openai-completions", upload }));
 
+    assert.equal(calls.length, 1);
+    assert.equal(calls[0]?.mimeType, "video/mp4");
+    assert.equal(calls[0]?.data, "AAAA");
+    const messages = payload.messages as JsonRecord[];
+    const content = messages[0]?.content as JsonRecord[];
+    const block = content[0] as JsonRecord;
+    const videoUrl = block.video_url as JsonRecord;
+    assert.equal(videoUrl.url, "ms://video-id");
+  });
+
+  it("leaves non-data video_url values untouched", async () => {
+    let invocations = 0;
+    const upload = async () => {
+      invocations++;
+      return "ms://never";
+    };
+
+    const payload: JsonRecord = {
+      messages: [
+        {
+          role: "user",
+          content: [
+            { type: "video_url", video_url: { url: "ms://already-uploaded" } },
+            { type: "video_url", video_url: { url: "https://example.com/clip.mp4" } },
+          ],
+        },
+      ],
+    };
+
+    await applyKimiPayloadMutations(payload, baseCtx({ api: "openai-completions", upload }));
+
     assert.equal(invocations, 0);
     const messages = payload.messages as JsonRecord[];
     const content = messages[0]?.content as JsonRecord[];
     const block = content[0] as JsonRecord;
     const videoUrl = block.video_url as JsonRecord;
-    assert.equal(videoUrl.url, "data:video/mp4;base64,AAAA");
+    assert.equal(videoUrl.url, "ms://already-uploaded");
+    const httpBlock = content[1] as JsonRecord;
+    assert.equal((httpBlock.video_url as JsonRecord).url, "https://example.com/clip.mp4");
   });
 
   it("drops empty assistant content when OpenAI tool calls are present", async () => {
@@ -229,6 +268,55 @@ describe("applyKimiPayloadMutations", () => {
     const source = block.source as JsonRecord;
     assert.equal(source.type, "url");
     assert.equal(source.url, "ms://anthropic-id");
+  });
+
+  it("reuses uploaded ms:// results across requests without re-uploading", async () => {
+    let invocations = 0;
+    const upload = async () => {
+      invocations++;
+      return "ms://persisted";
+    };
+    const makePayload = (): JsonRecord => ({
+      messages: [
+        {
+          role: "user",
+          content: [{ type: "image_url", image_url: { url: "data:image/png;base64,REUSE" } }],
+        },
+      ],
+    });
+
+    await applyKimiPayloadMutations(makePayload(), baseCtx({ api: "openai-completions", upload }));
+    const second = makePayload();
+    await applyKimiPayloadMutations(second, baseCtx({ api: "openai-completions", upload }));
+
+    assert.equal(invocations, 1);
+    const messages = second.messages as JsonRecord[];
+    const content = messages[0]?.content as JsonRecord[];
+    const imageUrl = (content[0] as JsonRecord).image_url as JsonRecord;
+    assert.equal(imageUrl.url, "ms://persisted");
+  });
+
+  it("reuses uploads across requests for anthropic payloads too", async () => {
+    let invocations = 0;
+    const upload = async () => {
+      invocations++;
+      return "ms://anthropic-persisted";
+    };
+    const makePayload = (): JsonRecord => ({
+      messages: [
+        {
+          role: "user",
+          content: [
+            { type: "image", source: { type: "base64", media_type: "image/jpeg", data: "CCCC" } },
+          ],
+        },
+      ],
+    });
+
+    await applyKimiPayloadMutations(makePayload(), baseCtx({ api: "anthropic-messages", upload }));
+    await applyKimiPayloadMutations(makePayload(), baseCtx({ api: "anthropic-messages", upload }));
+
+    assert.equal(invocations, 1);
   });
 
   it("caches uploads so the same image is uploaded only once per request", async () => {
@@ -341,6 +429,69 @@ describe("applyKimiPayloadMutations", () => {
       );
       assert.deepEqual(payload.thinking, { type: "enabled", effort: "max", keep: "all" });
     }
+  });
+
+  it("keeps pi-ai's adaptive thinking shape and maps effort into output_config", async () => {
+    const payload: JsonRecord = {
+      messages: [{ role: "user", content: "hi" }],
+      thinking: { type: "adaptive", display: "summarized" },
+    };
+
+    await applyKimiPayloadMutations(
+      payload,
+      baseCtx({
+        reasoning: "high",
+        modelConfig: { ...defaultModelConfig, supportEfforts: ["low", "high"] },
+      }),
+    );
+
+    assert.deepEqual(payload.thinking, { type: "adaptive", display: "summarized" });
+    assert.deepEqual(payload.output_config, { effort: "high" });
+  });
+
+  it("disables adaptive thinking when the level maps to off", async () => {
+    const payload: JsonRecord = {
+      messages: [{ role: "user", content: "hi" }],
+      thinking: { type: "adaptive", display: "summarized" },
+      output_config: { effort: "high" },
+    };
+
+    await applyKimiPayloadMutations(
+      payload,
+      baseCtx({
+        reasoning: "minimal",
+        modelConfig: {
+          ...defaultModelConfig,
+          reasoningMap: {
+            ...defaultModelConfig.reasoningMap,
+            minimal: { effort: null, enabled: false },
+          },
+          supportEfforts: ["low", "high"],
+        },
+      }),
+    );
+
+    assert.deepEqual(payload.thinking, { type: "disabled" });
+    assert.equal(payload.output_config, undefined);
+  });
+
+  it("drops adaptive output_config when the mapped effort is not advertised", async () => {
+    const payload: JsonRecord = {
+      messages: [{ role: "user", content: "hi" }],
+      thinking: { type: "adaptive", display: "summarized" },
+      output_config: { effort: "stale" },
+    };
+
+    await applyKimiPayloadMutations(
+      payload,
+      baseCtx({
+        reasoning: "high",
+        modelConfig: { ...defaultModelConfig, supportEfforts: ["low"] },
+      }),
+    );
+
+    assert.deepEqual(payload.thinking, { type: "adaptive", display: "summarized" });
+    assert.equal(payload.output_config, undefined);
   });
 
   it("applies thinkingKeep only when reasoning is enabled", async () => {
@@ -587,6 +738,107 @@ describe("applyKimiPayloadMutations", () => {
   });
 });
 
+describe("uploadKimiFile", () => {
+  const PNG_BASE64 = "aGVsbG8=";
+  const fileResponse = (id: string) => new Response(JSON.stringify({ id }), { status: 200 });
+  const unauthorizedResponse = () =>
+    new Response(
+      JSON.stringify({ error: { message: "invalid", type: "invalid_authentication_error" } }),
+      {
+        status: 401,
+      },
+    );
+
+  it("retries with a refreshed token when the files endpoint returns 401", async () => {
+    const authHeaders: Array<string | undefined> = [];
+    const fakeFetch: typeof fetch = async (_url, init) => {
+      const headers = init?.headers as Record<string, string> | undefined;
+      authHeaders.push(headers?.Authorization);
+      return authHeaders.length === 1 ? unauthorizedResponse() : fileResponse("file-1");
+    };
+    const refreshCalls: string[] = [];
+    const refreshAccessToken = async (token: string) => {
+      refreshCalls.push(token);
+      return "new-token";
+    };
+
+    const result = await uploadKimiFile("old-token", "image/png", PNG_BASE64, 0, {
+      fetch: fakeFetch,
+      refreshAccessToken,
+    });
+
+    assert.equal(result, "ms://file-1");
+    assert.deepEqual(refreshCalls, ["old-token"]);
+    assert.deepEqual(authHeaders, ["Bearer old-token", "Bearer new-token"]);
+  });
+
+  it("returns null without retrying when refresh does not yield a new token", async () => {
+    let fetchCalls = 0;
+    const fakeFetch: typeof fetch = async () => {
+      fetchCalls++;
+      return unauthorizedResponse();
+    };
+
+    const result = await uploadKimiFile("old-token", "image/png", PNG_BASE64, 0, {
+      fetch: fakeFetch,
+      refreshAccessToken: async () => null,
+    });
+
+    assert.equal(result, null);
+    assert.equal(fetchCalls, 1);
+  });
+
+  it("uploads videos with purpose=video regardless of the inline threshold", async () => {
+    let form: FormData | undefined;
+    const fakeFetch: typeof fetch = async (_url, init) => {
+      form = init?.body as FormData;
+      return fileResponse("video-1");
+    };
+
+    const result = await uploadKimiFile("token", "video/mp4", PNG_BASE64, 10 * 1024 * 1024, {
+      fetch: fakeFetch,
+      refreshAccessToken: async () => null,
+    });
+
+    assert.equal(result, "ms://video-1");
+    assert.ok(form);
+    assert.equal(form.get("purpose"), "video");
+    assert.equal((form.get("file") as File).name, "upload.mp4");
+  });
+
+  it("still rejects non-media mime types without fetching", async () => {
+    let fetchCalls = 0;
+    const fakeFetch: typeof fetch = async () => {
+      fetchCalls++;
+      return fileResponse("nope");
+    };
+
+    const result = await uploadKimiFile("token", "application/pdf", PNG_BASE64, 0, {
+      fetch: fakeFetch,
+      refreshAccessToken: async () => null,
+    });
+
+    assert.equal(result, null);
+    assert.equal(fetchCalls, 0);
+  });
+
+  it("does not attempt refresh on non-401 failures", async () => {
+    let refreshCalls = 0;
+    const fakeFetch: typeof fetch = async () => new Response("server error", { status: 500 });
+
+    const result = await uploadKimiFile("token", "image/png", PNG_BASE64, 0, {
+      fetch: fakeFetch,
+      refreshAccessToken: async () => {
+        refreshCalls++;
+        return "unused";
+      },
+    });
+
+    assert.equal(result, null);
+    assert.equal(refreshCalls, 0);
+  });
+});
+
 describe("resolveReasoningForLevel", () => {
   it("returns mapped reasoning entries from model config", () => {
     assert.deepEqual(resolveReasoningForLevel("none", defaultModelConfig), {
@@ -706,8 +958,10 @@ describe("streamSimpleKimi", () => {
 
     const payload = await capturePayload(model);
 
-    assert.equal((payload.thinking as JsonRecord).type, "enabled");
-    assert.equal((payload.thinking as JsonRecord).keep, "all");
+    // pi-ai >=0.82 + the compat.forceAdaptiveThinking flag streamSimpleKimi
+    // sets on the anthropic runtime model: enabled thinking arrives (and is
+    // kept) in the adaptive shape rather than {type:"enabled", keep}.
+    assert.equal((payload.thinking as JsonRecord).type, "adaptive");
   });
 });
 
