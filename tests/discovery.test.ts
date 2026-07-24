@@ -91,6 +91,53 @@ describe("discoverKimiModelMetadata", () => {
     assert.equal(headers.Authorization, "Bearer tok-1");
   });
 
+  it("retries once with a refreshed token when the models endpoint returns 401", async () => {
+    mock = mockFetch((call) => {
+      const headers = call.init?.headers as Record<string, string>;
+      return headers.Authorization === "Bearer tok-new"
+        ? jsonResponse({
+            data: [
+              { id: "kimi-for-coding", display_name: "Kimi For Coding", context_length: 262144 },
+            ],
+          })
+        : jsonResponse({ error: { type: "invalid_authentication_error" } }, 401);
+    });
+    const refreshCalls: string[] = [];
+
+    const result = await discoverKimiModelMetadata("tok-stale", undefined, {
+      refreshAccessToken: async (token) => {
+        refreshCalls.push(token);
+        return "tok-new";
+      },
+    });
+
+    assert.equal(result.wireModelId, "kimi-for-coding");
+    assert.deepEqual(refreshCalls, ["tok-stale"]);
+    assert.equal(mock.calls.length, 2);
+    const retryHeaders = mock.calls[1]?.init?.headers as Record<string, string>;
+    assert.equal(retryHeaders.Authorization, "Bearer tok-new");
+  });
+
+  it("returns empty on 401 when no refreshAccessToken is provided", async () => {
+    mock = mockFetch(() => jsonResponse({ error: { type: "invalid_authentication_error" } }, 401));
+
+    const result = await discoverKimiModelMetadata("tok-stale");
+
+    assert.deepEqual(result, {});
+    assert.equal(mock.calls.length, 1);
+  });
+
+  it("does not retry when refresh yields no new token", async () => {
+    mock = mockFetch(() => jsonResponse({ error: { type: "invalid_authentication_error" } }, 401));
+
+    const result = await discoverKimiModelMetadata("tok-stale", undefined, {
+      refreshAccessToken: async () => null,
+    });
+
+    assert.deepEqual(result, {});
+    assert.equal(mock.calls.length, 1);
+  });
+
   it("retains metadata for every model returned by the catalog", async () => {
     mock = mockFetch(() =>
       jsonResponse({

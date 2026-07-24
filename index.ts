@@ -53,7 +53,12 @@ import {
   hasKimiModelMetadata,
   resolveKimiModelConfig,
 } from "./src/models.ts";
-import { getKimiApiKey, loginKimiCode, refreshKimiCodeToken } from "./src/oauth.ts";
+import {
+  getKimiApiKey,
+  loginKimiCode,
+  refreshKimiAuthToken,
+  refreshKimiCodeToken,
+} from "./src/oauth.ts";
 import { isKimiProjectConfigApproved } from "./src/project-trust.ts";
 import {
   type KimiConfigScope,
@@ -144,7 +149,9 @@ function applyEffectiveKimiRuntimeConfig(
 async function refreshModelExtras(state: KimiRuntimeState): Promise<boolean> {
   const token = getKimiUsageToken();
   if (!token) return false;
-  const extras = await discoverKimiModelMetadata(token, state.config.protocol);
+  const extras = await discoverKimiModelMetadata(token, state.config.protocol, {
+    refreshAccessToken: refreshKimiAuthToken,
+  });
   if (Object.keys(extras).length === 0) return false;
   Object.assign(state.modelExtras, extras);
   return true;
@@ -490,7 +497,9 @@ export function KimiCode(overrides?: KimiCodeConfigPatch): ExtensionFactory {
     );
     const discoveryToken = getKimiUsageToken();
     const initialDiscovery = discoveryToken
-      ? await discoverKimiModelMetadata(discoveryToken, config.protocol)
+      ? await discoverKimiModelMetadata(discoveryToken, config.protocol, {
+          refreshAccessToken: refreshKimiAuthToken,
+        })
       : {};
     let discovered = initialDiscovery;
     const refreshedToken = getKimiUsageToken();
@@ -499,7 +508,9 @@ export function KimiCode(overrides?: KimiCodeConfigPatch): ExtensionFactory {
       refreshedToken &&
       refreshedToken !== discoveryToken
     ) {
-      discovered = await discoverKimiModelMetadata(refreshedToken, config.protocol);
+      discovered = await discoverKimiModelMetadata(refreshedToken, config.protocol, {
+        refreshAccessToken: refreshKimiAuthToken,
+      });
     }
     const state: KimiRuntimeState = {
       cwd,
