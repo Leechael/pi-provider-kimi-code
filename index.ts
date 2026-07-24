@@ -27,6 +27,29 @@ import {
 import { Input, SettingsList, type SettingItem, truncateToWidth } from "@earendil-works/pi-tui";
 import os from "node:os";
 
+// Global-registry fallback: some third-party pi extensions call
+// pi-agent-core's bare `agentLoop()`/`Agent` APIs without threading a
+// `streamFn` through, which makes them fall back to the *process-wide*
+// default stream function (pi-ai/compat's plain `streamSimple`). That
+// default only knows the small built-in api id set (anthropic-messages,
+// openai-completions, ...) and has no idea about this extension's custom
+// `kimi-openai-completions` / `kimi-anthropic-messages` api ids, which
+// otherwise only exist inside the ModelRuntime-composed provider object
+// pi.registerProvider() sets up. When one of those bare callers picks a
+// Kimi model (e.g. because it defaults to "whatever the active session
+// model is"), pi-ai throws `No API provider registered for api: ...` and,
+// being an uncaught rejection deep in someone else's background task,
+// takes the whole pi process down.
+//
+// Registering the same streamSimpleKimi implementation directly in pi-ai's
+// global api-provider registry (in addition to the normal provider-level
+// registration below) means those bare callers resolve correctly too, as
+// long as they pass a real apiKey/headers (background callers that use
+// `ctx.modelRegistry.getApiKeyAndHeaders(model)` already do). This is a
+// defensive belt-and-suspenders registration; it does not change normal
+// pi-coding-agent request routing.
+import { registerApiProvider } from "@earendil-works/pi-ai/compat";
+
 import {
   type KimiCodeConfig,
   type KimiCodeConfigPatch,
@@ -402,7 +425,24 @@ function buildKimiCatalogModels(state: KimiRuntimeState) {
   );
 }
 
+function registerKimiGlobalApiFallback(protocol: KimiCodeConfig["protocol"]): void {
+  const api = getKimiApiType(protocol);
+  try {
+    registerApiProvider(
+      { api, stream: streamSimpleKimi, streamSimple: streamSimpleKimi },
+      "pi-provider-kimi-code-global-fallback",
+    );
+  } catch (error: unknown) {
+    // Never let this defensive registration break normal provider setup.
+    console.error(
+      `[pi-provider-kimi-code] failed to register global api fallback for "${api}":`,
+      error instanceof Error ? error.message : error,
+    );
+  }
+}
+
 function registerKimiProvider(pi: ExtensionAPI, state: KimiRuntimeState): void {
+  registerKimiGlobalApiFallback(state.config.protocol);
   pi.registerProvider(PROVIDER_ID, {
     baseUrl: getBaseUrl(state.config.protocol),
     apiKey: "$KIMI_API_KEY",
