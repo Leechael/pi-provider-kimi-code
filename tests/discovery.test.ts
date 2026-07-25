@@ -138,6 +138,39 @@ describe("discoverKimiModelMetadata", () => {
     assert.equal(mock.calls.length, 1);
   });
 
+  it("does not retry when refresh returns the current token", async () => {
+    mock = mockFetch(() => jsonResponse({ error: { type: "invalid_authentication_error" } }, 401));
+
+    const result = await discoverKimiModelMetadata("tok-stale", undefined, {
+      refreshAccessToken: async () => "tok-stale",
+    });
+
+    assert.deepEqual(result, {});
+    assert.equal(mock.calls.length, 1);
+  });
+
+  it("uses a fresh timeout controller for the request after a slow refresh", async () => {
+    mock = mockFetch((call) => {
+      const headers = call.init?.headers as Record<string, string>;
+      if (headers.Authorization === "Bearer tok-stale") {
+        return jsonResponse({ error: { type: "invalid_authentication_error" } }, 401);
+      }
+      assert.equal(call.init?.signal?.aborted, false);
+      return jsonResponse({ data: [{ id: "kimi-for-coding" }] });
+    });
+
+    const result = await discoverKimiModelMetadata("tok-stale", undefined, {
+      timeoutMs: 1,
+      refreshAccessToken: async () => {
+        await new Promise((resolve) => setTimeout(resolve, 10));
+        return "tok-new";
+      },
+    });
+
+    assert.equal(result.wireModelId, "kimi-for-coding");
+    assert.equal(mock.calls.length, 2);
+  });
+
   it("retains metadata for every model returned by the catalog", async () => {
     mock = mockFetch(() =>
       jsonResponse({

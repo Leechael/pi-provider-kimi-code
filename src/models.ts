@@ -229,9 +229,9 @@ export async function discoverKimiModelMetadata(
   const controller = new AbortController();
   const timeout =
     timeoutMs > 0 ? setTimeout(() => controller.abort(), timeoutMs).unref() : undefined;
-  const requestModels = (token: string) =>
+  const requestModels = (token: string, signal: AbortSignal) =>
     fetch(modelsUrl, {
-      signal: controller.signal,
+      signal,
       headers: {
         ...getKimiProviderHeaders(),
         Authorization: `Bearer ${token}`,
@@ -239,11 +239,18 @@ export async function discoverKimiModelMetadata(
       },
     });
   try {
-    let response = await requestModels(accessToken);
+    let response = await requestModels(accessToken, controller.signal);
     if (response.status === 401 && options.refreshAccessToken) {
       const refreshed = await options.refreshAccessToken(accessToken);
       if (refreshed && refreshed !== accessToken) {
-        response = await requestModels(refreshed);
+        const retryController = new AbortController();
+        const retryTimeout =
+          timeoutMs > 0 ? setTimeout(() => retryController.abort(), timeoutMs).unref() : undefined;
+        try {
+          response = await requestModels(refreshed, retryController.signal);
+        } finally {
+          if (retryTimeout) clearTimeout(retryTimeout);
+        }
       }
     }
     if (!response.ok) return {};
