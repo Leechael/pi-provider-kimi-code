@@ -33,6 +33,7 @@ export function resolveCacheRetention(value?: CacheRetention): CacheRetention {
 export interface KimiPayloadContext {
   api: "anthropic-messages" | "openai-completions";
   upload?: Uploader;
+  uploadCacheScope?: string;
   cacheKey?: string;
   cacheRetention: CacheRetention;
   reasoning?: ThinkingLevel;
@@ -151,14 +152,18 @@ export async function uploadKimiFile(
     // as any peer process rotates them, so a 401 here usually means our key
     // snapshot went stale mid-session, not that login is broken. Mirror the
     // chat-stream recovery: force one refresh and retry once.
+    let responseText: string | undefined;
     if (response.status === 401) {
+      responseText = await response.text();
       const refreshed = await refreshAccessToken(apiKey);
       if (refreshed && refreshed !== apiKey) {
         console.error("[kimi-coding] upload got 401, retrying with refreshed token");
         response = await postUpload(refreshed);
+        responseText = undefined;
       }
     }
-    if (!response.ok) throw new Error(`${response.status} ${await response.text()}`);
+    if (!response.ok)
+      throw new Error(`${response.status} ${responseText ?? (await response.text())}`);
     const fileObj = (await response.json()) as { id?: string };
     if (!fileObj.id) throw new Error("missing file id");
     const fileUrl = `ms://${fileObj.id}`;
@@ -189,26 +194,42 @@ export async function uploadKimiFile(
 const MAX_UPLOADED_FILE_CACHE_ENTRIES = 512;
 const uploadedFileCache = new Map<string, string>();
 
-function uploadedFileCacheKey(mimeType: string, data: string): string {
-  return `${mimeType}:${createHash("sha256").update(data).digest("hex")}`;
+function uploadedFileCacheKey(cacheScope: string, mimeType: string, data: string): string {
+  return createHash("sha256")
+    .update(cacheScope)
+    .update("\0")
+    .update(mimeType)
+    .update("\0")
+    .update(data)
+    .digest("hex");
 }
 
-function rememberUploadedFile(cacheKey: string, url: string): void {
+function rememberUploadedFile(
+  uploadCache: Map<string, string>,
+  cacheKey: string,
+  url: string,
+): void {
   if (
-    !uploadedFileCache.has(cacheKey) &&
-    uploadedFileCache.size >= MAX_UPLOADED_FILE_CACHE_ENTRIES
+    uploadCache === uploadedFileCache &&
+    !uploadCache.has(cacheKey) &&
+    uploadCache.size >= MAX_UPLOADED_FILE_CACHE_ENTRIES
   ) {
-    const oldest = uploadedFileCache.keys().next().value;
-    if (oldest !== undefined) uploadedFileCache.delete(oldest);
+    const oldest = uploadCache.keys().next().value;
+    if (oldest !== undefined) uploadCache.delete(oldest);
   }
-  uploadedFileCache.set(cacheKey, url);
+  uploadCache.set(cacheKey, url);
 }
 
 export function clearKimiUploadedFileCache(): void {
   uploadedFileCache.clear();
 }
 
-async function transformOpenAIPayloadFiles(payload: JsonRecord, upload: Uploader): Promise<void> {
+async function transformOpenAIPayloadFiles(
+  payload: JsonRecord,
+  upload: Uploader,
+  uploadCache: Map<string, string>,
+  uploadCacheScope: string,
+): Promise<void> {
   if (!Array.isArray(payload.messages)) return;
 
   for (const message of payload.messages) {
@@ -232,11 +253,10 @@ async function transformOpenAIPayloadFiles(payload: JsonRecord, upload: Uploader
       const parsed = parseDataUrl(urlValue);
       if (!parsed) continue;
 
-      const cacheKey = uploadedFileCacheKey(parsed.mimeType, parsed.data);
-      const uploaded =
-        uploadedFileCache.get(cacheKey) ?? (await upload(parsed.mimeType, parsed.data));
+      const cacheKey = uploadedFileCacheKey(uploadCacheScope, parsed.mimeType, parsed.data);
+      const uploaded = uploadCache.get(cacheKey) ?? (await upload(parsed.mimeType, parsed.data));
       if (!uploaded) continue;
-      rememberUploadedFile(cacheKey, uploaded);
+      rememberUploadedFile(uploadCache, cacheKey, uploaded);
 
       block[key] =
         typeof field === "string" ? uploaded : { ...(field as JsonRecord), url: uploaded };
@@ -400,6 +420,8 @@ function normalizeOpenAIToolSchemas(payload: JsonRecord): void {
 async function transformAnthropicPayloadFiles(
   payload: JsonRecord,
   upload: Uploader,
+  uploadCache: Map<string, string>,
+  uploadCacheScope: string,
 ): Promise<void> {
   if (!Array.isArray(payload.messages)) return;
 
@@ -411,10 +433,10 @@ async function transformAnthropicPayloadFiles(
     const data = source.data;
     if (typeof mediaType !== "string" || typeof data !== "string") return block;
 
-    const cacheKey = uploadedFileCacheKey(mediaType, data);
-    const uploaded = uploadedFileCache.get(cacheKey) ?? (await upload(mediaType, data));
+    const cacheKey = uploadedFileCacheKey(uploadCacheScope, mediaType, data);
+    const uploaded = uploadCache.get(cacheKey) ?? (await upload(mediaType, data));
     if (!uploaded) return block;
-    rememberUploadedFile(cacheKey, uploaded);
+    rememberUploadedFile(uploadCache, cacheKey, uploaded);
 
     const next: JsonRecord = { type: "image", source: { type: "url", url: uploaded } };
     if (block.cache_control !== undefined) next.cache_control = block.cache_control;
@@ -459,10 +481,12 @@ export async function applyKimiPayloadMutations(
 
   // 2. File upload dispatch (protocol-specific).
   if (ctx.upload) {
+    const uploadCache = ctx.uploadCacheScope ? uploadedFileCache : new Map<string, string>();
+    const uploadCacheScope = ctx.uploadCacheScope ?? "request";
     if (ctx.api === "openai-completions") {
-      await transformOpenAIPayloadFiles(payload, ctx.upload);
+      await transformOpenAIPayloadFiles(payload, ctx.upload, uploadCache, uploadCacheScope);
     } else if (ctx.api === "anthropic-messages") {
-      await transformAnthropicPayloadFiles(payload, ctx.upload);
+      await transformAnthropicPayloadFiles(payload, ctx.upload, uploadCache, uploadCacheScope);
     }
   }
   if (ctx.api === "openai-completions") {

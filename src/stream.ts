@@ -285,6 +285,7 @@ export function streamSimpleKimi(
           await applyKimiPayloadMutations(nextPayload, {
             api: apiProtocol,
             upload,
+            uploadCacheScope: apiKey ? `${getBaseUrl(wireProtocol)}:${apiKey}` : undefined,
             cacheKey,
             cacheRetention,
             reasoning: options?.reasoning,

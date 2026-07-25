@@ -23,6 +23,7 @@ const defaultModelConfig: KimiResolvedModelConfig = { ...DEFAULT_KIMI_CODE_CONFI
 
 const baseCtx = (overrides: Partial<KimiPayloadContext> = {}): KimiPayloadContext => ({
   api: "anthropic-messages",
+  uploadCacheScope: "test-account",
   cacheRetention: "short",
   modelConfig: defaultModelConfig,
   ...overrides,
@@ -314,9 +315,44 @@ describe("applyKimiPayloadMutations", () => {
     });
 
     await applyKimiPayloadMutations(makePayload(), baseCtx({ api: "anthropic-messages", upload }));
-    await applyKimiPayloadMutations(makePayload(), baseCtx({ api: "anthropic-messages", upload }));
+    const second = makePayload();
+    await applyKimiPayloadMutations(second, baseCtx({ api: "anthropic-messages", upload }));
 
     assert.equal(invocations, 1);
+    const messages = second.messages as JsonRecord[];
+    const content = messages[0]?.content as JsonRecord[];
+    const source = (content[0] as JsonRecord).source as JsonRecord;
+    assert.equal(source.type, "url");
+    assert.equal(source.url, "ms://anthropic-persisted");
+  });
+
+  it("does not reuse uploads across cache scopes", async () => {
+    let invocations = 0;
+    const upload = async () => `ms://account-${++invocations}`;
+    const makePayload = (): JsonRecord => ({
+      messages: [
+        {
+          role: "user",
+          content: [{ type: "image_url", image_url: { url: "data:image/png;base64,SCOPED" } }],
+        },
+      ],
+    });
+
+    await applyKimiPayloadMutations(
+      makePayload(),
+      baseCtx({ api: "openai-completions", upload, uploadCacheScope: "account-a" }),
+    );
+    const second = makePayload();
+    await applyKimiPayloadMutations(
+      second,
+      baseCtx({ api: "openai-completions", upload, uploadCacheScope: "account-b" }),
+    );
+
+    assert.equal(invocations, 2);
+    const messages = second.messages as JsonRecord[];
+    const content = messages[0]?.content as JsonRecord[];
+    const imageUrl = (content[0] as JsonRecord).image_url as JsonRecord;
+    assert.equal(imageUrl.url, "ms://account-2");
   });
 
   it("caches uploads so the same image is uploaded only once per request", async () => {
@@ -772,6 +808,23 @@ describe("uploadKimiFile", () => {
     assert.deepEqual(authHeaders, ["Bearer old-token", "Bearer new-token"]);
   });
 
+  it("drains the unauthorized response before retrying", async () => {
+    const staleResponse = unauthorizedResponse();
+    let fetchCalls = 0;
+    const fakeFetch: typeof fetch = async () => {
+      fetchCalls++;
+      return fetchCalls === 1 ? staleResponse : fileResponse("file-1");
+    };
+
+    const result = await uploadKimiFile("old-token", "image/png", PNG_BASE64, 0, {
+      fetch: fakeFetch,
+      refreshAccessToken: async () => "new-token",
+    });
+
+    assert.equal(result, "ms://file-1");
+    assert.equal(staleResponse.bodyUsed, true);
+  });
+
   it("returns null without retrying when refresh does not yield a new token", async () => {
     let fetchCalls = 0;
     const fakeFetch: typeof fetch = async () => {
@@ -782,6 +835,22 @@ describe("uploadKimiFile", () => {
     const result = await uploadKimiFile("old-token", "image/png", PNG_BASE64, 0, {
       fetch: fakeFetch,
       refreshAccessToken: async () => null,
+    });
+
+    assert.equal(result, null);
+    assert.equal(fetchCalls, 1);
+  });
+
+  it("returns null without retrying when refresh returns the current token", async () => {
+    let fetchCalls = 0;
+    const fakeFetch: typeof fetch = async () => {
+      fetchCalls++;
+      return unauthorizedResponse();
+    };
+
+    const result = await uploadKimiFile("old-token", "image/png", PNG_BASE64, 0, {
+      fetch: fakeFetch,
+      refreshAccessToken: async () => "old-token",
     });
 
     assert.equal(result, null);
