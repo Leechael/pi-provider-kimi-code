@@ -285,6 +285,7 @@ export function streamSimpleKimi(
           await applyKimiPayloadMutations(nextPayload, {
             api: apiProtocol,
             upload,
+            uploadCacheScope: apiKey ? `${getBaseUrl(wireProtocol)}:${apiKey}` : undefined,
             cacheKey,
             cacheRetention,
             reasoning: options?.reasoning,
@@ -323,6 +324,19 @@ export function streamSimpleKimi(
         ...model,
         api: apiProtocol,
         baseUrl: getBaseUrl(wireProtocol),
+        // Kimi's anthropic-protocol endpoint speaks adaptive thinking and
+        // rejects/ignores the interleaved-thinking beta header; pi-ai >=0.82
+        // keys both behaviors off these compat flags (its own built-in
+        // kimi-coding models carry them in generated metadata).
+        ...(wireProtocol === "anthropic"
+          ? {
+              compat: {
+                ...(model as { compat?: Record<string, unknown> }).compat,
+                forceAdaptiveThinking: true,
+                allowEmptySignature: true,
+              },
+            }
+          : {}),
       } as Model<Api>;
       const upstream =
         wireProtocol === "openai"

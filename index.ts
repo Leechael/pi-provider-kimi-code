@@ -53,7 +53,12 @@ import {
   hasKimiModelMetadata,
   resolveKimiModelConfig,
 } from "./src/models.ts";
-import { getKimiApiKey, loginKimiCode, refreshKimiCodeToken } from "./src/oauth.ts";
+import {
+  getKimiApiKey,
+  loginKimiCode,
+  refreshKimiAuthToken,
+  refreshKimiCodeToken,
+} from "./src/oauth.ts";
 import { isKimiProjectConfigApproved } from "./src/project-trust.ts";
 import {
   type KimiConfigScope,
@@ -146,7 +151,9 @@ async function refreshModelExtras(
   token = getKimiUsageToken(),
 ): Promise<boolean> {
   if (!token) return false;
-  const extras = await discoverKimiModelMetadata(token, state.config.protocol);
+  const extras = await discoverKimiModelMetadata(token, state.config.protocol, {
+    refreshAccessToken: refreshKimiAuthToken,
+  });
   if (Object.keys(extras).length === 0) return false;
   Object.assign(state.modelExtras, extras);
   return true;

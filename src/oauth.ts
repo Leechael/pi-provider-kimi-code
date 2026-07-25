@@ -658,7 +658,13 @@ export function isKimiAuthErrorMessage(message: unknown): boolean {
     /\b401\b/.test(text) ||
     text.includes("unauthorized") ||
     text.includes("incorrect api key") ||
-    text.includes("invalid api key")
+    text.includes("invalid api key") ||
+    // Kimi's production 401 body: "The API Key appears to be invalid or may
+    // have expired..." with type "invalid_authentication_error". Neither
+    // contains the substrings above, so without these the digit fallback is
+    // the only match and vanishes when a transport strips the status prefix.
+    text.includes("api key appears to be invalid") ||
+    text.includes("invalid_authentication_error")
   );
 }
 

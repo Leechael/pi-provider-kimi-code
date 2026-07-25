@@ -2,11 +2,14 @@
 // per-protocol message transforms, OpenAI tool-call / tool-schema normalizers,
 // and the top-level applyKimiPayloadMutations that orchestrates them.
 
+import { createHash } from "node:crypto";
+
 import type { CacheRetention, ThinkingLevel } from "@earendil-works/pi-ai";
 import type { KimiResolvedModelConfig, ModelReasoningEntry } from "./config.ts";
 
 import { getBaseUrl } from "./constants.ts";
 import { getKimiProviderHeaders } from "./device.ts";
+import { refreshKimiAuthToken } from "./oauth.ts";
 import { optimizeToolSchemas } from "./schema-dedup.ts";
 
 // =============================================================================
@@ -30,6 +33,7 @@ export function resolveCacheRetention(value?: CacheRetention): CacheRetention {
 export interface KimiPayloadContext {
   api: "anthropic-messages" | "openai-completions";
   upload?: Uploader;
+  uploadCacheScope?: string;
   cacheKey?: string;
   cacheRetention: CacheRetention;
   reasoning?: ThinkingLevel;
@@ -80,6 +84,16 @@ function getUploadFilename(mimeType: string): string {
     "image/png": "upload.png",
     "image/gif": "upload.gif",
     "image/webp": "upload.webp",
+    // Video extensions mirror upstream kimi-code's MIME_TO_EXT
+    // (packages/kosong/src/providers/kimi-files.ts).
+    "video/mp4": "upload.mp4",
+    "video/mpeg": "upload.mpeg",
+    "video/quicktime": "upload.mov",
+    "video/webm": "upload.webm",
+    "video/x-matroska": "upload.mkv",
+    "video/x-msvideo": "upload.avi",
+    "video/x-flv": "upload.flv",
+    "video/3gpp": "upload.3gp",
   };
   return map[mimeType] ?? "upload.bin";
 }
@@ -88,22 +102,34 @@ function getUploadFilename(mimeType: string): string {
 // File upload (I/O edge)
 // =============================================================================
 
+export interface UploadKimiFileDeps {
+  fetch?: typeof fetch;
+  refreshAccessToken?: (currentToken: string) => Promise<string | null>;
+}
+
 export async function uploadKimiFile(
   apiKey: string,
   mimeType: string,
   data: string,
   thresholdBytes?: number,
+  deps?: UploadKimiFileDeps,
 ): Promise<string | null> {
+  const fetchImpl = deps?.fetch ?? fetch;
+  const refreshAccessToken = deps?.refreshAccessToken ?? refreshKimiAuthToken;
   const buffer = Buffer.from(data, "base64");
-  if (!mimeType.startsWith("image/")) return null;
+  const isVideo = mimeType.startsWith("video/");
+  if (!mimeType.startsWith("image/") && !isVideo) return null;
   const threshold =
     thresholdBytes ?? parseInlineUploadThreshold(process.env.KIMI_CODE_UPLOAD_THRESHOLD_BYTES);
-  if (buffer.length <= threshold) return null;
+  // The inline threshold applies to images only: the Kimi API has no inline
+  // video path (upstream kimi-code uploads every video via /files), so videos
+  // always upload.
+  if (!isVideo && buffer.length <= threshold) return null;
 
   const filename = getUploadFilename(mimeType);
   const formData = new FormData();
   formData.append("file", new Blob([buffer], { type: mimeType }), filename);
-  formData.append("purpose", "image");
+  formData.append("purpose", isVideo ? "video" : "image");
 
   const uploadUrl = `${deriveFilesBaseUrl(getBaseUrl())}/files`;
   const debug = process.env.KIMI_CODE_DEBUG === "1";
@@ -113,13 +139,31 @@ export async function uploadKimiFile(
     );
   }
 
-  try {
-    const response = await fetch(uploadUrl, {
+  const postUpload = (token: string) =>
+    fetchImpl(uploadUrl, {
       method: "POST",
-      headers: { ...getKimiProviderHeaders(), Authorization: `Bearer ${apiKey}` },
+      headers: { ...getKimiProviderHeaders(), Authorization: `Bearer ${token}` },
       body: formData,
     });
-    if (!response.ok) throw new Error(`${response.status} ${await response.text()}`);
+
+  try {
+    let response = await postUpload(apiKey);
+    // Kimi access tokens are short-lived and invalidated server-side as soon
+    // as any peer process rotates them, so a 401 here usually means our key
+    // snapshot went stale mid-session, not that login is broken. Mirror the
+    // chat-stream recovery: force one refresh and retry once.
+    let responseText: string | undefined;
+    if (response.status === 401) {
+      responseText = await response.text();
+      const refreshed = await refreshAccessToken(apiKey);
+      if (refreshed && refreshed !== apiKey) {
+        console.error("[kimi-coding] upload got 401, retrying with refreshed token");
+        response = await postUpload(refreshed);
+        responseText = undefined;
+      }
+    }
+    if (!response.ok)
+      throw new Error(`${response.status} ${responseText ?? (await response.text())}`);
     const fileObj = (await response.json()) as { id?: string };
     if (!fileObj.id) throw new Error("missing file id");
     const fileUrl = `ms://${fileObj.id}`;
@@ -132,24 +176,69 @@ export async function uploadKimiFile(
 }
 
 // =============================================================================
-// Payload file transformers (pure given an Uploader)
+// Payload file transformers
 //
 // These walk the provider-specific payload shape and replace inline base64
 // image blocks with ms:// references returned by the injected uploader. They
 // take an Uploader rather than an apiKey so they can be unit-tested with a
 // fake uploader; all network I/O stays behind that boundary.
+//
+// Successful uploads are remembered in a module-level cache shared across
+// requests: payloads are rebuilt from session context every request, so
+// without it a conversation's images would re-upload on every turn. Keys are
+// content hashes rather than the data URLs themselves so the cache does not
+// retain every image's base64 payload in memory. Failures are not cached and
+// retry on the next request.
 // =============================================================================
 
-async function transformOpenAIPayloadFiles(payload: JsonRecord, upload: Uploader): Promise<void> {
+const MAX_UPLOADED_FILE_CACHE_ENTRIES = 512;
+const uploadedFileCache = new Map<string, string>();
+
+function uploadedFileCacheKey(cacheScope: string, mimeType: string, data: string): string {
+  return createHash("sha256")
+    .update(cacheScope)
+    .update("\0")
+    .update(mimeType)
+    .update("\0")
+    .update(data)
+    .digest("hex");
+}
+
+function rememberUploadedFile(
+  uploadCache: Map<string, string>,
+  cacheKey: string,
+  url: string,
+): void {
+  if (
+    uploadCache === uploadedFileCache &&
+    !uploadCache.has(cacheKey) &&
+    uploadCache.size >= MAX_UPLOADED_FILE_CACHE_ENTRIES
+  ) {
+    const oldest = uploadCache.keys().next().value;
+    if (oldest !== undefined) uploadCache.delete(oldest);
+  }
+  uploadCache.set(cacheKey, url);
+}
+
+export function clearKimiUploadedFileCache(): void {
+  uploadedFileCache.clear();
+}
+
+async function transformOpenAIPayloadFiles(
+  payload: JsonRecord,
+  upload: Uploader,
+  uploadCache: Map<string, string>,
+  uploadCacheScope: string,
+): Promise<void> {
   if (!Array.isArray(payload.messages)) return;
-  const cache = new Map<string, string>();
 
   for (const message of payload.messages) {
     if (!isRecord(message) || !Array.isArray(message.content)) continue;
 
     for (const block of message.content) {
       if (!isRecord(block)) continue;
-      const key = block.type === "image_url" ? "image_url" : null;
+      const key =
+        block.type === "image_url" ? "image_url" : block.type === "video_url" ? "video_url" : null;
       if (!key) continue;
 
       const field = block[key];
@@ -164,9 +253,10 @@ async function transformOpenAIPayloadFiles(payload: JsonRecord, upload: Uploader
       const parsed = parseDataUrl(urlValue);
       if (!parsed) continue;
 
-      const uploaded = cache.get(urlValue) ?? (await upload(parsed.mimeType, parsed.data));
+      const cacheKey = uploadedFileCacheKey(uploadCacheScope, parsed.mimeType, parsed.data);
+      const uploaded = uploadCache.get(cacheKey) ?? (await upload(parsed.mimeType, parsed.data));
       if (!uploaded) continue;
-      cache.set(urlValue, uploaded);
+      rememberUploadedFile(uploadCache, cacheKey, uploaded);
 
       block[key] =
         typeof field === "string" ? uploaded : { ...(field as JsonRecord), url: uploaded };
@@ -330,9 +420,10 @@ function normalizeOpenAIToolSchemas(payload: JsonRecord): void {
 async function transformAnthropicPayloadFiles(
   payload: JsonRecord,
   upload: Uploader,
+  uploadCache: Map<string, string>,
+  uploadCacheScope: string,
 ): Promise<void> {
   if (!Array.isArray(payload.messages)) return;
-  const cache = new Map<string, string>();
 
   const transformImageBlock = async (block: unknown): Promise<unknown> => {
     if (!isRecord(block) || block.type !== "image") return block;
@@ -342,10 +433,10 @@ async function transformAnthropicPayloadFiles(
     const data = source.data;
     if (typeof mediaType !== "string" || typeof data !== "string") return block;
 
-    const cacheKey = `${mediaType}:${data}`;
-    const uploaded = cache.get(cacheKey) ?? (await upload(mediaType, data));
+    const cacheKey = uploadedFileCacheKey(uploadCacheScope, mediaType, data);
+    const uploaded = uploadCache.get(cacheKey) ?? (await upload(mediaType, data));
     if (!uploaded) return block;
-    cache.set(cacheKey, uploaded);
+    rememberUploadedFile(uploadCache, cacheKey, uploaded);
 
     const next: JsonRecord = { type: "image", source: { type: "url", url: uploaded } };
     if (block.cache_control !== undefined) next.cache_control = block.cache_control;
@@ -390,10 +481,12 @@ export async function applyKimiPayloadMutations(
 
   // 2. File upload dispatch (protocol-specific).
   if (ctx.upload) {
+    const uploadCache = ctx.uploadCacheScope ? uploadedFileCache : new Map<string, string>();
+    const uploadCacheScope = ctx.uploadCacheScope ?? "request";
     if (ctx.api === "openai-completions") {
-      await transformOpenAIPayloadFiles(payload, ctx.upload);
+      await transformOpenAIPayloadFiles(payload, ctx.upload, uploadCache, uploadCacheScope);
     } else if (ctx.api === "anthropic-messages") {
-      await transformAnthropicPayloadFiles(payload, ctx.upload);
+      await transformAnthropicPayloadFiles(payload, ctx.upload, uploadCache, uploadCacheScope);
     }
   }
   if (ctx.api === "openai-completions") {
@@ -469,22 +562,39 @@ export async function applyKimiPayloadMutations(
     const mapped = resolveReasoningForLevel(resolvedReasoning, ctx.modelConfig);
     if (mapped) {
       const oldThinking = isRecord(payload.thinking) ? payload.thinking : {};
-      const thinking: JsonRecord = {
-        ...oldThinking,
-        type: mapped.enabled ? "enabled" : "disabled",
-      };
-      delete thinking.effort;
-      if (!mapped.enabled) delete thinking.keep;
       const effort = ctx.reasoning
         ? mapped.effort
         : (ctx.modelConfig.defaultEffort ?? mapped.effort);
-      if (mapped.enabled && effort !== null && ctx.modelConfig.supportEfforts?.includes(effort)) {
-        thinking.effort = effort;
+      const effortSupported =
+        effort !== null && ctx.modelConfig.supportEfforts?.includes(effort) === true;
+      if (ctx.api === "anthropic-messages" && oldThinking.type === "adaptive") {
+        // pi-ai >=0.82 builds adaptive thinking for models carrying
+        // compat.forceAdaptiveThinking (streamSimpleKimi sets it on the
+        // anthropic runtime model). Keep the adaptive shape — effort lives in
+        // top-level output_config there, not inside thinking — and only
+        // replace it with an explicit disable when the level maps to off.
+        if (mapped.enabled) {
+          if (effortSupported) payload.output_config = { effort };
+          else delete payload.output_config;
+        } else {
+          payload.thinking = { type: "disabled" };
+          delete payload.output_config;
+        }
+      } else {
+        const thinking: JsonRecord = {
+          ...oldThinking,
+          type: mapped.enabled ? "enabled" : "disabled",
+        };
+        delete thinking.effort;
+        if (!mapped.enabled) delete thinking.keep;
+        if (mapped.enabled && effortSupported) {
+          thinking.effort = effort;
+        }
+        if (mapped.enabled && ctx.modelConfig.thinkingKeep) {
+          thinking.keep = ctx.modelConfig.thinkingKeep;
+        }
+        payload.thinking = thinking;
       }
-      if (mapped.enabled && ctx.modelConfig.thinkingKeep) {
-        thinking.keep = ctx.modelConfig.thinkingKeep;
-      }
-      payload.thinking = thinking;
     }
   }
 
