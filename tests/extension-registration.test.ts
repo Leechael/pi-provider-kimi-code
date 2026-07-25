@@ -1,4 +1,4 @@
-import { describe, it } from "node:test";
+import { afterEach, describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { mkdtempSync, mkdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { createServer, type IncomingHttpHeaders } from "node:http";
@@ -20,13 +20,8 @@ import {
   KIMI_TOOL_NAMES,
   getProjectKimiCodeConfigPath,
 } from "../src/config.ts";
-import {
-  KIMI_GLOBAL_FALLBACK_SOURCE_ID,
-  KIMI_PLATFORM,
-  PROVIDER_ID,
-  getKimiApiType,
-} from "../src/constants.ts";
-import registerKimiCodeExtension, { kimiModelDiscoverySettled } from "../index.ts";
+import { KIMI_PLATFORM, PROVIDER_ID, getKimiApiType } from "../src/constants.ts";
+import registerKimiCodeExtension, { KimiCode, kimiModelDiscoverySettled } from "../index.ts";
 
 function tempDir(name: string): string {
   return mkdtempSync(join(tmpdir(), `${name}-`));
@@ -111,6 +106,13 @@ function withTempAuthFile(credential: Record<string, unknown>) {
   };
 }
 
+const testPiCleanups: Array<() => Promise<void>> = [];
+
+afterEach(async () => {
+  const cleanups = testPiCleanups.splice(0).reverse();
+  for (const cleanup of cleanups) await cleanup();
+});
+
 function makePi() {
   const tools: ToolDefinition[] = [];
   const providers: string[] = [];
@@ -155,17 +157,21 @@ function makePi() {
       activeTools = [...toolNames];
     },
   } as unknown as ExtensionAPI;
+  const emit = async (eventName: string, event: unknown, ctx: unknown) => {
+    for (const handler of eventHandlers.get(eventName) ?? []) {
+      await handler(event, ctx);
+    }
+  };
+  testPiCleanups.push(() =>
+    emit("session_shutdown", { type: "session_shutdown", reason: "exit" }, {}),
+  );
   return {
     commands,
     pi,
     providers,
     providerConfigs,
     tools,
-    emit: async (eventName: string, event: unknown, ctx: unknown) => {
-      for (const handler of eventHandlers.get(eventName) ?? []) {
-        await handler(event, ctx);
-      }
-    },
+    emit,
     getActiveTools: () => activeTools,
     setActiveTools: (toolNames: string[]) => {
       activeTools = [...toolNames];
@@ -1798,7 +1804,7 @@ describe("global api-provider fallback", () => {
       return;
     }
 
-    compat.unregisterApiProviders(KIMI_GLOBAL_FALLBACK_SOURCE_ID);
+    compat.resetApiProviders();
 
     const api = getKimiApiType("openai");
     const model = { id: "k3", provider: PROVIDER_ID, api };
@@ -1852,7 +1858,7 @@ describe("global api-provider fallback", () => {
     const foreign = () => {
       throw foreignMarker;
     };
-    compat.unregisterApiProviders(KIMI_GLOBAL_FALLBACK_SOURCE_ID);
+    compat.resetApiProviders();
     compat.registerApiProvider({ api, stream: foreign, streamSimple: foreign }, foreignSourceId);
 
     try {
@@ -1957,6 +1963,32 @@ describe("global api-provider fallback", () => {
     assert.equal(requests[0]?.url, "/v1/chat/completions");
     assert.equal(requests[0]?.headers["x-msh-platform"], KIMI_PLATFORM);
     assert.equal(requests[0]?.headers.authorization, "Bearer stored-oauth-token");
+  });
+
+  it("keeps the fallback while another KimiCode instance is still live", async (t) => {
+    const compat = await loadPiAiCompat();
+    if (!compat) {
+      t.skip("pi-ai <=0.79 has no ./compat export");
+      return;
+    }
+
+    compat.resetApiProviders();
+    const cwd = tempDir("kimi-extension-cwd");
+    const first = makePi();
+    const second = makePi();
+
+    await withCwd(cwd, () => KimiCode()(first.pi));
+    await withCwd(cwd, () => KimiCode()(second.pi));
+
+    await first.emit("session_shutdown", { type: "session_shutdown", reason: "exit" }, {});
+
+    assert.ok(compat.getApiProvider(getKimiApiType("openai")));
+    assert.ok(compat.getApiProvider(getKimiApiType("anthropic")));
+
+    await second.emit("session_shutdown", { type: "session_shutdown", reason: "exit" }, {});
+
+    assert.equal(compat.getApiProvider(getKimiApiType("openai")), undefined);
+    assert.equal(compat.getApiProvider(getKimiApiType("anthropic")), undefined);
   });
 
   it("hands its registry entries back when the session shuts down", async (t) => {

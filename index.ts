@@ -83,6 +83,7 @@ import { buildKimiDatasourceTool } from "./src/tools/datasource.ts";
 interface KimiRuntimeState {
   cwd: string;
   config: KimiCodeConfig;
+  fallbackSourceId: string;
   modelExtras: KimiOAuthExtras;
   projectTrusted: boolean;
   overrides?: KimiCodeConfigPatch;
@@ -472,7 +473,16 @@ async function loadPiAiApiRegistry(action: string): Promise<PiAiApiRegistry | nu
   }
 }
 
-async function registerKimiGlobalApiFallback(): Promise<void> {
+let nextFallbackSourceId = 0;
+const liveFallbackSources = new Set<string>();
+
+function createKimiGlobalFallbackSourceId(): string {
+  nextFallbackSourceId += 1;
+  return `${KIMI_GLOBAL_FALLBACK_SOURCE_ID}:${nextFallbackSourceId}`;
+}
+
+async function registerKimiGlobalApiFallback(sourceId: string): Promise<void> {
+  if (!liveFallbackSources.has(sourceId)) return;
   const registry = await loadPiAiApiRegistry("register");
   if (!registry) return;
   for (const api of KIMI_FALLBACK_APIS) {
@@ -482,21 +492,24 @@ async function registerKimiGlobalApiFallback(): Promise<void> {
     if (registry.getApiProvider(api)) continue;
     registry.registerApiProvider(
       { api, stream: streamSimpleKimi, streamSimple: streamSimpleKimi },
-      KIMI_GLOBAL_FALLBACK_SOURCE_ID,
+      sourceId,
     );
   }
 }
 
-// The registry outlives the session, so the entries have to be handed back
-// when the session that installed them goes away. Removal is by source id, so
-// only this extension's own entries are touched.
-async function unregisterKimiGlobalApiFallback(): Promise<void> {
+// The registry outlives each session. Remove only the entries owned by the
+// retiring runtime, then hand any holes to another live runtime.
+async function unregisterKimiGlobalApiFallback(sourceId: string): Promise<void> {
+  if (!liveFallbackSources.delete(sourceId)) return;
   const registry = await loadPiAiApiRegistry("unregister");
-  registry?.unregisterApiProviders(KIMI_GLOBAL_FALLBACK_SOURCE_ID);
+  if (!registry) return;
+  registry.unregisterApiProviders(sourceId);
+  const successor = liveFallbackSources.values().next().value;
+  if (successor) await registerKimiGlobalApiFallback(successor);
 }
 
 async function registerKimiProvider(pi: ExtensionAPI, state: KimiRuntimeState): Promise<void> {
-  await registerKimiGlobalApiFallback();
+  await registerKimiGlobalApiFallback(state.fallbackSourceId);
   pi.registerProvider(PROVIDER_ID, {
     baseUrl: getBaseUrl(state.config.protocol),
     apiKey: "$KIMI_API_KEY",
@@ -629,12 +642,19 @@ export function KimiCode(overrides?: KimiCodeConfigPatch): ExtensionFactory {
     const state: KimiRuntimeState = {
       cwd,
       config,
+      fallbackSourceId: createKimiGlobalFallbackSourceId(),
       modelExtras: {},
       projectTrusted: false,
       overrides,
     };
     reloadEffectiveKimiRuntimeConfig(state, cwd, false);
-    await registerKimiProvider(pi, state);
+    liveFallbackSources.add(state.fallbackSourceId);
+    try {
+      await registerKimiProvider(pi, state);
+    } catch (error) {
+      liveFallbackSources.delete(state.fallbackSourceId);
+      throw error;
+    }
 
     registerConfiguredMoonshotTools(pi, state.config, { updateActiveTools: false });
 
@@ -648,7 +668,7 @@ export function KimiCode(overrides?: KimiCodeConfigPatch): ExtensionFactory {
     });
 
     pi.on("session_shutdown", async () => {
-      await unregisterKimiGlobalApiFallback();
+      await unregisterKimiGlobalApiFallback(state.fallbackSourceId);
     });
 
     pi.registerCommand("kimi-settings", {
