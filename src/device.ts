@@ -1,10 +1,10 @@
 // Device identification: device-id persistence, Kimi Code-compatible request
 // headers, and the cross-platform device-model string. Pure helpers live near
-// the side-effecting one-shots (file IO, exec) they support.
+// the side-effecting one-shots (file IO) they support.
 
-import { execFileSync } from "node:child_process";
 import { randomBytes } from "node:crypto";
 import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { readFile } from "node:fs/promises";
 import os from "node:os";
 import { dirname } from "node:path";
 
@@ -97,25 +97,68 @@ export function computeDeviceModel(input: DeviceModelInput): string {
   return `${system} ${arch}`.trim();
 }
 
-function macOsProductVersion(): string | undefined {
-  try {
-    const version = execFileSync("/usr/bin/sw_vers", ["-productVersion"], {
-      encoding: "utf-8",
-      timeout: 1000,
-    }).trim();
-    return version.length > 0 ? version : undefined;
-  } catch {
-    return undefined;
-  }
+// Where macOS keeps its product version. Upstream Kimi Code reads it through
+// Python's platform.mac_ver(), which parses this same file, so it is the same
+// source of truth as `sw_vers -productVersion` without the process spawn: a
+// spawn costs ~10ms of blocked event loop, and pi pays it again on every
+// /reload because it re-evaluates extension modules.
+const MAC_PRODUCT_VERSION_PATH = "/System/Library/CoreServices/SystemVersion.plist";
+
+// Exposed for tests. The plist is a flat XML property list, so the version sits
+// in the <string> immediately after the ProductVersion key.
+export function parseMacProductVersion(plist: string): string | undefined {
+  const match = /<key>ProductVersion<\/key>\s*<string>([^<]*)<\/string>/.exec(plist);
+  return match?.[1].trim() || undefined;
 }
 
-function getDeviceModel(): string {
-  return computeDeviceModel({
+let DEVICE_MODEL: string | undefined;
+
+function setDeviceModel(macVersion: string | undefined): string {
+  DEVICE_MODEL ??= computeDeviceModel({
     platform: process.platform,
     release: os.release(),
     arch: os.machine() || process.arch,
-    macVersion: process.platform === "darwin" ? macOsProductVersion() : undefined,
+    macVersion,
   });
+  return DEVICE_MODEL;
+}
+
+async function loadMacDeviceModel(): Promise<void> {
+  try {
+    setDeviceModel(parseMacProductVersion(await readFile(MAC_PRODUCT_VERSION_PATH, "utf-8")));
+  } catch {
+    setDeviceModel(undefined);
+  }
+}
+
+/**
+ * Settles once the module-load lookup has produced a device model. Nothing in
+ * the provider waits for it — headers stay synchronous — but tests use it to
+ * exercise the async path without racing the fallback below.
+ */
+export const deviceModelReady: Promise<void> = (() => {
+  if (process.platform !== "darwin") {
+    // Nothing to read: every other platform derives the model from os.release().
+    setDeviceModel(undefined);
+    return Promise.resolve();
+  }
+  // Read the version off the event loop at module load so the value is usually
+  // in place before anything asks for a header.
+  return loadMacDeviceModel();
+})();
+
+function getDeviceModel(): string {
+  if (DEVICE_MODEL !== undefined) return DEVICE_MODEL;
+  // A header was needed before the async read landed. Read the same file
+  // synchronously rather than reporting the kernel release, which would put a
+  // different device model on the wire than every later request. This costs
+  // ~0.02ms against the ~10ms a `sw_vers` subprocess used to cost, and both
+  // paths memoize into the same slot.
+  try {
+    return setDeviceModel(parseMacProductVersion(readFileSync(MAC_PRODUCT_VERSION_PATH, "utf-8")));
+  } catch {
+    return setDeviceModel(undefined);
+  }
 }
 
 export function getOsVersion(): string {
@@ -133,7 +176,6 @@ export function asciiHeaderValue(value: string, fallback = "unknown"): string {
   return sanitized || fallback;
 }
 
-const DEVICE_MODEL = getDeviceModel();
 let DEVICE_ID: string | null = null;
 
 function getStableDeviceId(): string {
@@ -174,7 +216,7 @@ export function getCommonHeaders(): Record<string, string> {
     "X-Msh-Platform": KIMI_PLATFORM,
     "X-Msh-Version": KIMI_UPSTREAM_VERSION,
     "X-Msh-Device-Name": os.hostname(),
-    "X-Msh-Device-Model": DEVICE_MODEL,
+    "X-Msh-Device-Model": getDeviceModel(),
     "X-Msh-Os-Version": getOsVersion(),
     "X-Msh-Device-Id": getStableDeviceId(),
   };
