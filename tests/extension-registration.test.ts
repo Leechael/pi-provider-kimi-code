@@ -791,7 +791,7 @@ describe("extension tool registration", () => {
     };
 
     try {
-      await withCwd(cwd, () => registerKimiCodeExtension(pi));
+      await withCwd(cwd, () => loadKimiExtension(pi));
       assert.deepEqual(
         providerConfigs.get("kimi-coding")?.models?.map((model) => [model.id, model.contextWindow]),
         [
