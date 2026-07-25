@@ -1,6 +1,6 @@
 {
   "name": "pi-provider-kimi-code",
-  "version": "0.6.8",
+  "version": "0.6.9",
   "description": "Kimi Code harness extension for Pi: shared login state, file uploads, and Kimi-native tools",
   "keywords": [
     "ai-provider",
