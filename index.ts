@@ -433,10 +433,20 @@ function buildKimiCatalogModels(state: KimiRuntimeState) {
 }
 
 // Node reports a missing subpath export (pi-ai <=0.79) and a missing package
-// with these codes. Both mean "this pi-ai has no compat layer", which is an
+// with these codes. All mean "this pi-ai has no compat layer", which is an
 // expected configuration rather than a failure worth reporting: the fallback
 // simply does not exist there.
-const MODULE_UNAVAILABLE_CODES = new Set(["ERR_MODULE_NOT_FOUND", "ERR_PACKAGE_PATH_NOT_EXPORTED"]);
+//
+// MODULE_NOT_FOUND (the CJS code, without the ERR_ prefix) covers pi's jiti
+// extension loader on old pi versions: it aliases the bare "@earendil-works/pi-ai"
+// specifier straight to dist/index.js, so the "/compat" subpath degrades into
+// the bogus file path "dist/index.js/compat" and fails legacy CJS resolution
+// instead of exports-map resolution.
+const MODULE_UNAVAILABLE_CODES = new Set([
+  "ERR_MODULE_NOT_FOUND",
+  "ERR_PACKAGE_PATH_NOT_EXPORTED",
+  "MODULE_NOT_FOUND",
+]);
 
 // Every api id this extension can hand out, not only the one for the currently
 // configured protocol: sessions persist the api id that was current when the
