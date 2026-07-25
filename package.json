@@ -1,7 +1,7 @@
 {
   "name": "pi-provider-kimi-code",
   "version": "0.6.8",
-  "description": "Use Kimi Code in Pi without losing the Kimi-specific bits",
+  "description": "Kimi Code harness extension for Pi: shared login state, file uploads, and Kimi-native tools",
   "keywords": [
     "ai-provider",
     "coding-agent",
