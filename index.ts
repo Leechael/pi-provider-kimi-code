@@ -41,7 +41,13 @@ import {
   saveProjectKimiCodeConfig,
   type KimiToolName,
 } from "./src/config.ts";
-import { PROVIDER_ID, PROVIDER_VERSION, getBaseUrl, getKimiApiType } from "./src/constants.ts";
+import {
+  KIMI_GLOBAL_FALLBACK_SOURCE_ID,
+  PROVIDER_ID,
+  PROVIDER_VERSION,
+  getBaseUrl,
+  getKimiApiType,
+} from "./src/constants.ts";
 import {
   type KimiOAuthCredentials,
   type KimiOAuthExtras,
@@ -425,33 +431,72 @@ function buildKimiCatalogModels(state: KimiRuntimeState) {
   );
 }
 
-async function registerKimiGlobalApiFallback(protocol: KimiCodeConfig["protocol"]): Promise<void> {
-  const api = getKimiApiType(protocol);
+// Node reports a missing subpath export (pi-ai <=0.79) and a missing package
+// with these codes. Both mean "this pi-ai has no compat layer", which is an
+// expected configuration rather than a failure worth reporting: the fallback
+// simply does not exist there.
+const MODULE_UNAVAILABLE_CODES = new Set(["ERR_MODULE_NOT_FOUND", "ERR_PACKAGE_PATH_NOT_EXPORTED"]);
+
+// Every api id this extension can hand out, not only the one for the currently
+// configured protocol: sessions persist the api id that was current when the
+// model was resolved, so a session created before a protocol switch still
+// carries the other id and would keep crashing. streamSimpleKimi routes on the
+// model's wireProtocol / the resolved runtime config and never on model.api, so
+// both ids dispatch identically.
+const KIMI_FALLBACK_APIS = [getKimiApiType("openai"), getKimiApiType("anthropic")];
+
+type PiAiApiRegistry = {
+  registerApiProvider: (
+    provider: {
+      api: string;
+      stream: typeof streamSimpleKimi;
+      streamSimple: typeof streamSimpleKimi;
+    },
+    sourceId: string,
+  ) => void;
+  unregisterApiProviders: (sourceId: string) => void;
+  getApiProvider: (api: string) => unknown;
+};
+
+async function loadPiAiApiRegistry(action: string): Promise<PiAiApiRegistry | null> {
   try {
-    const { registerApiProvider } = (await import(piAiCompatModule)) as {
-      registerApiProvider: (
-        provider: {
-          api: string;
-          stream: typeof streamSimpleKimi;
-          streamSimple: typeof streamSimpleKimi;
-        },
-        sourceId: string,
-      ) => void;
-    };
-    registerApiProvider(
-      { api, stream: streamSimpleKimi, streamSimple: streamSimpleKimi },
-      "pi-provider-kimi-code-global-fallback",
-    );
+    return (await import(piAiCompatModule)) as PiAiApiRegistry;
   } catch (error: unknown) {
+    const code = (error as { code?: unknown } | undefined)?.code;
+    if (typeof code === "string" && MODULE_UNAVAILABLE_CODES.has(code)) return null;
     console.error(
-      `[pi-provider-kimi-code] failed to register global api fallback for "${api}":`,
+      `[pi-provider-kimi-code] failed to ${action} the global api fallback:`,
       error instanceof Error ? error.message : error,
+    );
+    return null;
+  }
+}
+
+async function registerKimiGlobalApiFallback(): Promise<void> {
+  const registry = await loadPiAiApiRegistry("register");
+  if (!registry) return;
+  for (const api of KIMI_FALLBACK_APIS) {
+    // Never displace an entry someone else owns: this is a shared,
+    // process-wide table and the fallback only exists to fill a hole, not to
+    // win a conflict. pi-ai installs its own builtins under the same rule.
+    if (registry.getApiProvider(api)) continue;
+    registry.registerApiProvider(
+      { api, stream: streamSimpleKimi, streamSimple: streamSimpleKimi },
+      KIMI_GLOBAL_FALLBACK_SOURCE_ID,
     );
   }
 }
 
+// The registry outlives the session, so the entries have to be handed back
+// when the session that installed them goes away. Removal is by source id, so
+// only this extension's own entries are touched.
+async function unregisterKimiGlobalApiFallback(): Promise<void> {
+  const registry = await loadPiAiApiRegistry("unregister");
+  registry?.unregisterApiProviders(KIMI_GLOBAL_FALLBACK_SOURCE_ID);
+}
+
 async function registerKimiProvider(pi: ExtensionAPI, state: KimiRuntimeState): Promise<void> {
-  await registerKimiGlobalApiFallback(state.config.protocol);
+  await registerKimiGlobalApiFallback();
   pi.registerProvider(PROVIDER_ID, {
     baseUrl: getBaseUrl(state.config.protocol),
     apiKey: "$KIMI_API_KEY",
@@ -600,6 +645,10 @@ export function KimiCode(overrides?: KimiCodeConfigPatch): ExtensionFactory {
         projectTrusted,
       });
       await registerKimiProvider(pi, state);
+    });
+
+    pi.on("session_shutdown", async () => {
+      await unregisterKimiGlobalApiFallback();
     });
 
     pi.registerCommand("kimi-settings", {

@@ -63,6 +63,10 @@ export const RETRYABLE_REFRESH_STATUSES = new Set([429, 500, 502, 503, 504]);
 
 export const PROVIDER_ID = "kimi-coding";
 
+// Owner tag for the entries this extension adds to pi-ai's global api-provider
+// registry, so they can be identified and removed as a group.
+export const KIMI_GLOBAL_FALLBACK_SOURCE_ID = "pi-provider-kimi-code-global-fallback";
+
 export function getOAuthHost(): string {
   const value =
     process.env.KIMI_CODE_OAUTH_HOST || process.env.KIMI_OAUTH_HOST || DEFAULT_OAUTH_HOST;

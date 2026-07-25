@@ -1,6 +1,8 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { mkdtempSync, mkdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { createServer, type IncomingHttpHeaders } from "node:http";
+import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -18,7 +20,12 @@ import {
   KIMI_TOOL_NAMES,
   getProjectKimiCodeConfigPath,
 } from "../src/config.ts";
-import { PROVIDER_ID } from "../src/constants.ts";
+import {
+  KIMI_GLOBAL_FALLBACK_SOURCE_ID,
+  KIMI_PLATFORM,
+  PROVIDER_ID,
+  getKimiApiType,
+} from "../src/constants.ts";
 import registerKimiCodeExtension, { kimiModelDiscoverySettled } from "../index.ts";
 
 function tempDir(name: string): string {
@@ -1708,30 +1715,96 @@ describe("extension tool registration", () => {
 });
 
 type PiAiCompatModule = {
-  streamSimple: (model: unknown, context: unknown, options?: unknown) => unknown;
+  streamSimple: (
+    model: unknown,
+    context: unknown,
+    options?: unknown,
+  ) => AsyncIterable<{ type: string }>;
+  registerApiProvider: (
+    provider: {
+      api: string;
+      stream: (...args: never[]) => unknown;
+      streamSimple: (...args: never[]) => unknown;
+    },
+    sourceId: string,
+  ) => void;
   unregisterApiProviders: (sourceId: string) => void;
-  getApiProvider: (api: string) => { streamSimple?: unknown } | undefined;
+  getApiProvider: (
+    api: string,
+  ) =>
+    | { streamSimple?: (model: unknown, context: unknown, options?: unknown) => unknown }
+    | undefined;
+  resetApiProviders: () => void;
 };
 
 // Computed specifier so tsc does not statically resolve "./compat" against
 // whatever pi-ai version is installed; pi-ai <=0.79 has no "./compat" export.
 const piAiCompatModule = "@earendil-works/pi-ai/compat";
 
+async function loadPiAiCompat(): Promise<PiAiCompatModule | null> {
+  try {
+    return (await import(piAiCompatModule)) as PiAiCompatModule;
+  } catch {
+    return null;
+  }
+}
+
+// The api id and the model shape come from what the extension actually
+// registered, not from hand-written literals, so renaming the custom api id
+// cannot leave these tests silently green.
+function persistedSessionModel(config: ProviderConfig): Record<string, unknown> {
+  const [model] = config.models ?? [];
+  assert.ok(model, "expected the extension to register at least one model");
+  return {
+    ...model,
+    provider: PROVIDER_ID,
+    api: config.api,
+    // A session record carries the base url resolved when it was created.
+    // streamSimpleKimi overrides it, which is what the dispatch test asserts.
+    baseUrl: "http://127.0.0.1:1/never-used",
+  };
+}
+
+async function withEnv<T>(
+  vars: Record<string, string | undefined>,
+  fn: () => Promise<T>,
+): Promise<T> {
+  const original = new Map(Object.keys(vars).map((key) => [key, process.env[key]]));
+  for (const [key, value] of Object.entries(vars)) {
+    if (value === undefined) {
+      delete process.env[key];
+    } else {
+      process.env[key] = value;
+    }
+  }
+  try {
+    return await fn();
+  } finally {
+    for (const [key, value] of original) {
+      if (value === undefined) {
+        delete process.env[key];
+      } else {
+        process.env[key] = value;
+      }
+    }
+  }
+}
+
 describe("global api-provider fallback", () => {
-  it("regression: pi-ai's default streamSimple throws for an unregistered kimi model", async () => {
-    let compat: PiAiCompatModule;
-    try {
-      compat = (await import(piAiCompatModule)) as PiAiCompatModule;
-    } catch {
+  it("regression: pi-ai's default streamSimple throws for an unregistered kimi model", async (t) => {
+    const compat = await loadPiAiCompat();
+    if (!compat) {
+      t.skip("pi-ai <=0.79 has no ./compat export");
       return;
     }
 
-    compat.unregisterApiProviders("pi-provider-kimi-code-global-fallback");
+    compat.unregisterApiProviders(KIMI_GLOBAL_FALLBACK_SOURCE_ID);
 
-    const model = { id: "k3", provider: "kimi-coding", api: "kimi-openai-completions" };
+    const api = getKimiApiType("openai");
+    const model = { id: "k3", provider: PROVIDER_ID, api };
     assert.throws(
       () => compat.streamSimple(model, { systemPrompt: "", messages: [] }, {}),
-      /No API provider registered for api: kimi-openai-completions/,
+      new RegExp(`No API provider registered for api: ${api}`),
     );
   });
 
@@ -1741,14 +1814,13 @@ describe("global api-provider fallback", () => {
 
     await withCwd(cwd, () => registerKimiCodeExtension(pi));
 
-    assert.deepEqual(providers, ["kimi-coding"]);
+    assert.deepEqual(providers, [PROVIDER_ID]);
   });
 
-  it("regression: registers the custom api id in pi-ai's global registry when compat is available", async () => {
-    let compat: PiAiCompatModule;
-    try {
-      compat = (await import(piAiCompatModule)) as PiAiCompatModule;
-    } catch {
+  it("registers every kimi api id in pi-ai's global registry, not only the active protocol", async (t) => {
+    const compat = await loadPiAiCompat();
+    if (!compat) {
+      t.skip("pi-ai <=0.79 has no ./compat export");
       return;
     }
 
@@ -1757,8 +1829,153 @@ describe("global api-provider fallback", () => {
 
     await withCwd(cwd, () => registerKimiCodeExtension(pi));
 
-    const provider = compat.getApiProvider("kimi-openai-completions");
-    assert.ok(provider, "expected kimi-openai-completions to be registered globally");
-    assert.equal(typeof provider?.streamSimple, "function");
+    // Sessions persist the api id that was current when the model was
+    // resolved, so a session created before a protocol switch still carries
+    // the other id and must not fall off the fallback.
+    for (const api of [getKimiApiType("openai"), getKimiApiType("anthropic")]) {
+      const provider = compat.getApiProvider(api);
+      assert.ok(provider, `expected ${api} to be registered globally`);
+      assert.equal(typeof provider?.streamSimple, "function");
+    }
+  });
+
+  it("does not displace an api-provider entry another source already owns", async (t) => {
+    const compat = await loadPiAiCompat();
+    if (!compat) {
+      t.skip("pi-ai <=0.79 has no ./compat export");
+      return;
+    }
+
+    const api = getKimiApiType("openai");
+    const foreignSourceId = "some-other-extension";
+    const foreignMarker = new Error("foreign api provider");
+    const foreign = () => {
+      throw foreignMarker;
+    };
+    compat.unregisterApiProviders(KIMI_GLOBAL_FALLBACK_SOURCE_ID);
+    compat.registerApiProvider({ api, stream: foreign, streamSimple: foreign }, foreignSourceId);
+
+    try {
+      const cwd = tempDir("kimi-extension-cwd");
+      const { pi } = makePi();
+
+      await withCwd(cwd, () => registerKimiCodeExtension(pi));
+
+      // The registry is shared and process-wide; the fallback exists to fill a
+      // hole, never to win a conflict.
+      assert.throws(
+        () => compat.getApiProvider(api)?.streamSimple?.({ api }, {}, {}),
+        (error: unknown) => error === foreignMarker,
+      );
+    } finally {
+      compat.unregisterApiProviders(foreignSourceId);
+    }
+  });
+
+  it("re-registers after pi clears the registry on session reload", async (t) => {
+    const compat = await loadPiAiCompat();
+    if (!compat) {
+      t.skip("pi-ai <=0.79 has no ./compat export");
+      return;
+    }
+
+    const cwd = tempDir("kimi-extension-cwd");
+
+    // AgentSession.reload() calls resetApiProviders() and then re-runs the
+    // extension factories, so the wipe has to be survivable.
+    compat.resetApiProviders();
+    assert.equal(compat.getApiProvider(getKimiApiType("openai")), undefined);
+
+    const { pi } = makePi();
+    await withCwd(cwd, () => registerKimiCodeExtension(pi));
+
+    assert.ok(compat.getApiProvider(getKimiApiType("openai")));
+    assert.ok(compat.getApiProvider(getKimiApiType("anthropic")));
+  });
+
+  it("routes a global-registry request through streamSimpleKimi with the stored credential", async (t) => {
+    const compat = await loadPiAiCompat();
+    if (!compat) {
+      t.skip("pi-ai <=0.79 has no ./compat export");
+      return;
+    }
+
+    const requests: Array<{ url?: string; headers: IncomingHttpHeaders }> = [];
+    const server = createServer((req, res) => {
+      requests.push({ url: req.url, headers: req.headers });
+      res.writeHead(500, { "content-type": "application/json" });
+      res.end(JSON.stringify({ error: "kimi test server" }));
+    });
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+    const { port } = server.address() as AddressInfo;
+    // A caller arriving through the global registry has no ModelRuntime behind
+    // it and supplies no credential, and an OAuth user has no KIMI_API_KEY in
+    // the environment either.
+    const auth = withTempAuthFile({
+      type: "oauth",
+      access: "stored-oauth-token",
+      refresh: "refresh-token",
+      expires: Date.now() + 60_000,
+    });
+
+    try {
+      const cwd = tempDir("kimi-extension-cwd");
+      const { pi, providerConfigs } = makePi();
+
+      await withEnv(
+        { KIMI_API_KEY: undefined, KIMI_CODE_BASE_URL: `http://127.0.0.1:${port}/v1` },
+        async () => {
+          await withCwd(cwd, () => registerKimiCodeExtension(pi));
+
+          const model = persistedSessionModel(providerConfigs.get(PROVIDER_ID)!);
+          const stream = compat.streamSimple(
+            model,
+            {
+              systemPrompt: "system",
+              messages: [{ role: "user", content: [{ type: "text", text: "hi" }] }],
+            },
+            {},
+          );
+          for await (const _event of stream) {
+            // Drain: the test server always answers 500, so the stream ends
+            // with a single error event.
+          }
+        },
+      );
+    } finally {
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+      auth.cleanup();
+    }
+
+    // Reaching the test server at all proves the registry entry dispatches
+    // into streamSimpleKimi: it is the only code path that overrides the
+    // model's own base url with the configured Kimi one and merges the
+    // kimi-code identity headers into the request. The Authorization header
+    // proves the request is authenticated without pi resolving the credential
+    // for it.
+    assert.equal(requests.length, 1);
+    assert.equal(requests[0]?.url, "/v1/chat/completions");
+    assert.equal(requests[0]?.headers["x-msh-platform"], KIMI_PLATFORM);
+    assert.equal(requests[0]?.headers.authorization, "Bearer stored-oauth-token");
+  });
+
+  it("hands its registry entries back when the session shuts down", async (t) => {
+    const compat = await loadPiAiCompat();
+    if (!compat) {
+      t.skip("pi-ai <=0.79 has no ./compat export");
+      return;
+    }
+
+    const cwd = tempDir("kimi-extension-cwd");
+    const { pi, emit } = makePi();
+
+    await withCwd(cwd, () => registerKimiCodeExtension(pi));
+    assert.ok(compat.getApiProvider(getKimiApiType("openai")));
+
+    await emit("session_shutdown", { type: "session_shutdown", reason: "exit" }, {});
+
+    // The registry outlives the session, so the entries must not.
+    assert.equal(compat.getApiProvider(getKimiApiType("openai")), undefined);
+    assert.equal(compat.getApiProvider(getKimiApiType("anthropic")), undefined);
   });
 });
