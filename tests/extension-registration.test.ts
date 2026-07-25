@@ -114,8 +114,14 @@ function makePi() {
     Array<(event: unknown, ctx: unknown) => Promise<void> | void>
   >();
   let activeTools: string[] = [];
+  let providerRegistrationError: Error | undefined;
   const pi = {
     registerProvider(name: string, config: ProviderConfig) {
+      if (providerRegistrationError) {
+        const error = providerRegistrationError;
+        providerRegistrationError = undefined;
+        throw error;
+      }
       providers.push(name);
       providerConfigs.set(name, config);
     },
@@ -157,7 +163,27 @@ function makePi() {
     setActiveTools: (toolNames: string[]) => {
       activeTools = [...toolNames];
     },
+    // pi throws out of registerProvider when the extension runtime behind the
+    // captured `pi` handle is gone, which is how a mid-flight /reload reaches
+    // the deferred discovery.
+    failNextProviderRegistration: (error: Error) => {
+      providerRegistrationError = error;
+    },
   };
+}
+
+async function captureConsoleErrors(fn: () => Promise<void>): Promise<string[]> {
+  const messages: string[] = [];
+  const originalError = console.error;
+  console.error = (...args: unknown[]) => {
+    messages.push(args.map(String).join(" "));
+  };
+  try {
+    await fn();
+  } finally {
+    console.error = originalError;
+  }
+  return messages;
 }
 
 function mockTheme(): Theme {
@@ -557,6 +583,90 @@ describe("extension tool registration", () => {
       }
     },
   );
+
+  it("reports a deferred discovery failure it cannot attribute to a reload", async () => {
+    const cwd = tempDir("kimi-extension-cwd");
+    const { pi, failNextProviderRegistration, providers } = makePi();
+    const auth = withTempAuthFile({
+      type: "oauth",
+      access: "oauth-token",
+      refresh: "refresh-token",
+      expires: Date.now() + 60_000,
+    });
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = async (input) => {
+      const url = String(input);
+      if (url.endsWith("/models")) {
+        return new Response(JSON.stringify({ data: [{ id: "kimi-for-coding" }] }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
+      }
+      throw new Error(`unexpected request: ${url}`);
+    };
+
+    try {
+      const messages = await captureConsoleErrors(() =>
+        withCwd(cwd, async () => {
+          await registerKimiCodeExtension(pi);
+          failNextProviderRegistration(new Error("model registry rejected the provider"));
+          await kimiModelDiscoverySettled();
+        }),
+      );
+
+      // Before deferral this threw out of the factory and pi surfaced it as an
+      // extension load error. It has to stay visible.
+      assert.equal(messages.length, 1);
+      assert.match(messages[0], /model registry rejected the provider/);
+      assert.deepEqual(providers, [PROVIDER_ID]);
+    } finally {
+      globalThis.fetch = originalFetch;
+      auth.cleanup();
+    }
+  });
+
+  it("stays quiet when a reload retires the runtime mid-discovery", async () => {
+    const cwd = tempDir("kimi-extension-cwd");
+    const { pi, failNextProviderRegistration, providers } = makePi();
+    const auth = withTempAuthFile({
+      type: "oauth",
+      access: "oauth-token",
+      refresh: "refresh-token",
+      expires: Date.now() + 60_000,
+    });
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = async (input) => {
+      const url = String(input);
+      if (url.endsWith("/models")) {
+        return new Response(JSON.stringify({ data: [{ id: "kimi-for-coding" }] }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
+      }
+      throw new Error(`unexpected request: ${url}`);
+    };
+
+    try {
+      const messages = await captureConsoleErrors(() =>
+        withCwd(cwd, async () => {
+          await registerKimiCodeExtension(pi);
+          failNextProviderRegistration(
+            new Error(
+              "This extension ctx is stale after session replacement or reload. Do not use a captured pi or command ctx after ctx.newSession(), ctx.fork(), ctx.switchSession(), or ctx.reload().",
+            ),
+          );
+          await kimiModelDiscoverySettled();
+        }),
+      );
+
+      // The reloaded factory runs its own discovery, so this is expected.
+      assert.deepEqual(messages, []);
+      assert.deepEqual(providers, [PROVIDER_ID]);
+    } finally {
+      globalThis.fetch = originalFetch;
+      auth.cleanup();
+    }
+  });
 
   it("keeps the registered provider untouched when discovery finds nothing", async () => {
     const cwd = tempDir("kimi-extension-cwd");
