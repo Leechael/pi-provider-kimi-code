@@ -58,9 +58,13 @@ import {
   type KimiResolvedModelConfig,
 } from "./config.ts";
 
-import { ENV_KIMI_CODE_PROTOCOL, getApiProtocol, getBaseUrl } from "./constants.ts";
+import { ENV_KIMI_CODE_PROTOCOL, PROVIDER_ID, getApiProtocol, getBaseUrl } from "./constants.ts";
 import { getKimiProviderHeaders } from "./device.ts";
-import { isKimiAuthErrorMessage, refreshKimiAuthToken } from "./oauth.ts";
+import {
+  isKimiAuthErrorMessage,
+  readStoredOAuthCredential,
+  refreshKimiAuthToken,
+} from "./oauth.ts";
 import {
   type Uploader,
   applyKimiPayloadMutations,
@@ -190,11 +194,21 @@ export async function* filterEmptyResponseStream(
 
 const KIMI_API_KEY_ENV_REFERENCES = new Set(["$KIMI_API_KEY", "${KIMI_API_KEY}"]);
 
+// On the normal request path pi resolves the provider credential through its
+// ModelRuntime and hands it to us. Callers that arrive through pi-ai's global
+// api registry (a bare agentLoop() with no streamFn) have no ModelRuntime
+// behind them and pass nothing, so read the same credential store pi itself
+// would have read instead of sending an unauthenticated request. Kept last so
+// an explicit key and the environment override keep their existing precedence.
+function getStoredKimiAccessToken(): string {
+  return readStoredOAuthCredential(PROVIDER_ID)?.access?.trim() || "";
+}
+
 export function resolveKimiApiKey(apiKey: string | undefined): string {
   if (apiKey !== undefined && KIMI_API_KEY_ENV_REFERENCES.has(apiKey)) {
-    return process.env.KIMI_API_KEY?.trim() || "";
+    return process.env.KIMI_API_KEY?.trim() || getStoredKimiAccessToken();
   }
-  return apiKey || process.env.KIMI_API_KEY || "";
+  return apiKey || process.env.KIMI_API_KEY || getStoredKimiAccessToken();
 }
 
 // SimpleStreamOptions.headers is Record<string, string> on pi <=0.79 and
