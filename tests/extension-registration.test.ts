@@ -19,10 +19,18 @@ import {
   getProjectKimiCodeConfigPath,
 } from "../src/config.ts";
 import { PROVIDER_ID } from "../src/constants.ts";
-import registerKimiCodeExtension from "../index.ts";
+import registerKimiCodeExtension, { kimiModelDiscoverySettled } from "../index.ts";
 
 function tempDir(name: string): string {
   return mkdtempSync(join(tmpdir(), `${name}-`));
+}
+
+// Model discovery is deliberately not awaited by the extension factory, so the
+// assertions that care about discovered metadata have to wait for it. Waiting
+// also keeps a background request from outliving the test that stubbed fetch.
+async function loadKimiExtension(pi: ExtensionAPI): Promise<void> {
+  await registerKimiCodeExtension(pi);
+  await kimiModelDiscoverySettled();
 }
 
 async function withCwd<T>(cwd: string, fn: () => T | Promise<T>): Promise<T> {
@@ -106,8 +114,14 @@ function makePi() {
     Array<(event: unknown, ctx: unknown) => Promise<void> | void>
   >();
   let activeTools: string[] = [];
+  let providerRegistrationError: Error | undefined;
   const pi = {
     registerProvider(name: string, config: ProviderConfig) {
+      if (providerRegistrationError) {
+        const error = providerRegistrationError;
+        providerRegistrationError = undefined;
+        throw error;
+      }
       providers.push(name);
       providerConfigs.set(name, config);
     },
@@ -149,7 +163,27 @@ function makePi() {
     setActiveTools: (toolNames: string[]) => {
       activeTools = [...toolNames];
     },
+    // pi throws out of registerProvider when the extension runtime behind the
+    // captured `pi` handle is gone, which is how a mid-flight /reload reaches
+    // the deferred discovery.
+    failNextProviderRegistration: (error: Error) => {
+      providerRegistrationError = error;
+    },
   };
+}
+
+async function captureConsoleErrors(fn: () => Promise<void>): Promise<string[]> {
+  const messages: string[] = [];
+  const originalError = console.error;
+  console.error = (...args: unknown[]) => {
+    messages.push(args.map(String).join(" "));
+  };
+  try {
+    await fn();
+  } finally {
+    console.error = originalError;
+  }
+  return messages;
 }
 
 function mockTheme(): Theme {
@@ -209,7 +243,7 @@ describe("extension tool registration", () => {
     const cwd = tempDir("kimi-extension-cwd");
     const { commands, pi, providers, tools } = makePi();
 
-    await withCwd(cwd, () => registerKimiCodeExtension(pi));
+    await withCwd(cwd, () => loadKimiExtension(pi));
 
     assert.deepEqual(providers, ["kimi-coding"]);
     assert.deepEqual(
@@ -223,7 +257,7 @@ describe("extension tool registration", () => {
     const cwd = tempDir("kimi-extension-cwd");
     const { pi, providerConfigs } = makePi();
 
-    await withCwd(cwd, () => registerKimiCodeExtension(pi));
+    await withCwd(cwd, () => loadKimiExtension(pi));
 
     const models = providerConfigs.get("kimi-coding")?.models ?? [];
     assert.deepEqual(
@@ -240,7 +274,7 @@ describe("extension tool registration", () => {
     const cwd = tempDir("kimi-extension-cwd");
     const { pi, providerConfigs } = makePi();
 
-    await withCwd(cwd, () => registerKimiCodeExtension(pi));
+    await withCwd(cwd, () => loadKimiExtension(pi));
 
     const provider = providerConfigs.get("kimi-coding");
     const modifyModels = provider?.oauth?.modifyModels;
@@ -295,7 +329,7 @@ describe("extension tool registration", () => {
     const cwd = tempDir("kimi-extension-cwd");
     const { pi, providerConfigs } = makePi();
 
-    await withCwd(cwd, () => registerKimiCodeExtension(pi));
+    await withCwd(cwd, () => loadKimiExtension(pi));
 
     const provider = providerConfigs.get("kimi-coding");
     const modifyModels = provider?.oauth?.modifyModels;
@@ -342,7 +376,7 @@ describe("extension tool registration", () => {
     const cwd = tempDir("kimi-extension-cwd");
     const { pi, providerConfigs } = makePi();
 
-    await withCwd(cwd, () => registerKimiCodeExtension(pi));
+    await withCwd(cwd, () => loadKimiExtension(pi));
 
     const provider = providerConfigs.get("kimi-coding");
     const modifyModels = provider?.oauth?.modifyModels;
@@ -398,7 +432,7 @@ describe("extension tool registration", () => {
     const cwd = tempDir("kimi-extension-cwd");
     const { pi, providerConfigs } = makePi();
 
-    await withCwd(cwd, () => registerKimiCodeExtension(pi));
+    await withCwd(cwd, () => loadKimiExtension(pi));
 
     const provider = providerConfigs.get("kimi-coding");
     const modifyModels = provider?.oauth?.modifyModels;
@@ -426,7 +460,7 @@ describe("extension tool registration", () => {
     const cwd = tempDir("kimi-extension-cwd");
     const { pi, providerConfigs } = makePi();
 
-    await withCwd(cwd, () => registerKimiCodeExtension(pi));
+    await withCwd(cwd, () => loadKimiExtension(pi));
 
     const provider = providerConfigs.get("kimi-coding");
     const modifyModels = provider?.oauth?.modifyModels;
@@ -477,10 +511,186 @@ describe("extension tool registration", () => {
     };
 
     try {
-      await withCwd(cwd, () => registerKimiCodeExtension(pi));
+      await withCwd(cwd, () => loadKimiExtension(pi));
       assert.deepEqual(
         providerConfigs.get("kimi-coding")?.models?.map((model) => model.id),
         ["kimi-for-coding"],
+      );
+    } finally {
+      globalThis.fetch = originalFetch;
+      auth.cleanup();
+    }
+  });
+
+  it(
+    "registers the provider without waiting for model discovery",
+    { timeout: 10_000 },
+    async () => {
+      const cwd = tempDir("kimi-extension-cwd");
+      const { pi, providerConfigs, providers } = makePi();
+      const auth = withTempAuthFile({
+        type: "oauth",
+        access: "oauth-token",
+        refresh: "refresh-token",
+        expires: Date.now() + 60_000,
+      });
+      const originalFetch = globalThis.fetch;
+      let modelsRequestStarted = false;
+      let modelsRequestFinished = false;
+      let releaseModelsRequest: (() => void) | undefined;
+      globalThis.fetch = async (input) => {
+        const url = String(input);
+        if (url.endsWith("/models")) {
+          modelsRequestStarted = true;
+          await new Promise<void>((resolve) => {
+            releaseModelsRequest = resolve;
+          });
+          modelsRequestFinished = true;
+          return new Response(JSON.stringify({ data: [{ id: "kimi-for-coding" }] }), {
+            status: 200,
+            headers: { "content-type": "application/json" },
+          });
+        }
+        throw new Error(`unexpected request: ${url}`);
+      };
+
+      try {
+        // Deliberately not loadKimiExtension: pi awaits this factory before it
+        // builds the session, so the factory has to return while discovery is
+        // still on the wire.
+        await withCwd(cwd, () => registerKimiCodeExtension(pi));
+
+        assert.equal(modelsRequestStarted, true);
+        assert.equal(modelsRequestFinished, false);
+        assert.deepEqual(
+          providerConfigs.get(PROVIDER_ID)?.models?.map((model) => model.id),
+          ["kimi-for-coding", "kimi-for-coding-highspeed", "k3"],
+        );
+
+        releaseModelsRequest?.();
+        await kimiModelDiscoverySettled();
+
+        assert.equal(modelsRequestFinished, true);
+        assert.deepEqual(
+          providerConfigs.get(PROVIDER_ID)?.models?.map((model) => model.id),
+          ["kimi-for-coding"],
+        );
+        assert.deepEqual(providers, [PROVIDER_ID, PROVIDER_ID]);
+      } finally {
+        releaseModelsRequest?.();
+        globalThis.fetch = originalFetch;
+        auth.cleanup();
+      }
+    },
+  );
+
+  it("reports a deferred discovery failure it cannot attribute to a reload", async () => {
+    const cwd = tempDir("kimi-extension-cwd");
+    const { pi, failNextProviderRegistration, providers } = makePi();
+    const auth = withTempAuthFile({
+      type: "oauth",
+      access: "oauth-token",
+      refresh: "refresh-token",
+      expires: Date.now() + 60_000,
+    });
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = async (input) => {
+      const url = String(input);
+      if (url.endsWith("/models")) {
+        return new Response(JSON.stringify({ data: [{ id: "kimi-for-coding" }] }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
+      }
+      throw new Error(`unexpected request: ${url}`);
+    };
+
+    try {
+      const messages = await captureConsoleErrors(() =>
+        withCwd(cwd, async () => {
+          await registerKimiCodeExtension(pi);
+          failNextProviderRegistration(new Error("model registry rejected the provider"));
+          await kimiModelDiscoverySettled();
+        }),
+      );
+
+      // Before deferral this threw out of the factory and pi surfaced it as an
+      // extension load error. It has to stay visible.
+      assert.equal(messages.length, 1);
+      assert.match(messages[0], /model registry rejected the provider/);
+      assert.deepEqual(providers, [PROVIDER_ID]);
+    } finally {
+      globalThis.fetch = originalFetch;
+      auth.cleanup();
+    }
+  });
+
+  it("stays quiet when a reload retires the runtime mid-discovery", async () => {
+    const cwd = tempDir("kimi-extension-cwd");
+    const { pi, failNextProviderRegistration, providers } = makePi();
+    const auth = withTempAuthFile({
+      type: "oauth",
+      access: "oauth-token",
+      refresh: "refresh-token",
+      expires: Date.now() + 60_000,
+    });
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = async (input) => {
+      const url = String(input);
+      if (url.endsWith("/models")) {
+        return new Response(JSON.stringify({ data: [{ id: "kimi-for-coding" }] }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
+      }
+      throw new Error(`unexpected request: ${url}`);
+    };
+
+    try {
+      const messages = await captureConsoleErrors(() =>
+        withCwd(cwd, async () => {
+          await registerKimiCodeExtension(pi);
+          failNextProviderRegistration(
+            new Error(
+              "This extension ctx is stale after session replacement or reload. Do not use a captured pi or command ctx after ctx.newSession(), ctx.fork(), ctx.switchSession(), or ctx.reload().",
+            ),
+          );
+          await kimiModelDiscoverySettled();
+        }),
+      );
+
+      // The reloaded factory runs its own discovery, so this is expected.
+      assert.deepEqual(messages, []);
+      assert.deepEqual(providers, [PROVIDER_ID]);
+    } finally {
+      globalThis.fetch = originalFetch;
+      auth.cleanup();
+    }
+  });
+
+  it("keeps the registered provider untouched when discovery finds nothing", async () => {
+    const cwd = tempDir("kimi-extension-cwd");
+    const { pi, providerConfigs, providers } = makePi();
+    const auth = withTempAuthFile({
+      type: "oauth",
+      access: "oauth-token",
+      refresh: "refresh-token",
+      expires: Date.now() + 60_000,
+    });
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = async (input) => {
+      const url = String(input);
+      if (url.endsWith("/models")) return new Response("nope", { status: 500 });
+      throw new Error(`unexpected request: ${url}`);
+    };
+
+    try {
+      await withCwd(cwd, () => loadKimiExtension(pi));
+
+      assert.deepEqual(providers, [PROVIDER_ID]);
+      assert.deepEqual(
+        providerConfigs.get(PROVIDER_ID)?.models?.map((model) => model.id),
+        ["kimi-for-coding", "kimi-for-coding-highspeed", "k3"],
       );
     } finally {
       globalThis.fetch = originalFetch;
@@ -522,7 +732,7 @@ describe("extension tool registration", () => {
     };
 
     try {
-      await withCwd(cwd, () => registerKimiCodeExtension(pi));
+      await withCwd(cwd, () => loadKimiExtension(pi));
       const models = providerConfigs.get("kimi-coding")?.models ?? [];
       assert.deepEqual(
         models.map((model) => model.id),
@@ -587,7 +797,7 @@ describe("extension tool registration", () => {
     };
 
     try {
-      await withCwd(cwd, () => registerKimiCodeExtension(pi));
+      await withCwd(cwd, () => loadKimiExtension(pi));
       assert.deepEqual(
         providerConfigs.get("kimi-coding")?.models?.map((model) => [model.id, model.contextWindow]),
         [
@@ -651,7 +861,7 @@ describe("extension tool registration", () => {
     };
 
     try {
-      await withCwd(cwd, () => registerKimiCodeExtension(pi));
+      await withCwd(cwd, () => loadKimiExtension(pi));
       const provider = providerConfigs.get("kimi-coding");
       const refreshToken = provider?.oauth?.refreshToken;
       const modifyModels = provider?.oauth?.modifyModels;
@@ -717,7 +927,7 @@ describe("extension tool registration", () => {
     };
 
     try {
-      await withCwd(cwd, () => registerKimiCodeExtension(pi));
+      await withCwd(cwd, () => loadKimiExtension(pi));
       assert.deepEqual(
         providerConfigs.get("kimi-coding")?.models?.map((model) => [model.id, model.contextWindow]),
         [
@@ -801,7 +1011,7 @@ describe("extension tool registration", () => {
     };
 
     try {
-      await withCwd(cwd, () => registerKimiCodeExtension(pi));
+      await withCwd(cwd, () => loadKimiExtension(pi));
       const kimiCommand = commands.get("kimi-settings");
       assert.ok(kimiCommand);
       await runSettingsHandler(
@@ -831,7 +1041,7 @@ describe("extension tool registration", () => {
     const cwd = tempDir("kimi-extension-cwd");
     const { pi, providerConfigs } = makePi();
 
-    await withCwd(cwd, () => registerKimiCodeExtension(pi));
+    await withCwd(cwd, () => loadKimiExtension(pi));
 
     assert.equal(providerConfigs.get("kimi-coding")?.apiKey, "$KIMI_API_KEY");
   });
@@ -840,7 +1050,7 @@ describe("extension tool registration", () => {
     const cwd = tempDir("kimi-extension-cwd");
     const { pi, providerConfigs } = makePi();
 
-    await withCwd(cwd, () => registerKimiCodeExtension(pi));
+    await withCwd(cwd, () => loadKimiExtension(pi));
 
     assert.equal(providerConfigs.get("kimi-coding")?.headers, undefined);
   });
@@ -863,7 +1073,7 @@ describe("extension tool registration", () => {
 
     await withCwd(cwd, async () => {
       process.env.HOME = home;
-      await registerKimiCodeExtension(pi);
+      await loadKimiExtension(pi);
       await emit("session_start", { reason: "startup" }, { cwd, isProjectTrusted: () => false });
     });
 
@@ -896,7 +1106,7 @@ describe("extension tool registration", () => {
     await withAgentDir(agentDir, () =>
       withCwd(cwd, async () => {
         process.env.HOME = home;
-        await registerKimiCodeExtension(pi);
+        await loadKimiExtension(pi);
         await emit("session_start", { reason: "startup" }, { cwd, isProjectTrusted: () => true });
       }),
     );
@@ -925,7 +1135,7 @@ describe("extension tool registration", () => {
 
     await withCwd(cwd, async () => {
       process.env.HOME = home;
-      await registerKimiCodeExtension(pi);
+      await loadKimiExtension(pi);
       await emit("session_start", { reason: "startup" }, { cwd });
     });
 
@@ -957,7 +1167,7 @@ describe("extension tool registration", () => {
     await withAgentDir(agentDir, () =>
       withCwd(cwd, async () => {
         process.env.HOME = home;
-        await registerKimiCodeExtension(pi);
+        await loadKimiExtension(pi);
         await emit("session_start", { reason: "startup" }, { cwd, isProjectTrusted: () => true });
       }),
     );
@@ -983,7 +1193,7 @@ describe("extension tool registration", () => {
     const { commands, pi } = makePi();
     const notifications: Array<{ message: string; level?: string }> = [];
 
-    await withCwd(cwd, () => registerKimiCodeExtension(pi));
+    await withCwd(cwd, () => loadKimiExtension(pi));
     const kimiCommand = commands.get("kimi-settings");
     assert.ok(kimiCommand);
 
@@ -1027,7 +1237,7 @@ describe("extension tool registration", () => {
       });
 
     try {
-      await withCwd(cwd, () => registerKimiCodeExtension(pi));
+      await withCwd(cwd, () => loadKimiExtension(pi));
       const kimiCommand = commands.get("kimi-settings");
       assert.ok(kimiCommand);
 
@@ -1122,7 +1332,7 @@ describe("extension tool registration", () => {
       });
 
     try {
-      await registerKimiCodeExtension(pi);
+      await loadKimiExtension(pi);
       const kimiCommand = commands.get("kimi-settings");
       assert.ok(kimiCommand);
 
@@ -1208,7 +1418,7 @@ describe("extension tool registration", () => {
     };
 
     try {
-      await withCwd(cwd, () => registerKimiCodeExtension(pi));
+      await withCwd(cwd, () => loadKimiExtension(pi));
       const kimiCommand = commands.get("kimi-settings");
       assert.ok(kimiCommand);
 
@@ -1263,7 +1473,7 @@ describe("extension tool registration", () => {
       });
 
     try {
-      await withCwd(cwd, () => registerKimiCodeExtension(pi));
+      await withCwd(cwd, () => loadKimiExtension(pi));
       const kimiCommand = commands.get("kimi-settings");
       assert.ok(kimiCommand);
 
@@ -1327,7 +1537,7 @@ describe("extension tool registration", () => {
       });
 
     try {
-      await withCwd(cwd, () => registerKimiCodeExtension(pi));
+      await withCwd(cwd, () => loadKimiExtension(pi));
       const kimiCommand = commands.get("kimi-settings");
       assert.ok(kimiCommand);
 
@@ -1389,7 +1599,7 @@ describe("extension tool registration", () => {
       );
 
     try {
-      await withCwd(cwd, () => registerKimiCodeExtension(pi));
+      await withCwd(cwd, () => loadKimiExtension(pi));
       const kimiCommand = commands.get("kimi-settings");
       assert.ok(kimiCommand);
 

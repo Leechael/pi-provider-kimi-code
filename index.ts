@@ -141,13 +141,26 @@ function applyEffectiveKimiRuntimeConfig(
   return config;
 }
 
-async function refreshModelExtras(state: KimiRuntimeState): Promise<boolean> {
-  const token = getKimiUsageToken();
+async function refreshModelExtras(
+  state: KimiRuntimeState,
+  token = getKimiUsageToken(),
+): Promise<boolean> {
   if (!token) return false;
   const extras = await discoverKimiModelMetadata(token, state.config.protocol);
   if (Object.keys(extras).length === 0) return false;
   Object.assign(state.modelExtras, extras);
   return true;
+}
+
+// Discovery can lose a race with a concurrent OAuth refresh: the token it
+// started with may already be dead by the time the request goes out. Retry
+// once, but only when the stored token actually changed underneath us.
+async function discoverModelExtras(state: KimiRuntimeState): Promise<boolean> {
+  const token = getKimiUsageToken();
+  if (await refreshModelExtras(state, token)) return true;
+  const refreshedToken = getKimiUsageToken();
+  if (!refreshedToken || refreshedToken === token) return false;
+  return refreshModelExtras(state, refreshedToken);
 }
 
 async function openSettingsMenu(
@@ -481,6 +494,50 @@ function registerKimiProvider(pi: ExtensionAPI, state: KimiRuntimeState): void {
   });
 }
 
+// What pi throws from any `pi` method once the extension runtime behind it has
+// been retired, which is what a /reload does. Same wording on every version
+// this extension supports (0.78.1 through 0.82.0); if it ever changes, the
+// worst case is that a reload race gets logged instead of ignored.
+const STALE_EXTENSION_RUNTIME_PREFIX = "This extension ctx is stale";
+
+let pendingModelDiscovery: Promise<void> = Promise.resolve();
+
+/**
+ * Resolves once the discovery started by the most recent extension load has
+ * settled. Nothing in the runtime waits for it; it exists so tests can observe
+ * the deferred registration without polling.
+ */
+export function kimiModelDiscoverySettled(): Promise<void> {
+  return pendingModelDiscovery;
+}
+
+// pi's extension loader awaits this factory before it builds the session, and
+// the TUI only draws its first frame after that returns, so a network round
+// trip here is a stall the user sees on every launch and every /reload. The
+// stored OAuth credential already carries the last known catalog (pi replays it
+// through oauth.modifyModels), so register what the config describes right away
+// and fold the fresh metadata in when it lands.
+function startModelDiscovery(pi: ExtensionAPI, state: KimiRuntimeState): void {
+  pendingModelDiscovery = discoverModelExtras(state)
+    .then((discovered) => {
+      if (!discovered) return;
+      reloadEffectiveKimiRuntimeConfig(state, state.cwd, state.projectTrusted);
+      registerKimiProvider(pi, state);
+    })
+    .catch((error: unknown) => {
+      const message = error instanceof Error ? error.message : String(error);
+      // A /reload retires this extension runtime while discovery may still be
+      // in flight, and registering against a retired runtime throws. The
+      // reloaded factory runs its own discovery, so there is nothing to redo.
+      if (message.startsWith(STALE_EXTENSION_RUNTIME_PREFIX)) return;
+      // Anything else used to surface as an extension load failure, back when
+      // this ran inside the factory. Deferring it must not make it invisible:
+      // the provider stays registered with the metadata it already had, and
+      // the user needs to know why it stopped refreshing.
+      console.error("[kimi-coding] deferred model discovery failed:", message);
+    });
+}
+
 export function KimiCode(overrides?: KimiCodeConfigPatch): ExtensionFactory {
   return async (pi: ExtensionAPI) => {
     const cwd = process.cwd();
@@ -488,23 +545,10 @@ export function KimiCode(overrides?: KimiCodeConfigPatch): ExtensionFactory {
       { cwd, home: os.homedir(), includeProject: false },
       overrides,
     );
-    const discoveryToken = getKimiUsageToken();
-    const initialDiscovery = discoveryToken
-      ? await discoverKimiModelMetadata(discoveryToken, config.protocol)
-      : {};
-    let discovered = initialDiscovery;
-    const refreshedToken = getKimiUsageToken();
-    if (
-      Object.keys(discovered).length === 0 &&
-      refreshedToken &&
-      refreshedToken !== discoveryToken
-    ) {
-      discovered = await discoverKimiModelMetadata(refreshedToken, config.protocol);
-    }
     const state: KimiRuntimeState = {
       cwd,
       config,
-      modelExtras: discovered,
+      modelExtras: {},
       projectTrusted: false,
       overrides,
     };
@@ -532,6 +576,8 @@ export function KimiCode(overrides?: KimiCodeConfigPatch): ExtensionFactory {
         await openSettingsMenu(pi, ctx, state);
       },
     });
+
+    startModelDiscovery(pi, state);
   };
 }
 

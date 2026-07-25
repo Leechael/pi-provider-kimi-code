@@ -1,6 +1,39 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { computeDeviceModel } from "../src/device.ts";
+import { computeDeviceModel, parseMacProductVersion } from "../src/device.ts";
+
+// The macOS product version comes out of SystemVersion.plist rather than a
+// `sw_vers` subprocess, so the parser has to hold up against the real file
+// layout as well as the shapes a missing or truncated read can produce.
+describe("parseMacProductVersion", () => {
+  it("reads the version out of a plist", () => {
+    const plist = [
+      '<?xml version="1.0" encoding="UTF-8"?>',
+      "<plist>",
+      "<dict>",
+      "\t<key>ProductName</key>",
+      "\t<string>macOS</string>",
+      "\t<key>ProductVersion</key>",
+      "\t<string>26.5</string>",
+      "\t<key>ProductBuildVersion</key>",
+      "\t<string>25F74</string>",
+      "</dict>",
+      "</plist>",
+    ].join("\n");
+    assert.equal(parseMacProductVersion(plist), "26.5");
+  });
+
+  it("does not confuse ProductVersion with the neighbouring keys", () => {
+    const plist = "<key>ProductBuildVersion</key><string>25F74</string>";
+    assert.equal(parseMacProductVersion(plist), undefined);
+  });
+
+  it("returns undefined for an empty or unparseable file", () => {
+    assert.equal(parseMacProductVersion(""), undefined);
+    assert.equal(parseMacProductVersion("<key>ProductVersion</key><string></string>"), undefined);
+    assert.equal(parseMacProductVersion("not a plist at all"), undefined);
+  });
+});
 
 // Mirror upstream Kimi Code identity formatting per OS so that the
 // X-Msh-Device-Model header reported by this provider stays in lockstep.

@@ -1,14 +1,36 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
+import { execFileSync } from "node:child_process";
 import os from "node:os";
 import { KIMI_UPSTREAM_VERSION } from "../src/constants.ts";
 import {
   asciiHeaderValue,
+  computeDeviceModel,
   getCommonHeaders,
   getKimiProviderHeaders,
   getOsVersion,
 } from "../src/device.ts";
 import { buildModelsUrl } from "../src/models.ts";
+
+// The device model has to keep matching what the retired `sw_vers` call
+// produced: it is part of the identity Kimi Code sends upstream.
+function expectedDarwinDeviceModel(): string {
+  const productVersion = execFileSync("/usr/bin/sw_vers", ["-productVersion"], {
+    encoding: "utf-8",
+  }).trim();
+  return computeDeviceModel({
+    platform: "darwin",
+    release: os.release(),
+    arch: os.machine() || process.arch,
+    macVersion: productVersion,
+  });
+}
+
+// A separate module instance per case, so one case's synchronous fallback
+// cannot satisfy the other case's async read.
+function freshDeviceModule(tag: string): Promise<typeof import("../src/device.ts")> {
+  return import(`../src/device.ts?device-model-${tag}`);
+}
 
 describe("asciiHeaderValue", () => {
   it("passes ASCII strings through unchanged", () => {
@@ -39,6 +61,39 @@ describe("getCommonHeaders", () => {
     assert.equal(headers["X-Msh-Platform"], "kimi_code_cli");
     assert.equal(headers["User-Agent"], `kimi-code-cli/${KIMI_UPSTREAM_VERSION}`);
     assert.equal(headers["X-Msh-Version"], KIMI_UPSTREAM_VERSION);
+  });
+
+  it("reports the device model sw_vers would have produced", (t) => {
+    if (process.platform !== "darwin") {
+      t.skip("macOS product version lookup only runs on darwin");
+      return;
+    }
+
+    assert.equal(getCommonHeaders()["X-Msh-Device-Model"], expectedDarwinDeviceModel());
+  });
+
+  // Two ways in: the read started at module load, or a header was needed before
+  // that read landed. Both have to put the same identity on the wire, so each
+  // gets its own freshly imported module instance.
+  it("resolves the device model from the async module-load read", async (t) => {
+    if (process.platform !== "darwin") {
+      t.skip("macOS product version lookup only runs on darwin");
+      return;
+    }
+    const fresh = await freshDeviceModule("async");
+    await fresh.deviceModelReady;
+
+    assert.equal(fresh.getCommonHeaders()["X-Msh-Device-Model"], expectedDarwinDeviceModel());
+  });
+
+  it("resolves the device model when a header is needed before that read lands", async (t) => {
+    if (process.platform !== "darwin") {
+      t.skip("macOS product version lookup only runs on darwin");
+      return;
+    }
+    const fresh = await freshDeviceModule("sync");
+
+    assert.equal(fresh.getCommonHeaders()["X-Msh-Device-Model"], expectedDarwinDeviceModel());
   });
 });
 
