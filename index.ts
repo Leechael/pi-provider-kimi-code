@@ -603,7 +603,7 @@ function startModelDiscovery(pi: ExtensionAPI, state: KimiRuntimeState): void {
     .then((discovered) => {
       if (!discovered) return;
       reloadEffectiveKimiRuntimeConfig(state, state.cwd, state.projectTrusted);
-      registerKimiProvider(pi, state);
+      return registerKimiProvider(pi, state);
     })
     .catch((error: unknown) => {
       const message = error instanceof Error ? error.message : String(error);
