@@ -8,6 +8,7 @@ import type {
   ModelConfig,
   ModelReasoningMap,
 } from "./config.ts";
+import { DEFAULT_KIMI_CODE_CONFIG } from "./config.ts";
 
 import { type KimiWireProtocol, getBaseUrl } from "./constants.ts";
 import { getKimiProviderHeaders } from "./device.ts";
@@ -84,15 +85,33 @@ function resolveModelCost(
   return { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 };
 }
 
-// Policy: a model's output cap tracks its context window. pi-ai clamps the
-// request cap to contextWindow - used - 4096 (clampMaxTokensToContext in
+// Policy: a model's output cap tracks its context window unless the user
+// explicitly configured model.maxTokens. pi-ai clamps the request cap to
+// contextWindow - used - 4096 (clampMaxTokensToContext in
 // @earendil-works/pi-ai), so setting maxTokens to the window yields the official
 // kimi-code behavior (computeCompletionBudgetCap: maxCtx, clamped to
 // maxCtx - usedContext) instead of a fixed small cap that truncates long
 // max-effort reasoning (reasoning_content counts toward the cap). A deliberate
 // per-request cap still wins (options.maxTokens ?? model.maxTokens). Reconcile
 // wherever contextWindow is authored so the two stay in lockstep.
+//
+// "Explicitly configured" means any value other than the built-in default:
+// ensureKimiCodeConfig materializes the full default config (including
+// maxTokens) into the home config file, so config-source tracking cannot
+// distinguish a deliberate 32000 from a materialized default. A user who
+// explicitly sets the default value gets the window cap — indistinguishable
+// from the materialized-default case, and the intended new behavior anyway.
+const DEFAULT_MODEL_MAX_TOKENS = DEFAULT_KIMI_CODE_CONFIG.model.maxTokens;
+
+// True while the cap is "unset": still the built-in default, or already
+// tracking the context window (set by an earlier withWindowCappedMaxTokens
+// call, before discovery grew the window).
+function isWindowTrackedMaxTokens(model: Model<Api>): boolean {
+  return model.maxTokens === DEFAULT_MODEL_MAX_TOKENS || model.maxTokens === model.contextWindow;
+}
+
 function withWindowCappedMaxTokens<M extends Model<Api>>(model: M): M {
+  if (!isWindowTrackedMaxTokens(model)) return model;
   return { ...model, maxTokens: model.contextWindow };
 }
 
@@ -318,6 +337,9 @@ export function applyKimiOAuthExtrasToModel(
   extras: KimiModelMetadata,
   reasoningMap?: ModelReasoningMap,
 ): Model<Api> {
+  // Capture before extras grow the window: a window-tracked cap must follow
+  // the new window, an explicit cap must survive unchanged.
+  const windowTracked = isWindowTrackedMaxTokens(model);
   const next: Model<Api> & {
     wireModelId?: string;
     supportsThinkingType?: "only" | "no" | "both";
@@ -360,5 +382,6 @@ export function applyKimiOAuthExtrasToModel(
     else delete next.thinkingLevelMap;
   }
   // Reconcile the output cap with the (possibly discovery-updated) window.
-  return withWindowCappedMaxTokens(next);
+  if (windowTracked) next.maxTokens = next.contextWindow;
+  return next;
 }
