@@ -32,4 +32,18 @@ describe("window-cap invariant: maxTokens tracks contextWindow", () => {
     assert.equal(unchanged.contextWindow, base.contextWindow);
     assert.equal(unchanged.maxTokens, unchanged.contextWindow);
   });
+
+  it("preserves an explicitly configured maxTokens at build time", () => {
+    const explicit = { ...DEFAULT_KIMI_CODE_CONFIG.model, maxTokens: 8000 };
+    const model = buildKimiModelFromConfig(explicit, "k3");
+    assert.equal(model.maxTokens, 8000);
+  });
+
+  it("preserves an explicitly configured maxTokens when discovery grows the window", () => {
+    const explicit = { ...DEFAULT_KIMI_CODE_CONFIG.model, maxTokens: 8000 };
+    const base = buildKimiModelFromConfig(explicit, "k3");
+    const discovered = applyKimiOAuthExtrasToModel(base, { contextLength: 1048576 });
+    assert.equal(discovered.contextWindow, 1048576);
+    assert.equal(discovered.maxTokens, 8000);
+  });
 });
