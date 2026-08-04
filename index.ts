@@ -600,7 +600,7 @@ async function registerKimiProvider(pi: ExtensionAPI, state: KimiRuntimeState): 
 
 // What pi throws from any `pi` method once the extension runtime behind it has
 // been retired, which is what a /reload does. Same wording on every version
-// this extension supports (0.78.1 through 0.82.0); if it ever changes, the
+// this extension supports (0.78.1 through 0.83.0); if it ever changes, the
 // worst case is that a reload race gets logged instead of ignored.
 const STALE_EXTENSION_RUNTIME_PREFIX = "This extension ctx is stale";
 
