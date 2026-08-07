@@ -322,33 +322,55 @@ function fetchKimiUsage(token: string, signal: AbortSignal): Promise<Response> {
   });
 }
 
-export async function fetchKimiUsageSnapshot(
-  options: { timeoutMs?: number; token?: string; refreshOnUnauthorized?: boolean } = {},
+interface KimiSnapshotOptions {
+  timeoutMs?: number;
+  token?: string;
+  refreshOnUnauthorized?: boolean;
+}
+
+interface KimiSnapshotEndpoint {
+  prefix: string;
+  request: (token: string, signal: AbortSignal) => Promise<Response>;
+  summarize: (payload: unknown) => string;
+}
+
+async function fetchKimiSnapshot(
+  endpoint: KimiSnapshotEndpoint,
+  options: KimiSnapshotOptions = {},
 ): Promise<KimiUsageSnapshot> {
   const token = options.token ?? getKimiUsageToken();
   if (!token) {
-    return { summary: "Usage: missing credentials. Run /login kimi-coding." };
+    return { summary: `${endpoint.prefix}: missing credentials. Run /login kimi-coding.` };
   }
 
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), options.timeoutMs ?? 15_000);
   try {
-    let response = await fetchKimiUsage(token, controller.signal);
+    let response = await endpoint.request(token, controller.signal);
     if (response.status === 401 && options.refreshOnUnauthorized !== false) {
       const refreshed = await refreshKimiAuthToken(token, { signal: controller.signal });
-      if (refreshed) response = await fetchKimiUsage(refreshed, controller.signal);
+      if (refreshed) response = await endpoint.request(refreshed, controller.signal);
     }
     if (!response.ok) {
-      return { summary: `Usage: fetch failed (${response.status})` };
+      return { summary: `${endpoint.prefix}: fetch failed (${response.status})` };
     }
     const payload = (await response.json()) as unknown;
-    return { summary: parseUsageSummary(payload) };
+    return { summary: endpoint.summarize(payload) };
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    return { summary: `Usage: fetch failed (${message})` };
+    return { summary: `${endpoint.prefix}: fetch failed (${message})` };
   } finally {
     clearTimeout(timeout);
   }
+}
+
+export async function fetchKimiUsageSnapshot(
+  options: KimiSnapshotOptions = {},
+): Promise<KimiUsageSnapshot> {
+  return fetchKimiSnapshot(
+    { prefix: "Usage", request: fetchKimiUsage, summarize: parseUsageSummary },
+    options,
+  );
 }
 
 export async function fetchKimiUsageSummary(): Promise<string> {
@@ -406,34 +428,17 @@ function fetchKimiUserInfo(token: string, signal: AbortSignal): Promise<Response
 }
 
 export async function fetchKimiUserInfoSnapshot(
-  options: { timeoutMs?: number; token?: string; refreshOnUnauthorized?: boolean } = {},
+  options: KimiSnapshotOptions = {},
 ): Promise<KimiUsageSnapshot> {
-  const token = options.token ?? getKimiUsageToken();
-  if (!token) {
-    return { summary: "Account: missing credentials. Run /login kimi-coding." };
-  }
-
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), options.timeoutMs ?? 15_000);
-  try {
-    let response = await fetchKimiUserInfo(token, controller.signal);
-    if (response.status === 401 && options.refreshOnUnauthorized !== false) {
-      const refreshed = await refreshKimiAuthToken(token, { signal: controller.signal });
-      if (refreshed) response = await fetchKimiUserInfo(refreshed, controller.signal);
-    }
-    if (!response.ok) {
-      return { summary: `Account: fetch failed (${response.status})` };
-    }
-    const payload = (await response.json()) as unknown;
-    const info = parseKimiUserInfo(payload);
-    if (!info) {
-      return { summary: "Account: malformed response" };
-    }
-    return { summary: formatKimiUserInfo(info) };
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    return { summary: `Account: fetch failed (${message})` };
-  } finally {
-    clearTimeout(timeout);
-  }
+  return fetchKimiSnapshot(
+    {
+      prefix: "Account",
+      request: fetchKimiUserInfo,
+      summarize: (payload) => {
+        const info = parseKimiUserInfo(payload);
+        return info ? formatKimiUserInfo(info) : "Account: malformed response";
+      },
+    },
+    options,
+  );
 }
