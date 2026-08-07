@@ -354,3 +354,86 @@ export async function fetchKimiUsageSnapshot(
 export async function fetchKimiUsageSummary(): Promise<string> {
   return (await fetchKimiUsageSnapshot()).summary;
 }
+
+export interface KimiUserInfo {
+  userId: string;
+  nickname: string;
+  userLevel: number;
+  userLevelName: string;
+  email?: string;
+}
+
+export function parseKimiUserInfo(payload: unknown): KimiUserInfo | null {
+  if (typeof payload !== "object" || payload === null || Array.isArray(payload)) return null;
+  const record = payload as Record<string, unknown>;
+  const userId = toStringValue(record.user_id);
+  if (!userId) return null;
+  const email = toStringValue(record.email);
+  return {
+    userId,
+    nickname: toStringValue(record.nickname) ?? "",
+    userLevel: toNumber(record.user_level) ?? 0,
+    userLevelName: toStringValue(record.user_level_name) ?? "",
+    ...(email ? { email } : {}),
+  };
+}
+
+export function formatKimiUserInfo(info: KimiUserInfo): string {
+  const parts = [info.nickname || info.userId];
+  if (info.userLevelName) {
+    parts.push(
+      info.userLevel > 0 ? `${info.userLevelName} (Lv ${info.userLevel})` : info.userLevelName,
+    );
+  }
+  if (info.email) parts.push(info.email);
+  return parts.join(" · ");
+}
+
+export function buildKimiUserInfoUrl(baseUrl = getBaseUrl("openai")): string {
+  const normalized = baseUrl.replace(/\/+$/, "");
+  return normalized.endsWith("/v1") ? `${normalized}/me` : `${normalized}/v1/me`;
+}
+
+function fetchKimiUserInfo(token: string, signal: AbortSignal): Promise<Response> {
+  return fetch(buildKimiUserInfoUrl(), {
+    method: "GET",
+    headers: {
+      ...getKimiProviderHeaders(),
+      Authorization: `Bearer ${token}`,
+    },
+    signal,
+  });
+}
+
+export async function fetchKimiUserInfoSnapshot(
+  options: { timeoutMs?: number; token?: string; refreshOnUnauthorized?: boolean } = {},
+): Promise<KimiUsageSnapshot> {
+  const token = options.token ?? getKimiUsageToken();
+  if (!token) {
+    return { summary: "Account: missing credentials. Run /login kimi-coding." };
+  }
+
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), options.timeoutMs ?? 15_000);
+  try {
+    let response = await fetchKimiUserInfo(token, controller.signal);
+    if (response.status === 401 && options.refreshOnUnauthorized !== false) {
+      const refreshed = await refreshKimiAuthToken(token, { signal: controller.signal });
+      if (refreshed) response = await fetchKimiUserInfo(refreshed, controller.signal);
+    }
+    if (!response.ok) {
+      return { summary: `Account: fetch failed (${response.status})` };
+    }
+    const payload = (await response.json()) as unknown;
+    const info = parseKimiUserInfo(payload);
+    if (!info) {
+      return { summary: "Account: malformed response" };
+    }
+    return { summary: formatKimiUserInfo(info) };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    return { summary: `Account: fetch failed (${message})` };
+  } finally {
+    clearTimeout(timeout);
+  }
+}

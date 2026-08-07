@@ -113,7 +113,7 @@ Inside Pi, run:
 /kimi-settings
 ```
 
-That command shows the current server-side model name (e.g. "K2.7 Code High Speed"), your Kimi quota and Extra Usage balance, and lets you edit the home or project config. Changes apply to the active session tool set.
+That command shows your signed-in account (via Kimi's `/me` endpoint), the current server-side model name (e.g. "K2.7 Code High Speed"), your Kimi quota and Extra Usage balance, and lets you edit the home or project config. Changes apply to the active session tool set.
 
 Configurable settings include protocol mode, upload threshold, and per-tool enable/collapse.
 

@@ -6,9 +6,12 @@ import { join } from "node:path";
 
 import {
   buildKimiUsageUrl,
+  buildKimiUserInfoUrl,
   fetchKimiUsageSnapshot,
+  formatKimiUserInfo,
   formatResetTime,
   formatUsageRow,
+  parseKimiUserInfo,
   parseUsageRow,
   parseUsageSummary,
 } from "../src/usage.ts";
@@ -228,6 +231,80 @@ describe("parseUsageSummary", () => {
     assert.equal(parseUsageSummary(null), "Usage: unavailable");
     assert.equal(parseUsageSummary([]), "Usage: unavailable");
     assert.equal(parseUsageSummary({}), "Usage: no usage data");
+  });
+});
+
+describe("parseKimiUserInfo", () => {
+  it("parses the /me payload shape from upstream managed-userinfo", () => {
+    const info = parseKimiUserInfo({
+      user_id: "u_123",
+      nickname: "moonwalker",
+      status: "USER_STATUS_NORMAL",
+      region: "REGION_CN",
+      user_level: 30,
+      user_level_name: "Vivace",
+      domain: 1,
+      domain_name: "DOMAIN_EXAMPLE",
+      email: "user@example.com",
+    });
+
+    assert.deepEqual(info, {
+      userId: "u_123",
+      nickname: "moonwalker",
+      userLevel: 30,
+      userLevelName: "Vivace",
+      email: "user@example.com",
+    });
+  });
+
+  it("accepts string-typed numeric fields", () => {
+    const info = parseKimiUserInfo({ user_id: "u_1", user_level: "30" });
+    assert.equal(info?.userLevel, 30);
+  });
+
+  it("rejects payloads without a user id", () => {
+    assert.equal(parseKimiUserInfo(null), null);
+    assert.equal(parseKimiUserInfo({}), null);
+    assert.equal(parseKimiUserInfo({ nickname: "moonwalker" }), null);
+  });
+});
+
+describe("formatKimiUserInfo", () => {
+  it("joins nickname, level, and email", () => {
+    assert.equal(
+      formatKimiUserInfo({
+        userId: "u_123",
+        nickname: "moonwalker",
+        userLevel: 30,
+        userLevelName: "Vivace",
+        email: "user@example.com",
+      }),
+      "moonwalker · Vivace (Lv 30) · user@example.com",
+    );
+  });
+
+  it("falls back to the user id and omits empty fields", () => {
+    assert.equal(
+      formatKimiUserInfo({ userId: "u_123", nickname: "", userLevel: 0, userLevelName: "" }),
+      "u_123",
+    );
+  });
+});
+
+describe("buildKimiUserInfoUrl", () => {
+  it("uses /me under v1 base URLs", () => {
+    assert.equal(
+      buildKimiUserInfoUrl("https://api.kimi.com/coding/v1"),
+      "https://api.kimi.com/coding/v1/me",
+    );
+    assert.equal(
+      buildKimiUserInfoUrl("https://api.kimi.com/coding/v1/"),
+      "https://api.kimi.com/coding/v1/me",
+    );
+    assert.equal(
+      buildKimiUserInfoUrl("https://proxy.example.com"),
+      "https://proxy.example.com/v1/me",
+    );
   });
 });
 
