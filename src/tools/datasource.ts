@@ -41,6 +41,27 @@ const DATASOURCE_DEFINITIONS = [
     name: "yuandian_law",
     description: "Chinese laws, regulations, judicial cases; labor contracts and legal clauses.",
   },
+  {
+    name: "wind",
+    description:
+      "A-share intraday minute series, funds, bonds; map PE/PB/ROE-style field names via wind_search_fields first.",
+  },
+  {
+    name: "imf",
+    description: "IMF macro data: FX rates, CPI, GDP forecasts, balance of payments.",
+  },
+  {
+    name: "gildata",
+    description: "Natural-language stock/fund screening.",
+  },
+  {
+    name: "sec_edgar",
+    description: "US SEC filings: 10-K/10-Q, S-1, Form 4, 13F, 8-K.",
+  },
+  {
+    name: "sp_data",
+    description: "S&P fundamentals: consensus estimates, valuation ratios, transcripts.",
+  },
 ] as const;
 
 const DATASOURCE_NAMES = DATASOURCE_DEFINITIONS.map((source) => source.name);
@@ -50,7 +71,7 @@ export const kimiDatasourceSchema = Type.Object({
     DATASOURCE_NAMES.map((name) => Type.Literal(name)),
     {
       description:
-        "Source: stock_finance_data stocks/reports; yahoo_finance quotes/options; world_bank_open_data GDP/population; tianyancha Chinese company registry/legal rep; arxiv preprints; scholar citations; yuandian_law Chinese laws/cases/contracts.",
+        "Source: stock_finance_data stocks/reports; yahoo_finance quotes/options; world_bank_open_data GDP/population; imf FX/CPI/GDP forecasts; tianyancha Chinese company registry/legal rep; arxiv preprints; scholar citations; yuandian_law Chinese laws/cases/contracts; wind A-share intraday minute series/funds/bonds (map field names via wind_search_fields first); gildata natural-language stock/fund screening; sec_edgar US filings (10-K/10-Q, S-1, Form 4, 13F, 8-K); sp_data S&P fundamentals (estimates, valuation, transcripts).",
     },
   ),
   api_name: Type.Optional(

@@ -164,6 +164,11 @@ Supported datasource names:
 | `arxiv`                | Academic paper search and metadata    |
 | `scholar`              | Academic literature search            |
 | `yuandian_law`         | Chinese legal database and case law   |
+| `wind`                 | A-share intraday series, funds, bonds |
+| `imf`                  | IMF FX, CPI, and GDP forecasts        |
+| `gildata`              | Natural-language stock/fund screening |
+| `sec_edgar`            | US SEC filings (10-K/10-Q, 13F, 8-K)  |
+| `sp_data`              | S&P fundamentals and transcripts      |
 
 ### Common notes
 
