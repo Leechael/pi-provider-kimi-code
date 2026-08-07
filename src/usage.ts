@@ -217,6 +217,8 @@ function formatWindowLabel(value: unknown, fallbackLabel: string): string {
     : unit.includes("MINUTE")
       ? duration
       : undefined;
+  if (unit.includes("WEEK")) return `Current ${duration}w window`;
+  if (unit.includes("DAY")) return `Current ${duration}d window`;
   if (!minutes) return fallbackLabel;
   if (minutes % 60 === 0) return `Current ${minutes / 60}h window`;
   return `Current ${minutes}m window`;

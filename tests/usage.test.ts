@@ -206,6 +206,24 @@ describe("parseUsageSummary", () => {
     assert.match(summary, /^Current 5h window\n███████████████████████████████████\s+70% used$/);
   });
 
+  it("formats day- and week-based limit windows", () => {
+    const summary = parseUsageSummary({
+      limits: [
+        {
+          window: { duration: 1, timeUnit: "TIME_UNIT_DAY" },
+          detail: { limit: 50, used: 10 },
+        },
+        {
+          window: { duration: 2, timeUnit: "TIME_UNIT_WEEK" },
+          detail: { limit: 200, used: 40 },
+        },
+      ],
+    });
+
+    assert.match(summary, /^Current 1d window/);
+    assert.match(summary, /Current 2w window/);
+  });
+
   it("reports unavailable and empty payloads with existing messages", () => {
     assert.equal(parseUsageSummary(null), "Usage: unavailable");
     assert.equal(parseUsageSummary([]), "Usage: unavailable");
