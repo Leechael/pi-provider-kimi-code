@@ -3,15 +3,9 @@
 [![npm](https://img.shields.io/npm/v/pi-provider-kimi-code)](https://www.npmjs.com/package/pi-provider-kimi-code)
 [![license](https://img.shields.io/npm/l/pi-provider-kimi-code)](./LICENSE)
 
-> **Kimi Code harness extension for Pi.** Pi v0.82.0 ships a built-in `kimi-coding` provider that handles the LLM layer — K3, adaptive thinking, and a generated model catalog — plus native OAuth sign-in via `/login`. This extension brings the rest of the Kimi Code surface into Pi: shared login state with the official `kimi-code` CLI, Kimi Files API uploads, and Kimi-native tools such as `moonshot_search`, `moonshot_fetch`, and `kimi_datasource`.
-
-Pi's built-in `kimi-coding` provider handles the LLM. This extension covers the rest: shared login state with the official CLI, file uploads through Kimi's Files API, and Kimi-native tools. It also keeps a legacy provider registration so existing model sessions still load. New users should use Pi's built-in model provider.
-
-> **Live model catalog (legacy).** For backward compatibility, the extension still reads Kimi's live `/v1/models` catalog when it has credentials. New Pi users should rely on the built-in provider's generated catalog instead.
+> **Kimi Code extension for Pi — use K3, K2.7 Code, and HighSpeed models with your Kimi Code Plan.** This extension brings the full Kimi Code surface into Pi: shared OAuth login state with the official `kimi-code` CLI, Kimi Files API uploads, and Kimi-native tools such as `moonshot_search`, `moonshot_fetch`, and `kimi_datasource`. (Pi v0.82.0+ ships a built-in `kimi-coding` provider for the LLM layer; this extension covers everything around it.)
 
 ## Why this exists
-
-Pi is a small harness you adapt to your own workflow. Kimi Code is Moonshot's official coding agent. Pi now ships a built-in `kimi-coding` provider that covers the LLM, including OAuth login. This extension is for the parts of Kimi Code that Pi's built-in provider does not cover: the account session, file uploads, and Kimi's own tools/datasource APIs.
 
 Use the built-in provider if you only want to chat with Kimi models. Install this extension when you also want the full Kimi Code surface inside Pi:
 
@@ -90,11 +84,11 @@ KIMI_API_KEY=sk-... pi
 
 When this extension does register models, the official catalog determines what it publishes. The following IDs are the fallback set when catalog discovery is unavailable:
 
-| Pi model ID                             | Default name             | Availability and context |
-| --------------------------------------- | ------------------------ | ------------------------ |
-| `kimi-coding/kimi-for-coding`           | Kimi K2.7 Code           | Official catalog         |
-| `kimi-coding/kimi-for-coding-highspeed` | Kimi K2.7 Code HighSpeed | Official catalog         |
-| `kimi-coding/k3`                        | Kimi K3                  | Official catalog         |
+| Pi model ID                             | Default name               | Source           |
+| --------------------------------------- | -------------------------- | ---------------- |
+| `kimi-coding/kimi-for-coding`           | Kimi for Coding            | Official catalog |
+| `kimi-coding/kimi-for-coding-highspeed` | Kimi for Coding High Speed | Official catalog |
+| `kimi-coding/k3`                        | Kimi K3                    | Official catalog |
 
 Kimi's official catalog at `https://api.kimi.com/coding/v1/models` is authoritative for model availability and context windows. When discovery is unavailable, the extension uses the fallback models and defaults below.
 
