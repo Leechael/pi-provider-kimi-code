@@ -1,6 +1,6 @@
 {
   "name": "pi-provider-kimi-code",
-  "version": "0.6.9",
+  "version": "0.6.10",
   "description": "Kimi Code models (K3, K2.7, HighSpeed) in Pi: OAuth shared login with kimi-code CLI, file uploads, and Kimi-native tools",
   "keywords": [
     "ai-provider",
