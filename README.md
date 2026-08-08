@@ -113,7 +113,7 @@ Inside Pi, run:
 /kimi-settings
 ```
 
-That command shows the current server-side model name (e.g. "K2.7 Code High Speed"), your Kimi quota and Extra Usage balance, and lets you edit the home or project config. Changes apply to the active session tool set.
+That command shows your signed-in account (via Kimi's `/me` endpoint), the current server-side model name (e.g. "K2.7 Code High Speed"), your Kimi quota and Extra Usage balance, and lets you edit the home or project config. Changes apply to the active session tool set.
 
 Configurable settings include protocol mode, upload threshold, and per-tool enable/collapse.
 
@@ -164,6 +164,11 @@ Supported datasource names:
 | `arxiv`                | Academic paper search and metadata    |
 | `scholar`              | Academic literature search            |
 | `yuandian_law`         | Chinese legal database and case law   |
+| `wind`                 | A-share intraday series, funds, bonds |
+| `imf`                  | IMF FX, CPI, and GDP forecasts        |
+| `gildata`              | Natural-language stock/fund screening |
+| `sec_edgar`            | US SEC filings (10-K/10-Q, 13F, 8-K)  |
+| `sp_data`              | S&P fundamentals and transcripts      |
 
 ### Common notes
 

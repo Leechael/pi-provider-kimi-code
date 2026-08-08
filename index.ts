@@ -77,7 +77,11 @@ import {
   parseByteSizeInput,
 } from "./src/settings-ui.ts";
 import { setStoreResolvedKimiConfig, streamSimpleKimi } from "./src/stream.ts";
-import { fetchKimiUsageSnapshot, getKimiUsageToken } from "./src/usage.ts";
+import {
+  fetchKimiUsageSnapshot,
+  fetchKimiUserInfoSnapshot,
+  getKimiUsageToken,
+} from "./src/usage.ts";
 import { buildMoonshotFetchTool, buildMoonshotSearchTool } from "./src/tools/moonshot.ts";
 import { buildKimiDatasourceTool } from "./src/tools/datasource.ts";
 interface KimiRuntimeState {
@@ -186,8 +190,9 @@ async function openSettingsMenu(
   state: KimiRuntimeState,
 ): Promise<void> {
   const modelDiscoveryToken = getKimiUsageToken();
-  const [usageSnapshot, initialModelsRefreshed] = await Promise.all([
+  const [usageSnapshot, userInfoSnapshot, initialModelsRefreshed] = await Promise.all([
     fetchKimiUsageSnapshot(),
+    fetchKimiUserInfoSnapshot(),
     refreshModelExtras(state),
   ]);
   let modelsRefreshed = initialModelsRefreshed;
@@ -197,6 +202,7 @@ async function openSettingsMenu(
   }
   if (modelsRefreshed) await registerKimiProvider(pi, state);
   const usage = usageSnapshot.summary;
+  const account = userInfoSnapshot.summary;
 
   const projectTrusted = await isKimiProjectConfigApproved(ctx, ctx.cwd);
   const homeDraft = loadHomeKimiCodeConfig(os.homedir());
@@ -372,6 +378,9 @@ async function openSettingsMenu(
             theme.fg("accent", theme.bold(`Kimi settings (provider v${PROVIDER_VERSION})`)),
             width,
           ),
+          "",
+          truncateToWidth(theme.fg("accent", theme.bold("Kimi account")), width),
+          truncateToWidth(`  ${account}`, width),
           "",
           truncateToWidth(theme.fg("accent", theme.bold("Kimi usage")), width),
           ...usageLines,

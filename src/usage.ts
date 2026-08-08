@@ -217,6 +217,8 @@ function formatWindowLabel(value: unknown, fallbackLabel: string): string {
     : unit.includes("MINUTE")
       ? duration
       : undefined;
+  if (unit.includes("WEEK")) return `Current ${duration}w window`;
+  if (unit.includes("DAY")) return `Current ${duration}d window`;
   if (!minutes) return fallbackLabel;
   if (minutes % 60 === 0) return `Current ${minutes / 60}h window`;
   return `Current ${minutes}m window`;
@@ -320,35 +322,123 @@ function fetchKimiUsage(token: string, signal: AbortSignal): Promise<Response> {
   });
 }
 
-export async function fetchKimiUsageSnapshot(
-  options: { timeoutMs?: number; token?: string; refreshOnUnauthorized?: boolean } = {},
+interface KimiSnapshotOptions {
+  timeoutMs?: number;
+  token?: string;
+  refreshOnUnauthorized?: boolean;
+}
+
+interface KimiSnapshotEndpoint {
+  prefix: string;
+  request: (token: string, signal: AbortSignal) => Promise<Response>;
+  summarize: (payload: unknown) => string;
+}
+
+async function fetchKimiSnapshot(
+  endpoint: KimiSnapshotEndpoint,
+  options: KimiSnapshotOptions = {},
 ): Promise<KimiUsageSnapshot> {
   const token = options.token ?? getKimiUsageToken();
   if (!token) {
-    return { summary: "Usage: missing credentials. Run /login kimi-coding." };
+    return { summary: `${endpoint.prefix}: missing credentials. Run /login kimi-coding.` };
   }
 
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), options.timeoutMs ?? 15_000);
   try {
-    let response = await fetchKimiUsage(token, controller.signal);
+    let response = await endpoint.request(token, controller.signal);
     if (response.status === 401 && options.refreshOnUnauthorized !== false) {
       const refreshed = await refreshKimiAuthToken(token, { signal: controller.signal });
-      if (refreshed) response = await fetchKimiUsage(refreshed, controller.signal);
+      if (refreshed) response = await endpoint.request(refreshed, controller.signal);
     }
     if (!response.ok) {
-      return { summary: `Usage: fetch failed (${response.status})` };
+      return { summary: `${endpoint.prefix}: fetch failed (${response.status})` };
     }
     const payload = (await response.json()) as unknown;
-    return { summary: parseUsageSummary(payload) };
+    return { summary: endpoint.summarize(payload) };
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    return { summary: `Usage: fetch failed (${message})` };
+    return { summary: `${endpoint.prefix}: fetch failed (${message})` };
   } finally {
     clearTimeout(timeout);
   }
 }
 
+export async function fetchKimiUsageSnapshot(
+  options: KimiSnapshotOptions = {},
+): Promise<KimiUsageSnapshot> {
+  return fetchKimiSnapshot(
+    { prefix: "Usage", request: fetchKimiUsage, summarize: parseUsageSummary },
+    options,
+  );
+}
+
 export async function fetchKimiUsageSummary(): Promise<string> {
   return (await fetchKimiUsageSnapshot()).summary;
+}
+
+export interface KimiUserInfo {
+  userId: string;
+  nickname: string;
+  userLevel: number;
+  userLevelName: string;
+  email?: string;
+}
+
+export function parseKimiUserInfo(payload: unknown): KimiUserInfo | null {
+  if (typeof payload !== "object" || payload === null || Array.isArray(payload)) return null;
+  const record = payload as Record<string, unknown>;
+  const userId = toStringValue(record.user_id);
+  if (!userId) return null;
+  const email = toStringValue(record.email);
+  return {
+    userId,
+    nickname: toStringValue(record.nickname) ?? "",
+    userLevel: toNumber(record.user_level) ?? 0,
+    userLevelName: toStringValue(record.user_level_name) ?? "",
+    ...(email ? { email } : {}),
+  };
+}
+
+export function formatKimiUserInfo(info: KimiUserInfo): string {
+  const parts = [info.nickname || info.userId];
+  if (info.userLevelName) {
+    parts.push(
+      info.userLevel > 0 ? `${info.userLevelName} (Lv ${info.userLevel})` : info.userLevelName,
+    );
+  }
+  if (info.email) parts.push(info.email);
+  return parts.join(" · ");
+}
+
+export function buildKimiUserInfoUrl(baseUrl = getBaseUrl("openai")): string {
+  const normalized = baseUrl.replace(/\/+$/, "");
+  return normalized.endsWith("/v1") ? `${normalized}/me` : `${normalized}/v1/me`;
+}
+
+function fetchKimiUserInfo(token: string, signal: AbortSignal): Promise<Response> {
+  return fetch(buildKimiUserInfoUrl(), {
+    method: "GET",
+    headers: {
+      ...getKimiProviderHeaders(),
+      Authorization: `Bearer ${token}`,
+    },
+    signal,
+  });
+}
+
+export async function fetchKimiUserInfoSnapshot(
+  options: KimiSnapshotOptions = {},
+): Promise<KimiUsageSnapshot> {
+  return fetchKimiSnapshot(
+    {
+      prefix: "Account",
+      request: fetchKimiUserInfo,
+      summarize: (payload) => {
+        const info = parseKimiUserInfo(payload);
+        return info ? formatKimiUserInfo(info) : "Account: malformed response";
+      },
+    },
+    options,
+  );
 }

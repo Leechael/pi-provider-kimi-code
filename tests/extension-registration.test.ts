@@ -1296,11 +1296,19 @@ describe("extension tool registration", () => {
     const originalFetch = globalThis.fetch;
     const originalKimiApiKey = process.env.KIMI_API_KEY;
     process.env.KIMI_API_KEY = "test-key";
-    globalThis.fetch = async () =>
-      new Response(JSON.stringify({ usage: { limit: 100, remaining: 100 } }), {
+    globalThis.fetch = async (input) => {
+      const url = String(input);
+      if (url.endsWith("/me")) {
+        return new Response(JSON.stringify({ user_id: "u_test", nickname: "tester" }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
+      }
+      return new Response(JSON.stringify({ usage: { limit: 100, remaining: 100 } }), {
         status: 200,
         headers: { "content-type": "application/json" },
       });
+    };
 
     try {
       await withCwd(cwd, () => loadKimiExtension(pi));
@@ -1326,7 +1334,7 @@ describe("extension tool registration", () => {
 
       assert.match(
         rendered,
-        /^Kimi settings \(provider v\d+\.\d+\.\d+\)\n\nKimi usage\n  Current week\n\s+0% used/m,
+        /^Kimi settings \(provider v\d+\.\d+\.\d+\)\n\nKimi account\n  tester\n\nKimi usage\n  Current week\n\s+0% used/m,
       );
       assert.deepEqual(
         items
@@ -1391,11 +1399,19 @@ describe("extension tool registration", () => {
     process.env.KIMI_API_KEY = "test-key";
     process.env.HOME = home;
     process.chdir(cwd);
-    globalThis.fetch = async () =>
-      new Response(JSON.stringify({ usage: { limit: 100, remaining: 100 } }), {
+    globalThis.fetch = async (input) => {
+      const url = String(input);
+      if (url.endsWith("/me")) {
+        return new Response(JSON.stringify({ user_id: "u_test", nickname: "tester" }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
+      }
+      return new Response(JSON.stringify({ usage: { limit: 100, remaining: 100 } }), {
         status: 200,
         headers: { "content-type": "application/json" },
       });
+    };
 
     try {
       await loadKimiExtension(pi);
@@ -1463,6 +1479,12 @@ describe("extension tool registration", () => {
           }),
           { status: 200, headers: { "content-type": "application/json" } },
         );
+      }
+      if (url.endsWith("/coding/v1/me")) {
+        return new Response(JSON.stringify({ user_id: "u_test", nickname: "tester" }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
       }
       if (url.endsWith("/api/oauth/token")) {
         const bodyText = String(init?.body ?? "");
@@ -1532,11 +1554,19 @@ describe("extension tool registration", () => {
     const originalFetch = globalThis.fetch;
     const originalKimiApiKey = process.env.KIMI_API_KEY;
     process.env.KIMI_API_KEY = "test-key";
-    globalThis.fetch = async () =>
-      new Response(JSON.stringify({ usage: { limit: 100, remaining: 100 } }), {
+    globalThis.fetch = async (input) => {
+      const url = String(input);
+      if (url.endsWith("/me")) {
+        return new Response(JSON.stringify({ user_id: "u_test", nickname: "tester" }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
+      }
+      return new Response(JSON.stringify({ usage: { limit: 100, remaining: 100 } }), {
         status: 200,
         headers: { "content-type": "application/json" },
       });
+    };
 
     try {
       await withCwd(cwd, () => loadKimiExtension(pi));
@@ -1596,11 +1626,19 @@ describe("extension tool registration", () => {
     const originalHome = process.env.HOME;
     process.env.KIMI_API_KEY = "test-key";
     process.env.HOME = home;
-    globalThis.fetch = async () =>
-      new Response(JSON.stringify({ usage: { limit: 100, remaining: 100 } }), {
+    globalThis.fetch = async (input) => {
+      const url = String(input);
+      if (url.endsWith("/me")) {
+        return new Response(JSON.stringify({ user_id: "u_test", nickname: "tester" }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
+      }
+      return new Response(JSON.stringify({ usage: { limit: 100, remaining: 100 } }), {
         status: 200,
         headers: { "content-type": "application/json" },
       });
+    };
 
     try {
       await withCwd(cwd, () => loadKimiExtension(pi));
