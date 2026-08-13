@@ -8,12 +8,12 @@ import { readFile } from "node:fs/promises";
 import os from "node:os";
 import { dirname } from "node:path";
 
-import {
-  DEVICE_ID_PATH,
-  KIMI_CODE_USER_AGENT,
-  KIMI_UPSTREAM_VERSION,
-  KIMI_PLATFORM,
-} from "./constants.ts";
+// Namespace import (not a named import of VERSION) so a missing export on old
+// pi versions degrades to undefined rather than a module-link error that kills
+// the whole extension load.
+import * as piAgent from "@earendil-works/pi-coding-agent";
+
+import { DEVICE_ID_PATH, KIMI_CODE_USER_AGENT, KIMI_PLATFORM } from "./constants.ts";
 
 function createDeviceId(): string {
   return randomBytes(16).toString("hex");
@@ -165,6 +165,13 @@ export function getOsVersion(): string {
   return os.release();
 }
 
+// The running pi TUI's version, read off pi-coding-agent's VERSION export (it
+// reads its own package.json at module load).
+export function getPiVersion(): string {
+  const version = (piAgent as { VERSION?: unknown }).VERSION;
+  return typeof version === "string" && version ? version : "unknown";
+}
+
 export function asciiHeaderValue(value: string, fallback = "unknown"): string {
   const trimmed = value.trim();
   /* oxlint-disable-next-line no-control-regex */
@@ -214,7 +221,7 @@ export function getCommonHeaders(): Record<string, string> {
   const headers = {
     "User-Agent": KIMI_CODE_USER_AGENT,
     "X-Msh-Platform": KIMI_PLATFORM,
-    "X-Msh-Version": KIMI_UPSTREAM_VERSION,
+    "X-Msh-Version": getPiVersion(),
     "X-Msh-Device-Name": os.hostname(),
     "X-Msh-Device-Model": getDeviceModel(),
     "X-Msh-Os-Version": getOsVersion(),

@@ -973,7 +973,7 @@ describe("mergeKimiRequestHeaders", () => {
     const headers = mergeKimiRequestHeaders({ "User-Agent": "custom-agent", "X-Custom": "yes" });
 
     assert.equal(headers["User-Agent"], "custom-agent");
-    assert.equal(headers["X-Msh-Platform"], "kimi_code_cli");
+    assert.equal(headers["X-Msh-Platform"], "pi");
     assert.equal(headers["X-Custom"], "yes");
   });
 });

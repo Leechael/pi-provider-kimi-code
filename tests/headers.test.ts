@@ -2,7 +2,8 @@ import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import os from "node:os";
-import { KIMI_UPSTREAM_VERSION } from "../src/constants.ts";
+import { PROVIDER_VERSION } from "../src/constants.ts";
+import { VERSION as PI_VERSION } from "@earendil-works/pi-coding-agent";
 import {
   asciiHeaderValue,
   computeDeviceModel,
@@ -52,15 +53,16 @@ describe("asciiHeaderValue", () => {
 });
 
 describe("getCommonHeaders", () => {
-  it("identifies requests as the synced Kimi Code release", () => {
-    assert.equal(KIMI_UPSTREAM_VERSION, "0.34.0");
+  it("identifies requests with the running pi version", () => {
+    const headers = getCommonHeaders();
+    assert.equal(headers["X-Msh-Version"], PI_VERSION);
   });
 
   it("uses Kimi Code-compatible identity headers", () => {
     const headers = getCommonHeaders();
-    assert.equal(headers["X-Msh-Platform"], "kimi_code_cli");
-    assert.equal(headers["User-Agent"], `kimi-code-cli/${KIMI_UPSTREAM_VERSION}`);
-    assert.equal(headers["X-Msh-Version"], KIMI_UPSTREAM_VERSION);
+    assert.equal(headers["X-Msh-Platform"], "pi");
+    assert.equal(headers["User-Agent"], `pi-provider-kimi-code/${PROVIDER_VERSION}`);
+    assert.equal(headers["X-Msh-Version"], PI_VERSION);
   });
 
   it("reports the device model sw_vers would have produced", (t) => {
@@ -105,7 +107,7 @@ describe("getKimiProviderHeaders", () => {
     });
 
     assert.equal(headers["X-Gateway"], "internal");
-    assert.equal(headers["User-Agent"], `kimi-code-cli/${KIMI_UPSTREAM_VERSION}`);
+    assert.equal(headers["User-Agent"], `pi-provider-kimi-code/${PROVIDER_VERSION}`);
     assert.equal(headers.authorization, undefined);
     assert.equal(headers["x-msh-version"], undefined);
     assert.equal(headers["content-type"], undefined);
