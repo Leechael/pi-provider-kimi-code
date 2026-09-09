@@ -56,7 +56,7 @@ export function getDefaultBaseUrl(protocol: KimiWireProtocol): string {
 
 export const DEFAULT_BASE_URL = getDefaultBaseUrl(ENV_KIMI_CODE_PROTOCOL);
 
-export const PROVIDER_VERSION = "0.6.11";
+export const PROVIDER_VERSION = "0.6.12";
 
 export const KIMI_CODE_USER_AGENT = `pi-provider-kimi-code/${PROVIDER_VERSION}`;
 export const KIMI_PLATFORM = "pi";
