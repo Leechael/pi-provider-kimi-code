@@ -50,7 +50,7 @@ Users can still override your defaults through env vars only if you don't pass t
 
 ```typescript
 KimiCode({
-  // Wire protocol: "openai" (default) or "anthropic"
+  // Wire protocol: "openai" (default), "anthropic", or "responses"
   protocol: "anthropic",
 
   // File upload threshold in bytes
