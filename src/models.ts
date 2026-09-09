@@ -186,6 +186,14 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
+// Server /v1/models uses "response"; kimi-code maps that to openai_responses.
+// Accept the server value plus the user-facing and internal aliases.
+function parseKimiCatalogProtocol(value: unknown): KimiWireProtocol | undefined {
+  if (value === "openai" || value === "anthropic" || value === "responses") return value;
+  if (value === "response" || value === "openai_responses") return "responses";
+  return undefined;
+}
+
 function parseThinkEfforts(value: unknown): {
   supportEfforts?: string[];
   defaultEffort?: string;
@@ -223,9 +231,8 @@ function parseKimiModelMetadata(model: KimiServerModel): KimiModelMetadata | und
   if (typeof model.supports_video_in === "boolean") {
     metadata.supportsVideoIn = model.supports_video_in;
   }
-  if (model.protocol === "openai" || model.protocol === "anthropic") {
-    metadata.protocol = model.protocol;
-  }
+  const protocol = parseKimiCatalogProtocol(model.protocol);
+  if (protocol) metadata.protocol = protocol;
   Object.assign(metadata, parseThinkEfforts(model.think_efforts));
   return metadata;
 }

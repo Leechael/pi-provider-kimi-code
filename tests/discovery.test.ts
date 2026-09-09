@@ -188,7 +188,7 @@ describe("discoverKimiModelMetadata", () => {
             context_length: 524288,
             supports_reasoning: true,
             supports_video_in: true,
-            protocol: "anthropic",
+            protocol: "response",
             think_efforts: {
               support: true,
               valid_efforts: ["low", "high"],
@@ -225,7 +225,7 @@ describe("discoverKimiModelMetadata", () => {
       contextLength: 524288,
       supportsReasoning: true,
       supportsVideoIn: true,
-      protocol: "anthropic",
+      protocol: "responses",
       supportEfforts: ["low", "high"],
       defaultEffort: "high",
     });

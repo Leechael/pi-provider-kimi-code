@@ -222,4 +222,25 @@ describe("layer config file helpers", () => {
 
     assert.deepEqual(loadProjectKimiCodeConfig(cwd), next);
   });
+
+  it("accepts the responses protocol from env and config", () => {
+    const cwd = tempDir("kimi-config-cwd");
+    const home = tempDir("kimi-config-home");
+    const loaded = loadKimiCodeConfig({
+      cwd,
+      home,
+      env: { KIMI_CODE_PROTOCOL: "responses" },
+    });
+    assert.equal(loaded.protocol, "responses");
+
+    const saved = validateKimiCodeConfig({ ...DEFAULT_KIMI_CODE_CONFIG, protocol: "responses" });
+    assert.equal(saved.protocol, "responses");
+  });
+
+  it("rejects unknown protocol values", () => {
+    assert.throws(
+      () => validateKimiCodeConfig({ ...DEFAULT_KIMI_CODE_CONFIG, protocol: "grpc" }),
+      ConfigError,
+    );
+  });
 });

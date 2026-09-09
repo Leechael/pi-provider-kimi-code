@@ -789,6 +789,114 @@ describe("applyKimiPayloadMutations", () => {
   });
 });
 
+describe("openai-responses payload", () => {
+  it("strips prompt_cache_retention and Completions thinking fields", async () => {
+    const payload: JsonRecord = {
+      input: [{ role: "user", content: "hi" }],
+      prompt_cache_retention: "24h",
+      thinking: { type: "enabled", effort: "high" },
+      reasoning_effort: "high",
+    };
+
+    await applyKimiPayloadMutations(
+      payload,
+      baseCtx({
+        api: "openai-responses",
+        reasoning: "high",
+        modelConfig: { ...defaultModelConfig, supportEfforts: ["low", "high", "max"] },
+      }),
+    );
+
+    assert.equal(payload.prompt_cache_retention, undefined);
+    assert.equal(payload.thinking, undefined);
+    assert.equal(payload.reasoning_effort, undefined);
+    assert.deepEqual(payload.reasoning, { effort: "high", summary: "auto" });
+  });
+
+  it("clamps tool_choice to the string auto, including object forms", async () => {
+    for (const toolChoice of ["none", { type: "auto" }, { type: "function", name: "read" }]) {
+      const payload: JsonRecord = {
+        input: [{ role: "user", content: "hi" }],
+        tool_choice: toolChoice,
+      };
+      await applyKimiPayloadMutations(payload, baseCtx({ api: "openai-responses" }));
+      assert.equal(payload.tool_choice, "auto");
+    }
+  });
+
+  it("drops upstream reasoning.effort none when the caller omits reasoning", async () => {
+    const payload: JsonRecord = {
+      input: [{ role: "user", content: "hi" }],
+      reasoning: { effort: "none" },
+    };
+    await applyKimiPayloadMutations(payload, baseCtx({ api: "openai-responses" }));
+    assert.equal(payload.reasoning, undefined);
+  });
+
+  it("replaces upstream none with the catalog default effort when reasoning is omitted", async () => {
+    const payload: JsonRecord = {
+      input: [{ role: "user", content: "hi" }],
+      reasoning: { effort: "none" },
+    };
+    await applyKimiPayloadMutations(
+      payload,
+      baseCtx({
+        api: "openai-responses",
+        modelConfig: {
+          ...defaultModelConfig,
+          supportEfforts: ["low", "high", "max"],
+          defaultEffort: "max",
+        },
+      }),
+    );
+    assert.deepEqual(payload.reasoning, { effort: "max", summary: "auto" });
+  });
+
+  it("renames output caps to max_output_tokens", async () => {
+    const payload: JsonRecord = {
+      input: [{ role: "user", content: "hi" }],
+      max_tokens: 64000,
+    };
+    await applyKimiPayloadMutations(
+      payload,
+      baseCtx({
+        api: "openai-responses",
+        modelConfig: { ...defaultModelConfig, generation: { maxCompletionTokens: 32000 } },
+      }),
+    );
+    assert.equal(payload.max_tokens, undefined);
+    assert.equal(payload.max_completion_tokens, undefined);
+    assert.equal(payload.max_output_tokens, 32000);
+  });
+
+  it("does not upload inline images on the Responses path", async () => {
+    let calls = 0;
+    const upload = async () => {
+      calls += 1;
+      return "ms://should-not-upload";
+    };
+    const payload: JsonRecord = {
+      input: [
+        {
+          role: "user",
+          content: [{ type: "input_image", image_url: "data:image/png;base64,AAAA" }],
+        },
+      ],
+    };
+    await applyKimiPayloadMutations(payload, baseCtx({ api: "openai-responses", upload }));
+    assert.equal(calls, 0);
+  });
+
+  it("omits temperature unless explicitly configured", async () => {
+    const payload: JsonRecord = {
+      input: [{ role: "user", content: "hi" }],
+      temperature: 1,
+    };
+    await applyKimiPayloadMutations(payload, baseCtx({ api: "openai-responses" }));
+    assert.equal(payload.temperature, undefined);
+  });
+});
+
 describe("uploadKimiFile", () => {
   const PNG_BASE64 = "aGVsbG8=";
   const fileResponse = (id: string) => new Response(JSON.stringify({ id }), { status: 200 });
@@ -1046,6 +1154,25 @@ describe("streamSimpleKimi", () => {
     // sets on the anthropic runtime model: enabled thinking arrives (and is
     // kept) in the adaptive shape rather than {type:"enabled", keep}.
     assert.equal((payload.thinking as JsonRecord).type, "adaptive");
+  });
+
+  it("suppresses prompt_cache_retention on the responses wire", async () => {
+    setStoreResolvedKimiConfig({
+      model: defaultModelConfig,
+      protocol: "responses",
+      uploads: DEFAULT_KIMI_CODE_CONFIG.uploads,
+    });
+
+    const payload = await capturePayload(
+      streamModel({
+        api: "openai-responses" as Api,
+        reasoning: true,
+      }),
+    );
+
+    assert.equal(payload.prompt_cache_retention, undefined);
+    assert.equal(payload.store, false);
+    assert.equal(payload.thinking, undefined);
   });
 });
 

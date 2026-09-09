@@ -1,7 +1,7 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 
-import { PROVIDER_ID } from "./constants.ts";
+import { PROVIDER_ID, type KimiWireProtocol } from "./constants.ts";
 
 export const KIMI_TOOL_NAMES = ["moonshot_search", "moonshot_fetch", "kimi_datasource"] as const;
 
@@ -46,7 +46,7 @@ export interface KimiCodeConfig {
   model: ModelConfig;
   tools: Record<KimiToolName, { enabled: boolean; default_collapsed: boolean }>;
   uploads: { thresholdBytes: number };
-  protocol: "openai" | "anthropic";
+  protocol: KimiWireProtocol;
 }
 
 export type KimiCodeConfigPatch = Partial<{
@@ -315,8 +315,12 @@ function requireProtocol(
   configPath: string,
   pointer: string,
 ): KimiCodeConfig["protocol"] {
-  if (raw === "openai" || raw === "anthropic") return raw;
-  return fail(configPath, pointer, `expected "openai" | "anthropic", got ${JSON.stringify(raw)}`);
+  if (raw === "openai" || raw === "anthropic" || raw === "responses") return raw;
+  return fail(
+    configPath,
+    pointer,
+    `expected "openai" | "anthropic" | "responses", got ${JSON.stringify(raw)}`,
+  );
 }
 
 function requireInputArray(raw: unknown, configPath: string, pointer: string): KimiInputModality[] {

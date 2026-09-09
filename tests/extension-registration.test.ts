@@ -1876,7 +1876,11 @@ describe("global api-provider fallback", () => {
     // Sessions persist the api id that was current when the model was
     // resolved, so a session created before a protocol switch still carries
     // the other id and must not fall off the fallback.
-    for (const api of [getKimiApiType("openai"), getKimiApiType("anthropic")]) {
+    for (const api of [
+      getKimiApiType("openai"),
+      getKimiApiType("anthropic"),
+      getKimiApiType("responses"),
+    ]) {
       const provider = compat.getApiProvider(api);
       assert.ok(provider, `expected ${api} to be registered globally`);
       assert.equal(typeof provider?.streamSimple, "function");
@@ -1935,6 +1939,7 @@ describe("global api-provider fallback", () => {
 
     assert.ok(compat.getApiProvider(getKimiApiType("openai")));
     assert.ok(compat.getApiProvider(getKimiApiType("anthropic")));
+    assert.ok(compat.getApiProvider(getKimiApiType("responses")));
   });
 
   it("routes a global-registry request through streamSimpleKimi with the stored credential", async (t) => {
@@ -2022,11 +2027,13 @@ describe("global api-provider fallback", () => {
 
     assert.ok(compat.getApiProvider(getKimiApiType("openai")));
     assert.ok(compat.getApiProvider(getKimiApiType("anthropic")));
+    assert.ok(compat.getApiProvider(getKimiApiType("responses")));
 
     await second.emit("session_shutdown", { type: "session_shutdown", reason: "exit" }, {});
 
     assert.equal(compat.getApiProvider(getKimiApiType("openai")), undefined);
     assert.equal(compat.getApiProvider(getKimiApiType("anthropic")), undefined);
+    assert.equal(compat.getApiProvider(getKimiApiType("responses")), undefined);
   });
 
   it("hands its registry entries back when the session shuts down", async (t) => {
@@ -2047,5 +2054,6 @@ describe("global api-provider fallback", () => {
     // The registry outlives the session, so the entries must not.
     assert.equal(compat.getApiProvider(getKimiApiType("openai")), undefined);
     assert.equal(compat.getApiProvider(getKimiApiType("anthropic")), undefined);
+    assert.equal(compat.getApiProvider(getKimiApiType("responses")), undefined);
   });
 });

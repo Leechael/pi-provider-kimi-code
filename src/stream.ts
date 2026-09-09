@@ -32,8 +32,10 @@ type KimiStreamSimple = (
 const piAiRuntime = piAi as unknown as {
   anthropicMessagesApi?: () => { streamSimple: KimiStreamSimple };
   openAICompletionsApi?: () => { streamSimple: KimiStreamSimple };
+  openAIResponsesApi?: () => { streamSimple: KimiStreamSimple };
   streamSimpleAnthropic?: KimiStreamSimple;
   streamSimpleOpenAICompletions?: KimiStreamSimple;
+  streamSimpleOpenAIResponses?: KimiStreamSimple;
   lazyApi?: (load: () => Promise<object>) => { streamSimple: KimiStreamSimple };
 };
 
@@ -43,6 +45,7 @@ const piAiRuntime = piAi as unknown as {
 // evaluated in plain-Node environments where the subpaths do resolve.
 const anthropicMessagesModule = "@earendil-works/pi-ai/api/anthropic-messages";
 const openAICompletionsModule = "@earendil-works/pi-ai/api/openai-completions";
+const openAIResponsesModule = "@earendil-works/pi-ai/api/openai-responses";
 
 const streamSimpleAnthropic: KimiStreamSimple =
   piAiRuntime.anthropicMessagesApi?.().streamSimple ??
@@ -52,13 +55,23 @@ const streamSimpleOpenAICompletions: KimiStreamSimple =
   piAiRuntime.openAICompletionsApi?.().streamSimple ??
   piAiRuntime.streamSimpleOpenAICompletions ??
   piAiRuntime.lazyApi?.(() => import(openAICompletionsModule)).streamSimple!;
+const streamSimpleOpenAIResponses: KimiStreamSimple =
+  piAiRuntime.openAIResponsesApi?.().streamSimple ??
+  piAiRuntime.streamSimpleOpenAIResponses ??
+  piAiRuntime.lazyApi?.(() => import(openAIResponsesModule)).streamSimple!;
 import {
   DEFAULT_KIMI_CODE_CONFIG,
   type KimiCodeConfig,
   type KimiResolvedModelConfig,
 } from "./config.ts";
 
-import { ENV_KIMI_CODE_PROTOCOL, PROVIDER_ID, getApiProtocol, getBaseUrl } from "./constants.ts";
+import {
+  ENV_KIMI_CODE_PROTOCOL,
+  PROVIDER_ID,
+  type KimiWireProtocol,
+  getApiProtocol,
+  getBaseUrl,
+} from "./constants.ts";
 import { getKimiProviderHeaders } from "./device.ts";
 import {
   isKimiAuthErrorMessage,
@@ -224,6 +237,21 @@ export function mergeKimiRequestHeaders(headers?: HeaderMap): HeaderMap {
   return { ...getKimiProviderHeaders(), ...headers };
 }
 
+function streamSimpleForProtocol(
+  protocol: KimiWireProtocol,
+  model: Model<Api>,
+  context: Context,
+  options: SimpleStreamOptions,
+): AssistantMessageEventStream {
+  if (protocol === "anthropic") {
+    return streamSimpleAnthropic(model as Model<"anthropic-messages">, context, options);
+  }
+  if (protocol === "responses") {
+    return streamSimpleOpenAIResponses(model as Model<"openai-responses">, context, options);
+  }
+  return streamSimpleOpenAICompletions(model as Model<"openai-completions">, context, options);
+}
+
 export function streamSimpleKimi(
   model: Model<Api>,
   context: Context,
@@ -332,8 +360,9 @@ export function streamSimpleKimi(
       const patchedOptions = buildPatchedOptions(currentKey);
       // Route by the module-level protocol flag, not model.api, since we
       // register with a custom api type (kimi-openai-completions /
-      // kimi-anthropic-messages) to avoid overriding the built-in
-      // Anthropic/OpenAI stream handlers.
+      // kimi-anthropic-messages / kimi-openai-responses) to avoid overriding
+      // the built-in Anthropic/OpenAI stream handlers.
+      const existingCompat = (model as { compat?: Record<string, unknown> }).compat;
       const runtimeModel = {
         ...model,
         api: apiProtocol,
@@ -342,28 +371,25 @@ export function streamSimpleKimi(
         // rejects/ignores the interleaved-thinking beta header; pi-ai >=0.82
         // keys both behaviors off these compat flags (its own built-in
         // kimi-coding models carry them in generated metadata).
+        // Responses rejects prompt_cache_retention (400) unless this is off.
         ...(wireProtocol === "anthropic"
           ? {
               compat: {
-                ...(model as { compat?: Record<string, unknown> }).compat,
+                ...existingCompat,
                 forceAdaptiveThinking: true,
                 allowEmptySignature: true,
               },
             }
-          : {}),
+          : wireProtocol === "responses"
+            ? {
+                compat: {
+                  ...existingCompat,
+                  supportsLongCacheRetention: false,
+                },
+              }
+            : {}),
       } as Model<Api>;
-      const upstream =
-        wireProtocol === "openai"
-          ? streamSimpleOpenAICompletions(
-              runtimeModel as Model<"openai-completions">,
-              context,
-              patchedOptions,
-            )
-          : streamSimpleAnthropic(
-              runtimeModel as Model<"anthropic-messages">,
-              context,
-              patchedOptions,
-            );
+      const upstream = streamSimpleForProtocol(wireProtocol, runtimeModel, context, patchedOptions);
 
       let shouldRetry = false;
       let prefixBuffer: AssistantMessageEvent[] = [];

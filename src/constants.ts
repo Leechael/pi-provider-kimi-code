@@ -9,34 +9,49 @@ import { join } from "node:path";
 export const CLIENT_ID = "17e5f671-d194-4dfb-9706-5516cb48c098";
 export const DEFAULT_OAUTH_HOST = "https://auth.kimi.com";
 
-export type KimiWireProtocol = "openai" | "anthropic";
+export const KIMI_WIRE_PROTOCOLS = ["openai", "anthropic", "responses"] as const;
+export type KimiWireProtocol = (typeof KIMI_WIRE_PROTOCOLS)[number];
+export type KimiApiProtocol = "openai-completions" | "anthropic-messages" | "openai-responses";
+export type KimiApiType =
+  | "kimi-openai-completions"
+  | "kimi-anthropic-messages"
+  | "kimi-openai-responses";
 
-// KIMI_CODE_PROTOCOL supports two values: "openai" (default) and "anthropic".
-export const ENV_KIMI_CODE_PROTOCOL: KimiWireProtocol =
-  process.env.KIMI_CODE_PROTOCOL === "anthropic" ? "anthropic" : "openai";
+// KIMI_CODE_PROTOCOL supports openai (default), anthropic, and responses.
+// Unknown values fall back to openai, matching the previous two-protocol parser.
+export function parseKimiWireProtocol(value: string | undefined): KimiWireProtocol {
+  if (value === "anthropic" || value === "responses") return value;
+  return "openai";
+}
+
+export const ENV_KIMI_CODE_PROTOCOL: KimiWireProtocol = parseKimiWireProtocol(
+  process.env.KIMI_CODE_PROTOCOL,
+);
 
 export const IS_OPENAI_PROTOCOL = ENV_KIMI_CODE_PROTOCOL === "openai";
 
-export function getApiProtocol(
-  protocol: KimiWireProtocol,
-): "openai-completions" | "anthropic-messages" {
-  return protocol === "openai" ? "openai-completions" : "anthropic-messages";
+export function getApiProtocol(protocol: KimiWireProtocol): KimiApiProtocol {
+  if (protocol === "anthropic") return "anthropic-messages";
+  if (protocol === "responses") return "openai-responses";
+  return "openai-completions";
 }
 
 export const PROTOCOL = getApiProtocol(ENV_KIMI_CODE_PROTOCOL);
 
-export function getKimiApiType(
-  protocol: KimiWireProtocol,
-): "kimi-openai-completions" | "kimi-anthropic-messages" {
-  return protocol === "openai" ? "kimi-openai-completions" : "kimi-anthropic-messages";
+export function getKimiApiType(protocol: KimiWireProtocol): KimiApiType {
+  if (protocol === "anthropic") return "kimi-anthropic-messages";
+  if (protocol === "responses") return "kimi-openai-responses";
+  return "kimi-openai-completions";
 }
 
 // Use a custom api identifier so this provider never conflicts with the
-// built-in "anthropic-messages" or "openai-completions" stream handlers.
+// built-in anthropic-messages / openai-completions / openai-responses handlers.
 export const KIMI_API_TYPE = getKimiApiType(ENV_KIMI_CODE_PROTOCOL);
 
 export function getDefaultBaseUrl(protocol: KimiWireProtocol): string {
-  return protocol === "openai" ? "https://api.kimi.com/coding/v1" : "https://api.kimi.com/coding";
+  return protocol === "anthropic"
+    ? "https://api.kimi.com/coding"
+    : "https://api.kimi.com/coding/v1";
 }
 
 export const DEFAULT_BASE_URL = getDefaultBaseUrl(ENV_KIMI_CODE_PROTOCOL);
