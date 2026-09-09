@@ -47,18 +47,25 @@ const anthropicMessagesModule = "@earendil-works/pi-ai/api/anthropic-messages";
 const openAICompletionsModule = "@earendil-works/pi-ai/api/openai-completions";
 const openAIResponsesModule = "@earendil-works/pi-ai/api/openai-responses";
 
+// lazyApi is the last resort; it only exists on pi-ai versions that ship the
+// ./api/* subpath modules. The cast keeps the KimiStreamSimple type when none
+// of the three lookup paths resolve.
+function lazyStreamSimple(load: () => Promise<object>): KimiStreamSimple {
+  return piAiRuntime.lazyApi?.(load)?.streamSimple as KimiStreamSimple;
+}
+
 const streamSimpleAnthropic: KimiStreamSimple =
   piAiRuntime.anthropicMessagesApi?.().streamSimple ??
   piAiRuntime.streamSimpleAnthropic ??
-  piAiRuntime.lazyApi?.(() => import(anthropicMessagesModule)).streamSimple!;
+  lazyStreamSimple(() => import(anthropicMessagesModule));
 const streamSimpleOpenAICompletions: KimiStreamSimple =
   piAiRuntime.openAICompletionsApi?.().streamSimple ??
   piAiRuntime.streamSimpleOpenAICompletions ??
-  piAiRuntime.lazyApi?.(() => import(openAICompletionsModule)).streamSimple!;
+  lazyStreamSimple(() => import(openAICompletionsModule));
 const streamSimpleOpenAIResponses: KimiStreamSimple =
   piAiRuntime.openAIResponsesApi?.().streamSimple ??
   piAiRuntime.streamSimpleOpenAIResponses ??
-  piAiRuntime.lazyApi?.(() => import(openAIResponsesModule)).streamSimple!;
+  lazyStreamSimple(() => import(openAIResponsesModule));
 import {
   DEFAULT_KIMI_CODE_CONFIG,
   type KimiCodeConfig,
