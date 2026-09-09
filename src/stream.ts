@@ -48,24 +48,27 @@ const openAICompletionsModule = "@earendil-works/pi-ai/api/openai-completions";
 const openAIResponsesModule = "@earendil-works/pi-ai/api/openai-responses";
 
 // lazyApi is the last resort; it only exists on pi-ai versions that ship the
-// ./api/* subpath modules. The cast keeps the KimiStreamSimple type when none
-// of the three lookup paths resolve.
-function lazyStreamSimple(load: () => Promise<object>): KimiStreamSimple {
-  return piAiRuntime.lazyApi?.(load)?.streamSimple as KimiStreamSimple;
+// ./api/* subpath modules. Undefined when none of the three lookup paths
+// resolve (e.g. pi <=0.79 has no responses entry point at all).
+function lazyStreamSimple(load: () => Promise<object>): KimiStreamSimple | undefined {
+  return piAiRuntime.lazyApi?.(load)?.streamSimple;
 }
 
-const streamSimpleAnthropic: KimiStreamSimple =
-  piAiRuntime.anthropicMessagesApi?.().streamSimple ??
-  piAiRuntime.streamSimpleAnthropic ??
-  lazyStreamSimple(() => import(anthropicMessagesModule));
-const streamSimpleOpenAICompletions: KimiStreamSimple =
-  piAiRuntime.openAICompletionsApi?.().streamSimple ??
-  piAiRuntime.streamSimpleOpenAICompletions ??
-  lazyStreamSimple(() => import(openAICompletionsModule));
-const streamSimpleOpenAIResponses: KimiStreamSimple =
-  piAiRuntime.openAIResponsesApi?.().streamSimple ??
-  piAiRuntime.streamSimpleOpenAIResponses ??
-  lazyStreamSimple(() => import(openAIResponsesModule));
+// Not readonly: tests swap entries to simulate runtimes missing an API.
+const streamSimpleImpls: Record<KimiWireProtocol, KimiStreamSimple | undefined> = {
+  openai:
+    piAiRuntime.openAICompletionsApi?.().streamSimple ??
+    piAiRuntime.streamSimpleOpenAICompletions ??
+    lazyStreamSimple(() => import(openAICompletionsModule)),
+  anthropic:
+    piAiRuntime.anthropicMessagesApi?.().streamSimple ??
+    piAiRuntime.streamSimpleAnthropic ??
+    lazyStreamSimple(() => import(anthropicMessagesModule)),
+  responses:
+    piAiRuntime.openAIResponsesApi?.().streamSimple ??
+    piAiRuntime.streamSimpleOpenAIResponses ??
+    lazyStreamSimple(() => import(openAIResponsesModule)),
+};
 import {
   DEFAULT_KIMI_CODE_CONFIG,
   type KimiCodeConfig,
@@ -250,13 +253,32 @@ function streamSimpleForProtocol(
   context: Context,
   options: SimpleStreamOptions,
 ): AssistantMessageEventStream {
-  if (protocol === "anthropic") {
-    return streamSimpleAnthropic(model as Model<"anthropic-messages">, context, options);
+  const impl = streamSimpleImpls[protocol];
+  // Resolution runs once at module load against whichever pi-ai shape is
+  // installed, so an old pi-ai can leave the entry point undefined. Throw a
+  // descriptive error here — the caller invokes this inside the retry loop's
+  // try, so it surfaces as a stream error event instead of an unhandled
+  // rejection from a bare "not a function" TypeError.
+  if (!impl) {
+    throw new Error(
+      `installed pi-ai has no streamSimple entry point for ${getApiProtocol(protocol)}; ` +
+        "upgrade pi-ai or choose another KIMI_CODE_PROTOCOL",
+    );
   }
-  if (protocol === "responses") {
-    return streamSimpleOpenAIResponses(model as Model<"openai-responses">, context, options);
-  }
-  return streamSimpleOpenAICompletions(model as Model<"openai-completions">, context, options);
+  return impl(model, context, options);
+}
+
+// Test hook: swap a resolved stream factory (pass undefined to simulate a
+// pi-ai runtime that lacks the entry point). Returns a restore function.
+export function overrideStreamSimpleForTests(
+  protocol: KimiWireProtocol,
+  impl: KimiStreamSimple | undefined,
+): () => void {
+  const original = streamSimpleImpls[protocol];
+  streamSimpleImpls[protocol] = impl;
+  return () => {
+    streamSimpleImpls[protocol] = original;
+  };
 }
 
 export function streamSimpleKimi(
@@ -396,12 +418,20 @@ export function streamSimpleKimi(
               }
             : {}),
       } as Model<Api>;
-      const upstream = streamSimpleForProtocol(wireProtocol, runtimeModel, context, patchedOptions);
 
       let shouldRetry = false;
       let prefixBuffer: AssistantMessageEvent[] = [];
 
       try {
+        // Inside the try so a missing pi-ai stream entry point (old pi-ai +
+        // a protocol it does not ship) surfaces through the catch's error
+        // event instead of escaping the async IIFE as an unhandled rejection.
+        const upstream = streamSimpleForProtocol(
+          wireProtocol,
+          runtimeModel,
+          context,
+          patchedOptions,
+        );
         for await (const event of filterEmptyResponseStream(upstream)) {
           // streamAnthropic emits a synthetic "start" event synchronously,
           // before the for-await loop begins iterating and therefore before

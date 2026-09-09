@@ -14,6 +14,7 @@ import {
 import {
   filterEmptyResponseStream,
   mergeKimiRequestHeaders,
+  overrideStreamSimpleForTests,
   resolveKimiApiKey,
   setStoreResolvedKimiConfig,
   streamSimpleKimi,
@@ -1198,6 +1199,30 @@ describe("streamSimpleKimi", () => {
     assert.equal(payload.prompt_cache_retention, undefined);
     assert.equal(payload.store, false);
     assert.equal(payload.thinking, undefined);
+  });
+
+  it("surfaces a missing pi-ai stream entry point as a stream error event", async () => {
+    // pi <=0.79 has no responses entry point at all; selecting the protocol
+    // there must fail as a stream error event, not an unhandled rejection.
+    setStoreResolvedKimiConfig({
+      model: defaultModelConfig,
+      protocol: "responses",
+      uploads: DEFAULT_KIMI_CODE_CONFIG.uploads,
+    });
+    const restore = overrideStreamSimpleForTests("responses", undefined);
+    try {
+      const events = await collectAsyncIterable(
+        streamSimpleKimi(streamModel(), { messages: [] }, { apiKey: "test-key" }),
+      );
+      const error = events.find((event) => event.type === "error");
+      assert.ok(error, "expected an error event");
+      assert.match(
+        (error as { error?: { errorMessage?: string } }).error?.errorMessage ?? "",
+        /no streamSimple entry point/,
+      );
+    } finally {
+      restore();
+    }
   });
 });
 
