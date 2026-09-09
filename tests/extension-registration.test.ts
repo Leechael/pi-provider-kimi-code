@@ -1967,6 +1967,11 @@ describe("global api-provider fallback", () => {
       expires: Date.now() + 60_000,
     });
 
+    // KIMI_CODE_PROTOCOL is read at module load, so a developer machine
+    // exporting it changes the registered api id; derive the expected
+    // endpoint and credential header from what the extension registered.
+    let expectedPath = "/v1/chat/completions";
+    let anthropicWire = false;
     try {
       const cwd = tempDir("kimi-extension-cwd");
       const { pi, providerConfigs } = makePi();
@@ -1976,7 +1981,17 @@ describe("global api-provider fallback", () => {
         async () => {
           await withCwd(cwd, () => registerKimiCodeExtension(pi));
 
-          const model = persistedSessionModel(providerConfigs.get(PROVIDER_ID)!);
+          const config = providerConfigs.get(PROVIDER_ID)!;
+          anthropicWire = config.api === getKimiApiType("anthropic");
+          expectedPath = anthropicWire
+            ? // pi-ai's anthropic transport appends /v1/messages itself, so
+              // the /v1-suffixed test base url doubles the prefix.
+              "/v1/v1/messages"
+            : config.api === getKimiApiType("responses")
+              ? "/v1/responses"
+              : "/v1/chat/completions";
+
+          const model = persistedSessionModel(config);
           const stream = compat.streamSimple(
             model,
             {
@@ -2001,11 +2016,16 @@ describe("global api-provider fallback", () => {
     // model's own base url with the configured Kimi one and merges the
     // kimi-code identity headers into the request. The Authorization header
     // proves the request is authenticated without pi resolving the credential
-    // for it.
+    // for it. The anthropic transport sends API-key-shaped credentials as
+    // x-api-key instead of an Authorization bearer.
     assert.equal(requests.length, 1);
-    assert.equal(requests[0]?.url, "/v1/chat/completions");
+    assert.equal(requests[0]?.url, expectedPath);
     assert.equal(requests[0]?.headers["x-msh-platform"], KIMI_PLATFORM);
-    assert.equal(requests[0]?.headers.authorization, "Bearer stored-oauth-token");
+    if (anthropicWire) {
+      assert.equal(requests[0]?.headers["x-api-key"], "stored-oauth-token");
+    } else {
+      assert.equal(requests[0]?.headers.authorization, "Bearer stored-oauth-token");
+    }
   });
 
   it("keeps the fallback while another KimiCode instance is still live", async (t) => {
