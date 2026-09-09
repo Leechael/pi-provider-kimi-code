@@ -165,13 +165,13 @@ describe("settings config mutators", () => {
 
     const enabled = toggleEnabled(base, "moonshot_search");
     const expanded = toggleCollapsed(base, "moonshot_search");
-    const protocol = setProtocol(base, "anthropic");
+    const protocol = setProtocol(base, "responses");
     const threshold = setUploadThreshold(base, 2048);
 
     assert.equal(base.tools.moonshot_search.enabled, false);
     assert.equal(enabled.tools.moonshot_search.enabled, true);
     assert.equal(expanded.tools.moonshot_search.default_collapsed, false);
-    assert.equal(protocol.protocol, "anthropic");
+    assert.equal(protocol.protocol, "responses");
     assert.equal(threshold.uploads.thresholdBytes, 2048);
   });
 });

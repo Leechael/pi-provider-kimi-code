@@ -43,6 +43,7 @@ import {
 } from "./src/config.ts";
 import {
   KIMI_GLOBAL_FALLBACK_SOURCE_ID,
+  KIMI_WIRE_PROTOCOLS,
   PROVIDER_ID,
   PROVIDER_VERSION,
   getBaseUrl,
@@ -340,7 +341,7 @@ async function openSettingsMenu(
       label: "Protocol",
       description: "API protocol for Kimi requests",
       currentValue: drafts[scope].protocol,
-      values: ["openai", "anthropic"],
+      values: ["openai", "anthropic", "responses"],
     });
     items.push({
       id: "uploadThreshold",
@@ -462,8 +463,8 @@ const MODULE_UNAVAILABLE_CODES = new Set([
 // model was resolved, so a session created before a protocol switch still
 // carries the other id and would keep crashing. streamSimpleKimi routes on the
 // model's wireProtocol / the resolved runtime config and never on model.api, so
-// both ids dispatch identically.
-const KIMI_FALLBACK_APIS = [getKimiApiType("openai"), getKimiApiType("anthropic")];
+// all three ids dispatch identically.
+const KIMI_FALLBACK_APIS = KIMI_WIRE_PROTOCOLS.map((protocol) => getKimiApiType(protocol));
 
 type PiAiApiRegistry = {
   registerApiProvider: (

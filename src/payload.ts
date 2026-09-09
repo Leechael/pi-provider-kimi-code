@@ -31,7 +31,7 @@ export function resolveCacheRetention(value?: CacheRetention): CacheRetention {
 }
 
 export interface KimiPayloadContext {
-  api: "anthropic-messages" | "openai-completions";
+  api: "anthropic-messages" | "openai-completions" | "openai-responses";
   upload?: Uploader;
   uploadCacheScope?: string;
   cacheKey?: string;
@@ -410,10 +410,12 @@ function recurseJsonSchemaPropertyTypes(node: unknown): void {
 function normalizeOpenAIToolSchemas(payload: JsonRecord): void {
   if (!Array.isArray(payload.tools)) return;
   for (const tool of payload.tools) {
-    if (!isRecord(tool) || !isRecord(tool.function)) continue;
-    const parameters = tool.function.parameters;
-    if (!isRecord(parameters)) continue;
-    recurseJsonSchemaPropertyTypes(parameters);
+    if (!isRecord(tool)) continue;
+    // Chat Completions nests the schema under tool.function.parameters;
+    // Responses function tools carry parameters at the top level.
+    const holder: JsonRecord = isRecord(tool.function) ? tool.function : tool;
+    if (!isRecord(holder.parameters)) continue;
+    recurseJsonSchemaPropertyTypes(holder.parameters);
   }
 }
 
@@ -468,6 +470,72 @@ async function transformAnthropicPayloadFiles(
 // steps below testable with fixture payloads.
 // =============================================================================
 
+const RESPONSES_EFFORTS = new Set(["low", "high", "max"]);
+
+function responsesSupportedEfforts(ctx: KimiPayloadContext): string[] {
+  const advertised = ctx.modelConfig.supportEfforts;
+  if (advertised?.length) return advertised.filter((effort) => RESPONSES_EFFORTS.has(effort));
+  return [...RESPONSES_EFFORTS];
+}
+
+function setResponsesReasoning(payload: JsonRecord, effort: string | null): void {
+  const oldReasoning = isRecord(payload.reasoning) ? payload.reasoning : {};
+  if (!effort) {
+    delete payload.reasoning;
+    return;
+  }
+  const reasoning: JsonRecord = { ...oldReasoning, effort };
+  if (reasoning.summary === undefined) reasoning.summary = "auto";
+  payload.reasoning = reasoning;
+}
+
+function normalizeResponsesUpstreamEffort(payload: JsonRecord, ctx: KimiPayloadContext): void {
+  const supported = responsesSupportedEfforts(ctx);
+  const oldEffort = isRecord(payload.reasoning) ? payload.reasoning.effort : undefined;
+  if (typeof oldEffort === "string" && supported.includes(oldEffort)) return;
+  if (typeof oldEffort === "string") {
+    const mapped = resolveReasoningForLevel(oldEffort, ctx.modelConfig);
+    if (mapped?.enabled && mapped.effort && supported.includes(mapped.effort)) {
+      setResponsesReasoning(payload, mapped.effort);
+      return;
+    }
+  }
+  const fallback = ctx.modelConfig.defaultEffort;
+  setResponsesReasoning(payload, fallback && supported.includes(fallback) ? fallback : null);
+}
+
+function applyResponsesThinking(payload: JsonRecord, ctx: KimiPayloadContext): void {
+  delete payload.thinking;
+  delete payload.reasoning_effort;
+  delete payload.output_config;
+  if (ctx.modelConfig.supportsThinkingType === "no") {
+    delete payload.reasoning;
+    return;
+  }
+  const resolvedReasoning = resolveThinkingLevel(ctx);
+  if (!resolvedReasoning) {
+    normalizeResponsesUpstreamEffort(payload, ctx);
+    return;
+  }
+  const mapped = resolveReasoningForLevel(resolvedReasoning, ctx.modelConfig);
+  if (!mapped) {
+    normalizeResponsesUpstreamEffort(payload, ctx);
+    return;
+  }
+  if (!mapped.enabled) {
+    delete payload.reasoning;
+    return;
+  }
+  const effort = ctx.reasoning ? mapped.effort : (ctx.modelConfig.defaultEffort ?? mapped.effort);
+  const supported = responsesSupportedEfforts(ctx);
+  const oldReasoning = isRecord(payload.reasoning) ? payload.reasoning : {};
+  const reasoning: JsonRecord = { ...oldReasoning };
+  delete reasoning.effort;
+  if (effort !== null && supported.includes(effort)) reasoning.effort = effort;
+  if (reasoning.summary === undefined) reasoning.summary = "auto";
+  payload.reasoning = reasoning;
+}
+
 export async function applyKimiPayloadMutations(
   payload: JsonRecord,
   ctx: KimiPayloadContext,
@@ -491,6 +559,8 @@ export async function applyKimiPayloadMutations(
   }
   if (ctx.api === "openai-completions") {
     normalizeOpenAIAssistantToolCalls(payload);
+  }
+  if (ctx.api === "openai-completions" || ctx.api === "openai-responses") {
     normalizeOpenAIToolSchemas(payload);
   }
   if (Array.isArray(payload.tools)) {
@@ -530,13 +600,23 @@ export async function applyKimiPayloadMutations(
     }
   }
 
-  // 6. Normalize deprecated max_tokens (OpenAI path only — Anthropic
-  //    /messages uses max_tokens natively).
+  // 6. Normalize output-token field names per protocol.
   if (ctx.api === "openai-completions") {
     if (payload.max_completion_tokens === undefined && typeof payload.max_tokens === "number") {
       payload.max_completion_tokens = payload.max_tokens;
     }
     delete payload.max_tokens;
+  } else if (ctx.api === "openai-responses") {
+    if (payload.max_output_tokens === undefined) {
+      if (typeof payload.max_completion_tokens === "number") {
+        payload.max_output_tokens = payload.max_completion_tokens;
+      } else if (typeof payload.max_tokens === "number") {
+        payload.max_output_tokens = payload.max_tokens;
+      }
+    }
+    delete payload.max_tokens;
+    delete payload.max_completion_tokens;
+    delete payload.prompt_cache_retention;
   }
 
   const generation = ctx.modelConfig.generation;
@@ -552,7 +632,12 @@ export async function applyKimiPayloadMutations(
   // Output cap: an explicit cap (KIMI_MODEL_MAX_COMPLETION_TOKENS / config →
   // generation.maxCompletionTokens) is honored as a hardCap on the request value.
   if (generation.maxCompletionTokens !== undefined) {
-    const maxTokensKey = ctx.api === "anthropic-messages" ? "max_tokens" : "max_completion_tokens";
+    const maxTokensKey =
+      ctx.api === "anthropic-messages"
+        ? "max_tokens"
+        : ctx.api === "openai-responses"
+          ? "max_output_tokens"
+          : "max_completion_tokens";
     const currentMaxTokens = payload[maxTokensKey];
     payload[maxTokensKey] =
       typeof currentMaxTokens === "number"
@@ -560,87 +645,98 @@ export async function applyKimiPayloadMutations(
         : generation.maxCompletionTokens;
   }
 
-  // 7. Reasoning effort mapping. Kimi now accepts effort only inside the
-  //    thinking object, and only for values advertised by the model catalog.
-  delete payload.reasoning_effort;
-  if (ctx.modelConfig.supportsThinkingType === "no") {
-    delete payload.thinking;
-  }
-  const resolvedReasoning = resolveThinkingLevel(ctx);
-  if (resolvedReasoning) {
-    const mapped = resolveReasoningForLevel(resolvedReasoning, ctx.modelConfig);
-    if (mapped) {
-      const oldThinking = isRecord(payload.thinking) ? payload.thinking : {};
-      const effort = ctx.reasoning
-        ? mapped.effort
-        : (ctx.modelConfig.defaultEffort ?? mapped.effort);
-      const effortSupported =
-        effort !== null && ctx.modelConfig.supportEfforts?.includes(effort) === true;
-      if (ctx.api === "anthropic-messages" && oldThinking.type === "adaptive") {
-        // pi-ai >=0.82 builds adaptive thinking for models carrying
-        // compat.forceAdaptiveThinking (streamSimpleKimi sets it on the
-        // anthropic runtime model). Keep the adaptive shape — effort lives in
-        // top-level output_config there, not inside thinking — and only
-        // replace it with an explicit disable when the level maps to off.
-        if (mapped.enabled) {
-          if (effortSupported) payload.output_config = { effort };
-          else delete payload.output_config;
+  // 7. Reasoning effort mapping.
+  // Completions/Anthropic: effort lives in thinking / output_config.
+  // Responses: pi-ai's native transport uses reasoning.effort; drop the
+  // Completions thinking object and clamp effort to the catalog.
+  if (ctx.api === "openai-responses") {
+    applyResponsesThinking(payload, ctx);
+  } else {
+    delete payload.reasoning_effort;
+    if (ctx.modelConfig.supportsThinkingType === "no") {
+      delete payload.thinking;
+    }
+    const resolvedReasoning = resolveThinkingLevel(ctx);
+    if (resolvedReasoning) {
+      const mapped = resolveReasoningForLevel(resolvedReasoning, ctx.modelConfig);
+      if (mapped) {
+        const oldThinking = isRecord(payload.thinking) ? payload.thinking : {};
+        const effort = ctx.reasoning
+          ? mapped.effort
+          : (ctx.modelConfig.defaultEffort ?? mapped.effort);
+        const effortSupported =
+          effort !== null && ctx.modelConfig.supportEfforts?.includes(effort) === true;
+        if (ctx.api === "anthropic-messages" && oldThinking.type === "adaptive") {
+          // pi-ai >=0.82 builds adaptive thinking for models carrying
+          // compat.forceAdaptiveThinking (streamSimpleKimi sets it on the
+          // anthropic runtime model). Keep the adaptive shape — effort lives in
+          // top-level output_config there, not inside thinking — and only
+          // replace it with an explicit disable when the level maps to off.
+          if (mapped.enabled) {
+            if (effortSupported) payload.output_config = { effort };
+            else delete payload.output_config;
+          } else {
+            payload.thinking = { type: "disabled" };
+            delete payload.output_config;
+          }
         } else {
-          payload.thinking = { type: "disabled" };
-          delete payload.output_config;
+          const thinking: JsonRecord = {
+            ...oldThinking,
+            type: mapped.enabled ? "enabled" : "disabled",
+          };
+          delete thinking.effort;
+          if (!mapped.enabled) delete thinking.keep;
+          if (mapped.enabled && effortSupported) {
+            thinking.effort = effort;
+          }
+          if (mapped.enabled && ctx.modelConfig.thinkingKeep) {
+            thinking.keep = ctx.modelConfig.thinkingKeep;
+          }
+          payload.thinking = thinking;
         }
-      } else {
-        const thinking: JsonRecord = {
-          ...oldThinking,
-          type: mapped.enabled ? "enabled" : "disabled",
-        };
-        delete thinking.effort;
-        if (!mapped.enabled) delete thinking.keep;
-        if (mapped.enabled && effortSupported) {
-          thinking.effort = effort;
-        }
-        if (mapped.enabled && ctx.modelConfig.thinkingKeep) {
-          thinking.keep = ctx.modelConfig.thinkingKeep;
-        }
-        payload.thinking = thinking;
       }
     }
-  }
 
-  // Preserved-thinking Kimi endpoints require every replayed assistant turn to
-  // carry reasoning_content, including turns whose reasoning delta was empty.
-  // pi-ai drops empty thinking blocks while building Chat Completions history,
-  // so restore the explicit empty field after the final thinking mode is known.
-  if (
-    ctx.api === "openai-completions" &&
-    isRecord(payload.thinking) &&
-    payload.thinking.type !== "disabled" &&
-    payload.thinking.keep === "all" &&
-    Array.isArray(payload.messages)
-  ) {
-    for (const message of payload.messages) {
-      if (
-        isRecord(message) &&
-        message.role === "assistant" &&
-        message.reasoning_content === undefined
-      ) {
-        message.reasoning_content = "";
+    // Preserved-thinking Kimi endpoints require every replayed assistant turn to
+    // carry reasoning_content, including turns whose reasoning delta was empty.
+    // pi-ai drops empty thinking blocks while building Chat Completions history,
+    // so restore the explicit empty field after the final thinking mode is known.
+    if (
+      ctx.api === "openai-completions" &&
+      isRecord(payload.thinking) &&
+      payload.thinking.type !== "disabled" &&
+      payload.thinking.keep === "all" &&
+      Array.isArray(payload.messages)
+    ) {
+      for (const message of payload.messages) {
+        if (
+          isRecord(message) &&
+          message.role === "assistant" &&
+          message.reasoning_content === undefined
+        ) {
+          message.reasoning_content = "";
+        }
       }
     }
   }
 
   // 8. K2.7 Code API constraints: the server rejects tool_choice "required" /
-  //    function-specific when thinking is enabled (always-on). temperature/top_p
-  //    are handled in step 6 — omitted unless explicitly configured, matching the
-  //    official kimi-code client rather than pinned to 1.0/0.95.
+  //    function-specific when thinking is enabled (always-on). Responses only
+  //    accepts auto. temperature/top_p are handled in step 6 — omitted unless
+  //    explicitly configured, matching the official kimi-code client rather
+  //    than pinned to 1.0/0.95.
   if (payload.tool_choice !== undefined) {
-    const tc = payload.tool_choice;
-    const isAllowed =
-      tc === "auto" ||
-      tc === "none" ||
-      (isRecord(tc) && (tc.type === "auto" || tc.type === "none"));
-    if (!isAllowed) {
-      payload.tool_choice = isRecord(tc) ? { type: "auto" } : "auto";
+    if (ctx.api === "openai-responses") {
+      payload.tool_choice = "auto";
+    } else {
+      const tc = payload.tool_choice;
+      const isAllowed =
+        tc === "auto" ||
+        tc === "none" ||
+        (isRecord(tc) && (tc.type === "auto" || tc.type === "none"));
+      if (!isAllowed) {
+        payload.tool_choice = isRecord(tc) ? { type: "auto" } : "auto";
+      }
     }
   }
 }

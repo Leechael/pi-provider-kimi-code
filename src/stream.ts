@@ -32,8 +32,10 @@ type KimiStreamSimple = (
 const piAiRuntime = piAi as unknown as {
   anthropicMessagesApi?: () => { streamSimple: KimiStreamSimple };
   openAICompletionsApi?: () => { streamSimple: KimiStreamSimple };
+  openAIResponsesApi?: () => { streamSimple: KimiStreamSimple };
   streamSimpleAnthropic?: KimiStreamSimple;
   streamSimpleOpenAICompletions?: KimiStreamSimple;
+  streamSimpleOpenAIResponses?: KimiStreamSimple;
   lazyApi?: (load: () => Promise<object>) => { streamSimple: KimiStreamSimple };
 };
 
@@ -43,22 +45,43 @@ const piAiRuntime = piAi as unknown as {
 // evaluated in plain-Node environments where the subpaths do resolve.
 const anthropicMessagesModule = "@earendil-works/pi-ai/api/anthropic-messages";
 const openAICompletionsModule = "@earendil-works/pi-ai/api/openai-completions";
+const openAIResponsesModule = "@earendil-works/pi-ai/api/openai-responses";
 
-const streamSimpleAnthropic: KimiStreamSimple =
-  piAiRuntime.anthropicMessagesApi?.().streamSimple ??
-  piAiRuntime.streamSimpleAnthropic ??
-  piAiRuntime.lazyApi?.(() => import(anthropicMessagesModule)).streamSimple!;
-const streamSimpleOpenAICompletions: KimiStreamSimple =
-  piAiRuntime.openAICompletionsApi?.().streamSimple ??
-  piAiRuntime.streamSimpleOpenAICompletions ??
-  piAiRuntime.lazyApi?.(() => import(openAICompletionsModule)).streamSimple!;
+// lazyApi is the last resort; it only exists on pi-ai versions that ship the
+// ./api/* subpath modules. Undefined when none of the three lookup paths
+// resolve (e.g. pi <=0.79 has no responses entry point at all).
+function lazyStreamSimple(load: () => Promise<object>): KimiStreamSimple | undefined {
+  return piAiRuntime.lazyApi?.(load)?.streamSimple;
+}
+
+// Not readonly: tests swap entries to simulate runtimes missing an API.
+const streamSimpleImpls: Record<KimiWireProtocol, KimiStreamSimple | undefined> = {
+  openai:
+    piAiRuntime.openAICompletionsApi?.().streamSimple ??
+    piAiRuntime.streamSimpleOpenAICompletions ??
+    lazyStreamSimple(() => import(openAICompletionsModule)),
+  anthropic:
+    piAiRuntime.anthropicMessagesApi?.().streamSimple ??
+    piAiRuntime.streamSimpleAnthropic ??
+    lazyStreamSimple(() => import(anthropicMessagesModule)),
+  responses:
+    piAiRuntime.openAIResponsesApi?.().streamSimple ??
+    piAiRuntime.streamSimpleOpenAIResponses ??
+    lazyStreamSimple(() => import(openAIResponsesModule)),
+};
 import {
   DEFAULT_KIMI_CODE_CONFIG,
   type KimiCodeConfig,
   type KimiResolvedModelConfig,
 } from "./config.ts";
 
-import { ENV_KIMI_CODE_PROTOCOL, PROVIDER_ID, getApiProtocol, getBaseUrl } from "./constants.ts";
+import {
+  ENV_KIMI_CODE_PROTOCOL,
+  PROVIDER_ID,
+  type KimiWireProtocol,
+  getApiProtocol,
+  getBaseUrl,
+} from "./constants.ts";
 import { getKimiProviderHeaders } from "./device.ts";
 import {
   isKimiAuthErrorMessage,
@@ -224,6 +247,40 @@ export function mergeKimiRequestHeaders(headers?: HeaderMap): HeaderMap {
   return { ...getKimiProviderHeaders(), ...headers };
 }
 
+function streamSimpleForProtocol(
+  protocol: KimiWireProtocol,
+  model: Model<Api>,
+  context: Context,
+  options: SimpleStreamOptions,
+): AssistantMessageEventStream {
+  const impl = streamSimpleImpls[protocol];
+  // Resolution runs once at module load against whichever pi-ai shape is
+  // installed, so an old pi-ai can leave the entry point undefined. Throw a
+  // descriptive error here — the caller invokes this inside the retry loop's
+  // try, so it surfaces as a stream error event instead of an unhandled
+  // rejection from a bare "not a function" TypeError.
+  if (!impl) {
+    throw new Error(
+      `installed pi-ai has no streamSimple entry point for ${getApiProtocol(protocol)}; ` +
+        "upgrade pi-ai or choose another KIMI_CODE_PROTOCOL",
+    );
+  }
+  return impl(model, context, options);
+}
+
+// Test hook: swap a resolved stream factory (pass undefined to simulate a
+// pi-ai runtime that lacks the entry point). Returns a restore function.
+export function overrideStreamSimpleForTests(
+  protocol: KimiWireProtocol,
+  impl: KimiStreamSimple | undefined,
+): () => void {
+  const original = streamSimpleImpls[protocol];
+  streamSimpleImpls[protocol] = impl;
+  return () => {
+    streamSimpleImpls[protocol] = original;
+  };
+}
+
 export function streamSimpleKimi(
   model: Model<Api>,
   context: Context,
@@ -332,8 +389,9 @@ export function streamSimpleKimi(
       const patchedOptions = buildPatchedOptions(currentKey);
       // Route by the module-level protocol flag, not model.api, since we
       // register with a custom api type (kimi-openai-completions /
-      // kimi-anthropic-messages) to avoid overriding the built-in
-      // Anthropic/OpenAI stream handlers.
+      // kimi-anthropic-messages / kimi-openai-responses) to avoid overriding
+      // the built-in Anthropic/OpenAI stream handlers.
+      const existingCompat = (model as { compat?: Record<string, unknown> }).compat;
       const runtimeModel = {
         ...model,
         api: apiProtocol,
@@ -342,33 +400,38 @@ export function streamSimpleKimi(
         // rejects/ignores the interleaved-thinking beta header; pi-ai >=0.82
         // keys both behaviors off these compat flags (its own built-in
         // kimi-coding models carry them in generated metadata).
+        // Responses rejects prompt_cache_retention (400) unless this is off.
         ...(wireProtocol === "anthropic"
           ? {
               compat: {
-                ...(model as { compat?: Record<string, unknown> }).compat,
+                ...existingCompat,
                 forceAdaptiveThinking: true,
                 allowEmptySignature: true,
               },
             }
-          : {}),
+          : wireProtocol === "responses"
+            ? {
+                compat: {
+                  ...existingCompat,
+                  supportsLongCacheRetention: false,
+                },
+              }
+            : {}),
       } as Model<Api>;
-      const upstream =
-        wireProtocol === "openai"
-          ? streamSimpleOpenAICompletions(
-              runtimeModel as Model<"openai-completions">,
-              context,
-              patchedOptions,
-            )
-          : streamSimpleAnthropic(
-              runtimeModel as Model<"anthropic-messages">,
-              context,
-              patchedOptions,
-            );
 
       let shouldRetry = false;
       let prefixBuffer: AssistantMessageEvent[] = [];
 
       try {
+        // Inside the try so a missing pi-ai stream entry point (old pi-ai +
+        // a protocol it does not ship) surfaces through the catch's error
+        // event instead of escaping the async IIFE as an unhandled rejection.
+        const upstream = streamSimpleForProtocol(
+          wireProtocol,
+          runtimeModel,
+          context,
+          patchedOptions,
+        );
         for await (const event of filterEmptyResponseStream(upstream)) {
           // streamAnthropic emits a synthetic "start" event synchronously,
           // before the for-await loop begins iterating and therefore before

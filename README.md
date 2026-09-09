@@ -183,7 +183,7 @@ If you already use another search or fetch tool, pick one path for a session. Ov
 Most users do not need environment variables. Two are worth knowing:
 
 - `KIMI_API_KEY` — static API key for CI or key-based access.
-- `KIMI_CODE_PROTOCOL` — `openai` by default; set to `anthropic` for Anthropic-compatible requests.
+- `KIMI_CODE_PROTOCOL` — `openai` by default; set to `anthropic` for Anthropic-compatible requests, or `responses` for the OpenAI Responses API.
 
 Tools, protocol, and upload threshold are all configurable through `/kimi-settings` or JSON config files.
 

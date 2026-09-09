@@ -237,6 +237,44 @@ describe("deduplicateSchema", () => {
     assert.ok(optimizedSize <= originalSize, `${optimizedSize} > ${originalSize}`);
   });
 
+  it("optimizes Responses-shape tools with top-level parameters", () => {
+    resetToolSchemaCache();
+    const repeated = {
+      type: "object",
+      properties: {
+        name: { type: "string" },
+        value: { type: "integer" },
+        extra: { type: "string", description: "x".repeat(200) },
+      },
+    };
+    const schema: Record<string, unknown> = { type: "object", properties: {} };
+    const props = schema.properties as Record<string, unknown>;
+    for (let i = 0; i < 200; i++) {
+      props[`p${i}`] = JSON.parse(JSON.stringify(repeated));
+    }
+    assert.ok(jsonSize(schema) > KIMI_PER_TOOL_LIMIT, "precondition: over the wire limit");
+
+    const tools = [{ type: "function", name: "flat", description: "test", parameters: schema }];
+    const result = optimizeToolSchemas(tools);
+    const params = (result[0] as Record<string, unknown>).parameters as Record<string, unknown>;
+
+    assert.ok(jsonSize(params) < KIMI_PER_TOOL_LIMIT);
+    assert.ok(params.$defs, "should have $defs");
+  });
+
+  it("leaves small Responses-shape tools untouched", () => {
+    resetToolSchemaCache();
+    const tools = [
+      {
+        type: "function",
+        name: "flat",
+        description: "test",
+        parameters: { type: "object", properties: { a: { type: "string" } } },
+      },
+    ];
+    assert.strictEqual(optimizeToolSchemas(tools), tools);
+  });
+
   it("handles tools without function.parameters gracefully", () => {
     resetToolSchemaCache();
     const tools = [{ type: "function", function: { name: "bare", description: "no params" } }];

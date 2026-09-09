@@ -12,10 +12,10 @@ models. It supports two authentication modes:
 1. **OAuth device-code flow** — interactive browser-based login (`/login kimi-coding`)
 2. **Static API key** — set the `KIMI_API_KEY` environment variable
 
-The Kimi Code API is wire-compatible with both the Anthropic Messages and OpenAI Chat
-Completions formats. The extension picks which wire protocol to use via the
-`KIMI_CODE_PROTOCOL` environment variable. Supported values are `openai` (default)
-and `anthropic`. A `streamSimpleKimi()` wrapper sits on top of Pi's built-in
+The Kimi Code API is wire-compatible with Anthropic Messages, OpenAI Chat
+Completions, and OpenAI Responses. The extension picks which wire protocol to use via the
+`KIMI_CODE_PROTOCOL` environment variable. Supported values are `openai` (default),
+`anthropic`, and `responses`. A `streamSimpleKimi()` wrapper sits on top of Pi's built-in
 streaming to:
 
 - upload large inline base64 images to Kimi's `/v1/files` endpoint as `ms://` references
@@ -52,9 +52,9 @@ The default export is a function that receives `ExtensionAPI` and calls
 
 ```
 Provider ID:    kimi-coding
-Base URL:       https://api.kimi.com/coding/v1    (openai-completions, default)
+Base URL:       https://api.kimi.com/coding/v1    (openai-completions / openai-responses, default)
                 https://api.kimi.com/coding       (anthropic-messages)
-API type:       anthropic-messages | openai-completions  (via KIMI_CODE_PROTOCOL=openai|anthropic)
+API type:       openai-completions | anthropic-messages | openai-responses  (via KIMI_CODE_PROTOCOL=openai|anthropic|responses)
 Env var key:    KIMI_API_KEY
 ```
 
@@ -238,6 +238,7 @@ the middle layers are unit-testable without mocking modules.
             ▼                                   ▼
    patchedOptions.onPayload                upstream = streamSimpleOpenAICompletions(...)
             │                                       or streamSimpleAnthropic(...)
+            │                                       or streamSimpleOpenAIResponses(...)
             │                                   │
             ▼                                   ▼
    applyKimiPayloadMutations(payload, ctx)  filterEmptyResponseStream(upstream)
