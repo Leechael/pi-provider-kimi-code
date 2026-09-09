@@ -929,7 +929,12 @@ describe("extension tool registration", () => {
     try {
       await withCwd(cwd, () => loadKimiExtension(pi));
       const provider = providerConfigs.get("kimi-coding");
-      const refreshToken = provider?.oauth?.refreshToken;
+      // pi-coding-agent >=0.84 requires an AbortSignal as the second
+      // argument; older versions accept credentials only. Cast loosely so
+      // the test type-checks against every CI matrix version.
+      const refreshToken = provider?.oauth?.refreshToken as
+        | ((credentials: unknown, signal?: AbortSignal) => Promise<unknown>)
+        | undefined;
       const modifyModels = provider?.oauth?.modifyModels;
       assert.ok(refreshToken);
       assert.ok(modifyModels);
