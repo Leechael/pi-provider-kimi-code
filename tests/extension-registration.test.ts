@@ -934,11 +934,14 @@ describe("extension tool registration", () => {
       assert.ok(refreshToken);
       assert.ok(modifyModels);
 
-      const credentials = await refreshToken({
-        access: "startup-access",
-        refresh: "startup-refresh",
-        expires: Date.now() + 60_000,
-      });
+      const credentials = await refreshToken(
+        {
+          access: "startup-access",
+          refresh: "startup-refresh",
+          expires: Date.now() + 60_000,
+        },
+        new AbortController().signal,
+      );
       const models = modifyModels(
         provider.models?.map((model) => ({ ...model, provider: "kimi-coding" })) as never,
         credentials as never,
