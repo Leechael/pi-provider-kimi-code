@@ -232,9 +232,12 @@ export function optimizeToolSchemas(tools: unknown[]): unknown[] {
 
   let changed = false;
   const result = tools.map((tool) => {
-    if (!isRecord(tool) || !isRecord(tool.function)) return tool;
-    const fn = tool.function as JsonRecord;
-    const params = fn.parameters;
+    if (!isRecord(tool)) return tool;
+    // Chat Completions nests the schema under tool.function.parameters;
+    // Responses function tools carry parameters at the top level.
+    const fn = isRecord(tool.function) ? tool.function : undefined;
+    const holder: JsonRecord = fn ?? tool;
+    const params = holder.parameters;
     if (!isRecord(params)) return tool;
 
     const size = jsonSize(params);
@@ -242,7 +245,9 @@ export function optimizeToolSchemas(tools: unknown[]): unknown[] {
 
     const optimized = deduplicateSchema(params);
     changed = true;
-    return { ...tool, function: { ...fn, parameters: optimized } };
+    return fn
+      ? { ...tool, function: { ...fn, parameters: optimized } }
+      : { ...tool, parameters: optimized };
   });
 
   cachedFingerprint = fp;

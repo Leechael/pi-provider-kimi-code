@@ -895,6 +895,31 @@ describe("openai-responses payload", () => {
     await applyKimiPayloadMutations(payload, baseCtx({ api: "openai-responses" }));
     assert.equal(payload.temperature, undefined);
   });
+
+  it("fills missing tool parameter schema types on the flat Responses shape", async () => {
+    const payload: JsonRecord = {
+      input: [{ role: "user", content: "hi" }],
+      tools: [
+        {
+          type: "function",
+          name: "search",
+          parameters: {
+            type: "object",
+            properties: {
+              mode: { enum: ["smart", "full"] },
+            },
+          },
+        },
+      ],
+    };
+
+    await applyKimiPayloadMutations(payload, baseCtx({ api: "openai-responses" }));
+
+    const tools = payload.tools as JsonRecord[];
+    const parameters = tools[0]?.parameters as JsonRecord;
+    const properties = parameters.properties as Record<string, JsonRecord>;
+    assert.equal(properties.mode.type, "string");
+  });
 });
 
 describe("uploadKimiFile", () => {

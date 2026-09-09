@@ -410,10 +410,12 @@ function recurseJsonSchemaPropertyTypes(node: unknown): void {
 function normalizeOpenAIToolSchemas(payload: JsonRecord): void {
   if (!Array.isArray(payload.tools)) return;
   for (const tool of payload.tools) {
-    if (!isRecord(tool) || !isRecord(tool.function)) continue;
-    const parameters = tool.function.parameters;
-    if (!isRecord(parameters)) continue;
-    recurseJsonSchemaPropertyTypes(parameters);
+    if (!isRecord(tool)) continue;
+    // Chat Completions nests the schema under tool.function.parameters;
+    // Responses function tools carry parameters at the top level.
+    const holder: JsonRecord = isRecord(tool.function) ? tool.function : tool;
+    if (!isRecord(holder.parameters)) continue;
+    recurseJsonSchemaPropertyTypes(holder.parameters);
   }
 }
 
@@ -557,6 +559,8 @@ export async function applyKimiPayloadMutations(
   }
   if (ctx.api === "openai-completions") {
     normalizeOpenAIAssistantToolCalls(payload);
+  }
+  if (ctx.api === "openai-completions" || ctx.api === "openai-responses") {
     normalizeOpenAIToolSchemas(payload);
   }
   if (Array.isArray(payload.tools)) {
