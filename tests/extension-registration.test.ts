@@ -113,6 +113,14 @@ afterEach(async () => {
   for (const cleanup of cleanups) await cleanup();
 });
 
+// pi >=0.99 types ProviderConfig["models"] as a chat/image/classifier
+// discriminated union where `contextWindow` only exists on chat entries; Kimi only
+// registers chat models. Read the field through a structural cast so assertions stay
+// version-tolerant across the whole CI matrix (older pi uses a single interface).
+function modelContextWindow(model: unknown): number | undefined {
+  return (model as { contextWindow?: number } | undefined)?.contextWindow;
+}
+
 function makePi() {
   const tools: ToolDefinition[] = [];
   const providers: string[] = [];
@@ -330,7 +338,7 @@ describe("extension tool registration", () => {
     assert.equal(models[1]?.contextWindow, 524288);
     assert.deepEqual(models[1]?.input, ["text", "image", "video"]);
     assert.equal(models[2]?.name, "Kimi K3");
-    assert.equal(models[2]?.contextWindow, 1048576);
+    assert.equal(modelContextWindow(models[2]), 1048576);
     assert.deepEqual(models[2]?.input, ["text", "image", "video"]);
     assert.deepEqual(
       (models[2] as (typeof models)[number] & { supportEfforts?: string[] }).supportEfforts,
@@ -751,7 +759,7 @@ describe("extension tool registration", () => {
         models.map((model) => model.id),
         ["kimi-for-coding", "kimi-for-coding-highspeed", "k3"],
       );
-      assert.equal(models[2]?.contextWindow, 1048576);
+      assert.equal(modelContextWindow(models[2]), 1048576);
     } finally {
       globalThis.fetch = originalFetch;
       auth.cleanup();
@@ -806,7 +814,9 @@ describe("extension tool registration", () => {
     try {
       await withCwd(cwd, () => loadKimiExtension(pi));
       assert.deepEqual(
-        providerConfigs.get("kimi-coding")?.models?.map((model) => [model.id, model.contextWindow]),
+        providerConfigs
+          .get("kimi-coding")
+          ?.models?.map((model) => [model.id, modelContextWindow(model)]),
         [
           ["kimi-for-coding", 262144],
           ["kimi-for-coding-highspeed", 262144],
@@ -865,7 +875,9 @@ describe("extension tool registration", () => {
     try {
       await withCwd(cwd, () => loadKimiExtension(pi));
       assert.deepEqual(
-        providerConfigs.get("kimi-coding")?.models?.map((model) => [model.id, model.contextWindow]),
+        providerConfigs
+          .get("kimi-coding")
+          ?.models?.map((model) => [model.id, modelContextWindow(model)]),
         [
           ["kimi-for-coding", 262144],
           ["kimi-for-coding-highspeed", 262144],
@@ -1003,7 +1015,9 @@ describe("extension tool registration", () => {
     try {
       await withCwd(cwd, () => loadKimiExtension(pi));
       assert.deepEqual(
-        providerConfigs.get("kimi-coding")?.models?.map((model) => [model.id, model.contextWindow]),
+        providerConfigs
+          .get("kimi-coding")
+          ?.models?.map((model) => [model.id, modelContextWindow(model)]),
         [
           ["kimi-for-coding", 262144],
           ["kimi-for-coding-highspeed", 262144],
@@ -1030,7 +1044,9 @@ describe("extension tool registration", () => {
         ["k3", 1048576],
       ];
       assert.deepEqual(
-        providerConfigs.get("kimi-coding")?.models?.map((model) => [model.id, model.contextWindow]),
+        providerConfigs
+          .get("kimi-coding")
+          ?.models?.map((model) => [model.id, modelContextWindow(model)]),
         allegrettoModels,
       );
 
@@ -1045,7 +1061,9 @@ describe("extension tool registration", () => {
         (_list, done) => done(),
       );
       assert.deepEqual(
-        providerConfigs.get("kimi-coding")?.models?.map((model) => [model.id, model.contextWindow]),
+        providerConfigs
+          .get("kimi-coding")
+          ?.models?.map((model) => [model.id, modelContextWindow(model)]),
         allegrettoModels,
       );
     } finally {

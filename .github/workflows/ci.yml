@@ -22,6 +22,7 @@ jobs:
           - 0.79.10
           - 0.80.9
           - 0.85.1
+          - 0.99.2
     name: test (pi ${{ matrix.pi-version }})
     steps:
       - name: Checkout
