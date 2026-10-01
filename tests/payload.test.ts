@@ -790,6 +790,83 @@ describe("applyKimiPayloadMutations", () => {
   });
 });
 
+describe("output cap policy (upstream #4091)", () => {
+  // Window-tracked: what buildKimiModelFromConfig produces for an unset cap.
+  const windowTrackedConfig: KimiResolvedModelConfig = {
+    ...defaultModelConfig,
+    maxTokens: defaultModelConfig.contextWindow,
+  };
+
+  it("omits the seeded cap on openai-completions when the model cap is window-tracked", async () => {
+    const payload: JsonRecord = {
+      messages: [{ role: "user", content: "hi" }],
+      max_completion_tokens: 258048,
+    };
+    await applyKimiPayloadMutations(
+      payload,
+      baseCtx({ api: "openai-completions", modelConfig: windowTrackedConfig }),
+    );
+    assert.equal(payload.max_completion_tokens, undefined);
+    assert.equal(payload.max_tokens, undefined);
+  });
+
+  it("omits the seeded cap on openai-responses when the model cap is window-tracked", async () => {
+    const payload: JsonRecord = {
+      input: [{ role: "user", content: "hi" }],
+      max_output_tokens: 258048,
+    };
+    await applyKimiPayloadMutations(
+      payload,
+      baseCtx({ api: "openai-responses", modelConfig: windowTrackedConfig }),
+    );
+    assert.equal(payload.max_output_tokens, undefined);
+  });
+
+  it("keeps a user-configured model.maxTokens cap on the OpenAI wires", async () => {
+    const explicitConfig: KimiResolvedModelConfig = {
+      ...defaultModelConfig,
+      maxTokens: 16384,
+    };
+    const payload: JsonRecord = {
+      messages: [{ role: "user", content: "hi" }],
+      max_completion_tokens: 16384,
+    };
+    await applyKimiPayloadMutations(
+      payload,
+      baseCtx({ api: "openai-completions", modelConfig: explicitConfig }),
+    );
+    assert.equal(payload.max_completion_tokens, 16384);
+  });
+
+  it("honors generation.maxCompletionTokens as an explicit cap on the OpenAI wires", async () => {
+    const cappedConfig: KimiResolvedModelConfig = {
+      ...windowTrackedConfig,
+      generation: { maxCompletionTokens: 8000 },
+    };
+    const payload: JsonRecord = {
+      messages: [{ role: "user", content: "hi" }],
+      max_completion_tokens: 258048,
+    };
+    await applyKimiPayloadMutations(
+      payload,
+      baseCtx({ api: "openai-completions", modelConfig: cappedConfig }),
+    );
+    assert.equal(payload.max_completion_tokens, 8000);
+  });
+
+  it("keeps max_tokens on anthropic-messages, which requires it", async () => {
+    const payload: JsonRecord = {
+      messages: [{ role: "user", content: "hi" }],
+      max_tokens: 258048,
+    };
+    await applyKimiPayloadMutations(
+      payload,
+      baseCtx({ api: "anthropic-messages", modelConfig: windowTrackedConfig }),
+    );
+    assert.equal(payload.max_tokens, 258048);
+  });
+});
+
 describe("openai-responses payload", () => {
   it("strips prompt_cache_retention and Completions thinking fields", async () => {
     const payload: JsonRecord = {

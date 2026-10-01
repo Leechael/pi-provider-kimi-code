@@ -620,6 +620,26 @@ export async function applyKimiPayloadMutations(
   }
 
   const generation = ctx.modelConfig.generation;
+  // Output cap policy (mirrors upstream kimi-code #4091): omit the completion
+  // cap on the OpenAI wires unless explicitly configured. pi-ai seeds a cap
+  // clamped to the context window (clampMaxTokensToContext), and forwarding
+  // that value breaks strict serving stacks (e.g. bare vLLM) that reject a
+  // cap above the model's real output limit with repeated 400s. A cap counts
+  // as explicit when generation.maxCompletionTokens is configured
+  // (KIMI_MODEL_MAX_COMPLETION_TOKENS / config generation.maxCompletionTokens)
+  // or model.maxTokens holds a non-window value. Anthropic /messages requires
+  // max_tokens, so that wire keeps pi-ai's window-clamped cap — the same
+  // window - usedContextTokens value upstream fills in when unset.
+  if (ctx.api === "openai-completions" || ctx.api === "openai-responses") {
+    const capKey = ctx.api === "openai-responses" ? "max_output_tokens" : "max_completion_tokens";
+    const explicitModelCap =
+      typeof ctx.modelConfig.maxTokens === "number" &&
+      ctx.modelConfig.maxTokens > 0 &&
+      ctx.modelConfig.maxTokens !== ctx.modelConfig.contextWindow;
+    if (generation.maxCompletionTokens === undefined && !explicitModelCap) {
+      delete payload[capKey];
+    }
+  }
   // Official kimi-code sends temperature/top_p only when explicitly configured
   // (env KIMI_MODEL_TEMPERATURE / KIMI_MODEL_TOP_P → generation.*); otherwise it
   // omits them and lets the server apply its own defaults. Mirror that exactly:
