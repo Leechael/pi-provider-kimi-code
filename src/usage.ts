@@ -383,6 +383,12 @@ export interface KimiUserInfo {
   userLevel: number;
   userLevelName: string;
   email?: string;
+  /**
+   * Plan generation from the managed /me profile (upstream #3921). upstream
+   * gates feedback surveys and plan-dependent surfaces by it; the monthly
+   * kimi/code quota split only exists on newer goods versions.
+   */
+  goodsVersion?: number;
 }
 
 export function parseKimiUserInfo(payload: unknown): KimiUserInfo | null {
@@ -391,12 +397,14 @@ export function parseKimiUserInfo(payload: unknown): KimiUserInfo | null {
   const userId = toStringValue(record.user_id);
   if (!userId) return null;
   const email = toStringValue(record.email);
+  const goodsVersion = toNumber(record.goods_version);
   return {
     userId,
     nickname: toStringValue(record.nickname) ?? "",
     userLevel: toNumber(record.user_level) ?? 0,
     userLevelName: toStringValue(record.user_level_name) ?? "",
     ...(email ? { email } : {}),
+    ...(goodsVersion !== null ? { goodsVersion } : {}),
   };
 }
 

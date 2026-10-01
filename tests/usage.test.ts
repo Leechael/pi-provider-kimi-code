@@ -262,6 +262,17 @@ describe("parseKimiUserInfo", () => {
     assert.equal(info?.userLevel, 30);
   });
 
+  it("parses the plan-generation goods_version field (upstream #3921)", () => {
+    const info = parseKimiUserInfo({ user_id: "u_1", goods_version: 1 });
+    assert.equal(info?.goodsVersion, 1);
+
+    assert.equal(parseKimiUserInfo({ user_id: "u_1" })?.goodsVersion, undefined);
+    assert.equal(
+      parseKimiUserInfo({ user_id: "u_1", goods_version: "x" })?.goodsVersion,
+      undefined,
+    );
+  });
+
   it("rejects payloads without a user id", () => {
     assert.equal(parseKimiUserInfo(null), null);
     assert.equal(parseKimiUserInfo({}), null);
