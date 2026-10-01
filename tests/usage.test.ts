@@ -232,6 +232,110 @@ describe("parseUsageSummary", () => {
     assert.equal(parseUsageSummary([]), "Usage: unavailable");
     assert.equal(parseUsageSummary({}), "Usage: no usage data");
   });
+
+  it("formats quota-model rows from the new /usages payload", () => {
+    const summary = parseUsageSummary(
+      {
+        usage: { limit: "100", used: "20" },
+        limits: [
+          {
+            window: { duration: 300, timeUnit: "TIME_UNIT_MINUTE" },
+            detail: { limit: "100", used: "5" },
+          },
+        ],
+        usages: {
+          limit_5h: { used_ratio: 0.047931, reset_time: "2026-10-01T06:59:34Z" },
+          limit_7d: { used_ratio: 0.195916, reset_time: "2026-10-05T08:59:34Z" },
+        },
+      },
+      { now: NOW, timeZone: SHANGHAI },
+    );
+
+    const lines = summary.split("\n");
+    assert.deepEqual(lines.slice(0, 4), [
+      "5h limit",
+      lines[1],
+      "Resets Oct 1 at 2:59pm (Asia/Shanghai)",
+      "",
+    ]);
+    assert.match(lines[1], / 5% used$/);
+    assert.equal(lines[4], "Weekly limit");
+    assert.match(lines[5], / 20% used$/);
+    assert.equal(lines[6], "Resets Oct 5 at 4:59pm (Asia/Shanghai)");
+    assert.equal(lines.length, 7);
+  });
+
+  it("adds the kimi/code breakdown line to the monthly quota row", () => {
+    const summary = parseUsageSummary(
+      {
+        usages: {
+          limit_month_total: { used_ratio: 0.42, reset_time: "2026-10-01T00:00:00Z" },
+          limit_month_code: { used_ratio: 0.21 },
+        },
+      },
+      { now: new Date("2026-09-20T04:00:00Z"), timeZone: SHANGHAI },
+    );
+
+    assert.deepEqual(summary.split("\n"), [
+      "Monthly limit",
+      summary.split("\n")[1],
+      "Resets Oct 1 at 8:00am (Asia/Shanghai)",
+      "kimi 21% · code 21%",
+    ]);
+    assert.match(summary.split("\n")[1], / 42% used$/);
+  });
+
+  it("omits monthly breakdown when the code split is not served", () => {
+    const summary = parseUsageSummary({
+      usages: { limit_month_total: { used_ratio: 0.1 } },
+    });
+
+    assert.deepEqual(summary.split("\n"), ["Monthly limit", summary.split("\n")[1]]);
+    assert.match(summary, / 10% used$/);
+  });
+
+  it("accepts string ratios and clamps out-of-range values", () => {
+    const summary = parseUsageSummary({
+      usages: {
+        limit_5h: { used_ratio: "0.5" },
+        limit_7d: { used_ratio: 1.7 },
+      },
+    });
+
+    assert.match(summary, /5h limit\n[^\n]* 50% used/);
+    assert.match(summary, /Weekly limit\n[^\n]* 100% used/);
+  });
+
+  it("skips quota windows the backend omitted and falls back to legacy rows", () => {
+    const onlyWeekly = parseUsageSummary({
+      usages: { limit_7d: { used_ratio: 0.3, reset_time: "2026-10-05T08:59:34Z" } },
+    });
+    assert.match(onlyWeekly, /^Weekly limit/);
+    assert.doesNotMatch(onlyWeekly, /5h limit/);
+
+    const malformed = parseUsageSummary({
+      usages: { limit_5h: { used_ratio: "nope" }, limit_7d: null },
+    });
+    assert.equal(malformed, "Usage: no usage data");
+
+    const legacyFallback = parseUsageSummary({
+      usage: { limit: 100, used: 25 },
+    });
+    assert.match(legacyFallback, /^Current week\n[^\n]* 25% used$/);
+  });
+
+  it("keeps Extra Usage behind quota rows", () => {
+    const summary = parseUsageSummary({
+      usages: { limit_5h: { used_ratio: 0.2 } },
+      boosterWallet: {
+        balance: { type: "BOOSTER", amount: "100000000", amountLeft: "50000000" },
+      },
+    });
+
+    assert.match(summary, /^5h limit/);
+    assert.match(summary, /\nExtra Usage\n/);
+    assert.match(summary, /Balance: \$0\.50$/);
+  });
 });
 
 describe("parseKimiUserInfo", () => {
