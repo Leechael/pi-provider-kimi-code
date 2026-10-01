@@ -266,6 +266,151 @@ async function transformOpenAIPayloadFiles(
   }
 }
 
+// -----------------------------------------------------------------------------
+// Per-request inline media budget (upstream kimi-code #3784,
+// mediaResolverService.applyMediaBudget): accumulated inline media count
+// against a 20 MB per-request budget; when exceeded, the oldest items are
+// dropped until the total is under the 10 MB low-water mark and replaced with
+// an omission placeholder. Uploaded ms:// references are tiny and never
+// counted. Media is deduped by content hash so a repeated image counts once
+// and every occurrence is dropped together.
+// -----------------------------------------------------------------------------
+
+const REQUEST_MEDIA_BUDGET_BYTES = 20 * 1024 * 1024;
+const REQUEST_MEDIA_BUDGET_LOW_BYTES = 10 * 1024 * 1024;
+
+interface InlineMediaBudgetEntry {
+  kind: "image" | "video";
+  key: string;
+  bytes: number;
+  /** Indices into messages[...].content[...] (a third index addresses a tool_result's content). */
+  path: number[];
+}
+
+function inlineMediaKey(kind: string, payload: string): string {
+  return createHash("sha256").update(kind).update("\0").update(payload).digest("hex");
+}
+
+function collectOpenAIInlineMedia(payload: JsonRecord): InlineMediaBudgetEntry[] {
+  const entries: InlineMediaBudgetEntry[] = [];
+  if (!Array.isArray(payload.messages)) return entries;
+  for (const [messageIndex, message] of payload.messages.entries()) {
+    if (!isRecord(message) || !Array.isArray(message.content)) continue;
+    for (const [blockIndex, block] of (message.content as unknown[]).entries()) {
+      if (!isRecord(block)) continue;
+      const field =
+        block.type === "image_url" ? "image_url" : block.type === "video_url" ? "video_url" : null;
+      if (!field) continue;
+      const kind = block.type === "image_url" ? "image" : "video";
+      const value = block[field];
+      const url =
+        typeof value === "string"
+          ? value
+          : isRecord(value) && typeof value.url === "string"
+            ? value.url
+            : null;
+      if (!url || !url.startsWith("data:")) continue;
+      entries.push({
+        kind,
+        key: inlineMediaKey(kind, url),
+        bytes: url.length,
+        path: [messageIndex, blockIndex],
+      });
+    }
+  }
+  return entries;
+}
+
+function collectAnthropicInlineMedia(payload: JsonRecord): InlineMediaBudgetEntry[] {
+  const entries: InlineMediaBudgetEntry[] = [];
+  if (!Array.isArray(payload.messages)) return entries;
+  const collect = (messageIndex: number, path: number[], block: unknown): void => {
+    if (!isRecord(block)) return;
+    if (
+      block.type === "image" &&
+      isRecord(block.source) &&
+      block.source.type === "base64" &&
+      typeof block.source.media_type === "string" &&
+      typeof block.source.data === "string"
+    ) {
+      const data = block.source.data;
+      entries.push({
+        kind: "image",
+        key: inlineMediaKey("image", `${block.source.media_type}\0${data}`),
+        bytes: data.length,
+        path: [messageIndex, ...path],
+      });
+    }
+  };
+  for (const [messageIndex, message] of payload.messages.entries()) {
+    if (!isRecord(message) || !Array.isArray(message.content)) continue;
+    for (const [blockIndex, block] of (message.content as unknown[]).entries()) {
+      if (isRecord(block) && block.type === "tool_result" && Array.isArray(block.content)) {
+        for (const [nestedIndex, nested] of (block.content as unknown[]).entries()) {
+          collect(messageIndex, [blockIndex, nestedIndex], nested);
+        }
+        continue;
+      }
+      collect(messageIndex, [blockIndex], block);
+    }
+  }
+  return entries;
+}
+
+export function applyInlineMediaBudget(
+  payload: JsonRecord,
+  api: "anthropic-messages" | "openai-completions",
+  budgetBytes: number = REQUEST_MEDIA_BUDGET_BYTES,
+  lowBytes: number = REQUEST_MEDIA_BUDGET_LOW_BYTES,
+): boolean {
+  const entries =
+    api === "anthropic-messages"
+      ? collectAnthropicInlineMedia(payload)
+      : collectOpenAIInlineMedia(payload);
+  if (entries.length === 0) return false;
+
+  // Deduplicate by content: repeated media counts once, drops hit every copy.
+  const bytesByKey = new Map<string, number>();
+  for (const entry of entries) {
+    if (!bytesByKey.has(entry.key)) bytesByKey.set(entry.key, entry.bytes);
+  }
+  let total = 0;
+  for (const bytes of bytesByKey.values()) total += bytes;
+  if (total <= budgetBytes) return false;
+
+  const dropped = new Set<string>();
+  for (const [key, bytes] of bytesByKey) {
+    if (total <= lowBytes) break;
+    if (bytes === 0) continue;
+    dropped.add(key);
+    total -= bytes;
+  }
+
+  const messages = payload.messages as unknown[];
+  let droppedCount = 0;
+  for (const entry of entries) {
+    if (!dropped.has(entry.key)) continue;
+    const message = messages[entry.path[0]] as JsonRecord;
+    const content = message.content as unknown[];
+    const placeholder = {
+      type: "text",
+      text: `[${entry.kind} omitted: dropped to fit the request media budget]`,
+    };
+    if (entry.path.length === 2) {
+      content[entry.path[1]] = placeholder;
+    } else {
+      const toolResult = content[entry.path[1]] as JsonRecord;
+      (toolResult.content as unknown[])[entry.path[2]] = placeholder;
+    }
+    droppedCount += 1;
+  }
+  console.warn(
+    `[kimi-coding] inline media exceeded the ${String(budgetBytes / (1024 * 1024))} MB ` +
+      `per-request budget; ${String(droppedCount)} media item(s) omitted`,
+  );
+  return true;
+}
+
 function isEffectivelyEmptyOpenAIContent(content: unknown): boolean {
   if (typeof content === "string") return content.trim() === "";
   if (!Array.isArray(content)) return false;
@@ -558,6 +703,11 @@ export async function applyKimiPayloadMutations(
     } else if (ctx.api === "anthropic-messages") {
       await transformAnthropicPayloadFiles(payload, ctx.upload, uploadCache, uploadCacheScope);
     }
+  }
+  if (ctx.api === "openai-completions" || ctx.api === "anthropic-messages") {
+    // Runs after the upload transforms so media already promoted to ms://
+    // references (tiny URLs) are never counted against the budget.
+    applyInlineMediaBudget(payload, ctx.api);
   }
   if (ctx.api === "openai-completions") {
     normalizeOpenAIAssistantToolCalls(payload);
