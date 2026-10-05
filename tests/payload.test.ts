@@ -926,6 +926,7 @@ describe("output cap policy (upstream #4091)", () => {
     );
     assert.equal(payload.max_tokens, 258048);
   });
+});
 
 describe("applyInlineMediaBudget (upstream #3784)", () => {
   let uniqueCounter = 0;
@@ -944,10 +945,15 @@ describe("applyInlineMediaBudget (upstream #3784)", () => {
 
   it("leaves payloads under the budget untouched", async () => {
     const payload = openaiPayloadWith([dataUrl(64), dataUrl(64)]);
+    const originalContent = JSON.parse(
+      JSON.stringify((payload.messages as JsonRecord[]).map((message) => message.content)),
+    );
     await applyKimiPayloadMutations(payload, baseCtx({ api: "openai-completions" }));
     const messages = payload.messages as JsonRecord[];
-    assert.ok(isImageBlock(messages[0]));
-    assert.ok(isImageBlock(messages[1]));
+    assert.deepEqual(
+      messages.map((message) => message.content),
+      originalContent,
+    );
   });
 
   it("drops the oldest media until the total is under the low-water mark", () => {
@@ -1041,6 +1047,29 @@ describe("applyInlineMediaBudget (upstream #3784)", () => {
     assert.match(String(nested[0].text), /image omitted/);
   });
 
+  it("drops anthropic base64 videos with a video placeholder", () => {
+    const payload: JsonRecord = {
+      messages: [
+        {
+          role: "user",
+          content: [
+            {
+              type: "video",
+              source: { type: "base64", media_type: "video/mp4", data: "A".repeat(40) },
+            },
+          ],
+        },
+      ],
+    };
+    const changed = applyInlineMediaBudget(payload, "anthropic-messages", 20, 10);
+    assert.equal(changed, true);
+    const block = ((payload.messages as JsonRecord[])[0].content as JsonRecord[])[0];
+    assert.deepEqual(block, {
+      type: "text",
+      text: "[video omitted: dropped to fit the request media budget]",
+    });
+  });
+
   it("keeps anthropic payloads under the budget untouched", () => {
     const payload: JsonRecord = {
       messages: [
@@ -1055,15 +1084,13 @@ describe("applyInlineMediaBudget (upstream #3784)", () => {
         },
       ],
     };
+    const originalContent = JSON.parse(
+      JSON.stringify((payload.messages as JsonRecord[])[0].content),
+    );
     const changed = applyInlineMediaBudget(payload, "anthropic-messages");
     assert.equal(changed, false);
-    const block = ((payload.messages as JsonRecord[])[0].content as JsonRecord[])[0];
-    assert.equal(block.type, "image");
+    assert.deepEqual((payload.messages as JsonRecord[])[0].content, originalContent);
   });
-
-  function isImageBlock(message: JsonRecord): boolean {
-    return ((message.content as JsonRecord[])[0] as JsonRecord).type === "image_url";
-  }
 });
 
 describe("openai-responses payload", () => {

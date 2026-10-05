@@ -269,11 +269,14 @@ async function transformOpenAIPayloadFiles(
 // -----------------------------------------------------------------------------
 // Per-request inline media budget (upstream kimi-code #3784,
 // mediaResolverService.applyMediaBudget): accumulated inline media count
-// against a 20 MB per-request budget; when exceeded, the oldest items are
-// dropped until the total is under the 10 MB low-water mark and replaced with
-// an omission placeholder. Uploaded ms:// references are tiny and never
-// counted. Media is deduped by content hash so a repeated image counts once
-// and every occurrence is dropped together.
+// against a 20 MB per-request base64 wire-size budget (not decoded media
+// bytes); when exceeded, the oldest items are dropped until the total is under
+// the 10 MB base64 wire-size low-water mark and replaced with an omission
+// placeholder. OpenAI data URLs count the full data: URL string, including its
+// small prefix overhead, while Anthropic base64 blocks count the source data
+// string. Uploaded ms:// references are tiny and never counted. Media is
+// deduped by content hash so a repeated image counts once and every occurrence
+// is dropped together.
 // -----------------------------------------------------------------------------
 
 const REQUEST_MEDIA_BUDGET_BYTES = 20 * 1024 * 1024;
@@ -326,8 +329,9 @@ function collectAnthropicInlineMedia(payload: JsonRecord): InlineMediaBudgetEntr
   if (!Array.isArray(payload.messages)) return entries;
   const collect = (messageIndex: number, path: number[], block: unknown): void => {
     if (!isRecord(block)) return;
+    const kind = block.type === "image" || block.type === "video" ? block.type : null;
     if (
-      block.type === "image" &&
+      kind &&
       isRecord(block.source) &&
       block.source.type === "base64" &&
       typeof block.source.media_type === "string" &&
@@ -335,8 +339,8 @@ function collectAnthropicInlineMedia(payload: JsonRecord): InlineMediaBudgetEntr
     ) {
       const data = block.source.data;
       entries.push({
-        kind: "image",
-        key: inlineMediaKey("image", `${block.source.media_type}\0${data}`),
+        kind,
+        key: inlineMediaKey(kind, `${block.source.media_type}\0${data}`),
         bytes: data.length,
         path: [messageIndex, ...path],
       });
