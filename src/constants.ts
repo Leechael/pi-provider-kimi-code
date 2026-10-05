@@ -28,18 +28,42 @@ export function parseKimiRegion(value: string | undefined): KimiRegion {
 
 export const ENV_KIMI_CODE_REGION: KimiRegion = parseKimiRegion(process.env.KIMI_CODE_REGION);
 
+// Effective region pushed from the plugin config (project/home JSON via
+// /kimi-settings), taking precedence over the module-load env capture so a
+// settings change applies without a restart. `null` means "config did not
+// specify" and falls back to ENV_KIMI_CODE_REGION.
+let resolvedRegionOverride: KimiRegion | null = null;
+
+export function setKimiRegionOverride(region: KimiRegion | null): void {
+  resolvedRegionOverride = region;
+}
+
+export function currentKimiRegion(): KimiRegion {
+  return resolvedRegionOverride ?? ENV_KIMI_CODE_REGION;
+}
+
+// Tracks a KIMI_CODE_OAUTH_HOST value injected by the bridge so a re-apply
+// (e.g. region switched back to mainland in /kimi-settings) can retract it
+// without clobbering a value the user configured in the meantime.
+let regionBridgeOwnedValue: string | undefined;
+
 // Bridge the selected region into pi core's built-in Kimi OAuth: pi-ai reads
-// KIMI_CODE_OAUTH_HOST at call time, so filling it makes /login follow
-// KIMI_CODE_REGION even when the login runs through pi's own kimi-coding auth
-// path instead of this extension's. Only fills the variable when the region
-// is non-default and the user has not configured an explicit override.
+// KIMI_CODE_OAUTH_HOST at call time, so filling it makes /login follow the
+// configured region even when the login runs through pi's own kimi-coding
+// auth path instead of this extension's. Only fills the variable when the
+// region is non-default and the user has not configured an explicit override.
 export function applyKimiRegionEnvBridge(
   env: NodeJS.ProcessEnv = process.env,
-  region: KimiRegion = ENV_KIMI_CODE_REGION,
+  region: KimiRegion = currentKimiRegion(),
 ): boolean {
+  if (regionBridgeOwnedValue !== undefined && env.KIMI_CODE_OAUTH_HOST === regionBridgeOwnedValue) {
+    delete env.KIMI_CODE_OAUTH_HOST;
+  }
+  regionBridgeOwnedValue = undefined;
   if (region === "mainland-cn") return false;
   if (env.KIMI_CODE_OAUTH_HOST || env.KIMI_OAUTH_HOST) return false;
   env.KIMI_CODE_OAUTH_HOST = KIMI_REGION_PROFILES[region].oauthHost;
+  regionBridgeOwnedValue = env.KIMI_CODE_OAUTH_HOST;
   return true;
 }
 
@@ -86,7 +110,7 @@ export const KIMI_API_TYPE = getKimiApiType(ENV_KIMI_CODE_PROTOCOL);
 
 export function getDefaultBaseUrl(
   protocol: KimiWireProtocol,
-  region: KimiRegion = ENV_KIMI_CODE_REGION,
+  region: KimiRegion = currentKimiRegion(),
 ): string {
   const apiBase = KIMI_REGION_PROFILES[region].apiBase;
   return protocol === "anthropic" ? `${apiBase}/coding` : `${apiBase}/coding/v1`;
@@ -117,9 +141,9 @@ export const PROVIDER_ID = "kimi-coding";
 export const KIMI_GLOBAL_FALLBACK_SOURCE_ID = "pi-provider-kimi-code-global-fallback";
 
 export function getOAuthHost(): string {
-  const value =
-    process.env.KIMI_CODE_OAUTH_HOST || process.env.KIMI_OAUTH_HOST || DEFAULT_OAUTH_HOST;
-  return value.trim() || DEFAULT_OAUTH_HOST;
+  const value = process.env.KIMI_CODE_OAUTH_HOST || process.env.KIMI_OAUTH_HOST;
+  if (value?.trim()) return value.trim();
+  return KIMI_REGION_PROFILES[currentKimiRegion()].oauthHost;
 }
 
 export function getBaseUrl(protocol: KimiWireProtocol = ENV_KIMI_CODE_PROTOCOL): string {

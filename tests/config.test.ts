@@ -243,4 +243,35 @@ describe("layer config file helpers", () => {
       ConfigError,
     );
   });
+
+  it("accepts the region from env and config", () => {
+    const cwd = tempDir("kimi-config-cwd");
+    const home = tempDir("kimi-config-home");
+    const loaded = loadKimiCodeConfig({
+      cwd,
+      home,
+      env: { KIMI_CODE_REGION: "global" },
+    });
+    assert.equal(loaded.region, "global");
+
+    const saved = validateKimiCodeConfig({ ...DEFAULT_KIMI_CODE_CONFIG, region: "global" });
+    assert.equal(saved.region, "global");
+    assert.equal(validateKimiCodeConfig(DEFAULT_KIMI_CODE_CONFIG).region, null);
+  });
+
+  it("lets project config region win over the env capture layer order", () => {
+    const cwd = tempDir("kimi-config-cwd");
+    const home = tempDir("kimi-config-home");
+    saveProjectKimiCodeConfig(cwd, config({ region: "global" }));
+
+    const sources = loadKimiCodeConfigSources({ cwd, home, env: {} });
+    assert.equal(sources.region, "project");
+  });
+
+  it("rejects unknown region values", () => {
+    assert.throws(
+      () => validateKimiCodeConfig({ ...DEFAULT_KIMI_CODE_CONFIG, region: "moon" }),
+      ConfigError,
+    );
+  });
 });

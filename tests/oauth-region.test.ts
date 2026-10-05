@@ -1,7 +1,13 @@
 import { afterEach, describe, it } from "node:test";
 import assert from "node:assert/strict";
 
-import { applyKimiRegionEnvBridge } from "../src/constants.ts";
+import {
+  ENV_KIMI_CODE_REGION,
+  applyKimiRegionEnvBridge,
+  getDefaultBaseUrl,
+  getOAuthHost,
+  setKimiRegionOverride,
+} from "../src/constants.ts";
 import { isKimiCredentialRegionValid } from "../src/oauth.ts";
 
 describe("applyKimiRegionEnvBridge", () => {
@@ -25,6 +31,50 @@ describe("applyKimiRegionEnvBridge", () => {
     const aliased: NodeJS.ProcessEnv = { KIMI_OAUTH_HOST: "https://auth.example.com" };
     assert.equal(applyKimiRegionEnvBridge(aliased, "global"), false);
     assert.equal(aliased.KIMI_CODE_OAUTH_HOST, undefined);
+  });
+});
+
+describe("region override from plugin config", () => {
+  afterEach(() => {
+    setKimiRegionOverride(null);
+  });
+
+  it("drives default endpoints and the OAuth host from the override", () => {
+    setKimiRegionOverride("global");
+    assert.equal(getDefaultBaseUrl("openai"), "https://api.kimi.ai/coding/v1");
+    assert.equal(getOAuthHost(), "https://auth.kimi.ai");
+
+    setKimiRegionOverride("mainland-cn");
+    assert.equal(getDefaultBaseUrl("openai"), "https://api.kimi.com/coding/v1");
+    assert.equal(getOAuthHost(), "https://auth.kimi.com");
+  });
+
+  it("falls back to the env capture when the override is cleared", () => {
+    setKimiRegionOverride("global");
+    setKimiRegionOverride(null);
+    // After clearing, the module-load env capture decides again.
+    assert.equal(getDefaultBaseUrl("openai"), getDefaultBaseUrl("openai", ENV_KIMI_CODE_REGION));
+  });
+});
+
+describe("applyKimiRegionEnvBridge ownership", () => {
+  it("retracts an injected host when re-applied for the default region", () => {
+    const env: NodeJS.ProcessEnv = {};
+    assert.equal(applyKimiRegionEnvBridge(env, "global"), true);
+    assert.equal(env.KIMI_CODE_OAUTH_HOST, "https://auth.kimi.ai");
+
+    assert.equal(applyKimiRegionEnvBridge(env, "mainland-cn"), false);
+    assert.equal(env.KIMI_CODE_OAUTH_HOST, undefined);
+  });
+
+  it("keeps an explicitly configured host across re-applies", () => {
+    const env: NodeJS.ProcessEnv = { KIMI_CODE_OAUTH_HOST: "https://auth.example.com" };
+    assert.equal(applyKimiRegionEnvBridge(env, "global"), false);
+    assert.equal(env.KIMI_CODE_OAUTH_HOST, "https://auth.example.com");
+
+    // A later re-apply must not retract the user's own value.
+    assert.equal(applyKimiRegionEnvBridge(env, "mainland-cn"), false);
+    assert.equal(env.KIMI_CODE_OAUTH_HOST, "https://auth.example.com");
   });
 });
 

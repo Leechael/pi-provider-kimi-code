@@ -13,6 +13,7 @@ import {
   buildSettingsTheme,
   formatByteSize,
   formatProtocolStatus,
+  formatRegionStatus,
   formatScopeDescription,
   formatToolStatus,
   formatUploadThresholdStatus,
@@ -20,6 +21,7 @@ import {
   moonshotStatus,
   parseByteSizeInput,
   protocolMenuItem,
+  regionMenuItem,
   setProtocol,
   setUploadThreshold,
   toggleCollapsed,
@@ -60,6 +62,7 @@ function sources(overrides: Partial<KimiCodeConfigSources> = {}): KimiCodeConfig
     },
     uploads: { thresholdBytes: "runtime" },
     protocol: "env",
+    region: "default",
     ...overrides,
   };
 }
@@ -102,6 +105,7 @@ describe("settings title, status, and menu helpers", () => {
         "",
         "Model: Kimi K2",
         "Protocol: anthropic (env)",
+        "Region: auto (default)",
         "Upload threshold: 1.50 KiB (runtime)",
         "",
         "Effective tools:",
@@ -135,6 +139,9 @@ describe("settings title, status, and menu helpers", () => {
       "moonshot_search -> enabled, default expanded",
     );
     assert.equal(protocolMenuItem(effectiveConfig), "Protocol -> anthropic");
+    assert.equal(regionMenuItem(effectiveConfig), "Region -> auto");
+    assert.equal(formatRegionStatus(effectiveConfig), "region: auto");
+    assert.equal(regionMenuItem({ ...effectiveConfig, region: "global" }), "Region -> global");
     assert.equal(uploadThresholdMenuItem(effectiveConfig), "Upload threshold -> 1.50 KiB");
     assert.equal(
       moonshotStatus(effectiveConfig),

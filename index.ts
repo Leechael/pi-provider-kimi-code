@@ -46,9 +46,11 @@ import {
   KIMI_WIRE_PROTOCOLS,
   PROVIDER_ID,
   PROVIDER_VERSION,
+  type KimiRegion,
   applyKimiRegionEnvBridge,
   getBaseUrl,
   getKimiApiType,
+  setKimiRegionOverride,
 } from "./src/constants.ts";
 import {
   type KimiOAuthCredentials,
@@ -75,6 +77,7 @@ import {
   type KimiConfigScope,
   buildSettingsTheme,
   formatByteSize,
+  formatRegionValue,
   formatScopeDescription,
   parseByteSizeInput,
 } from "./src/settings-ui.ts";
@@ -140,6 +143,12 @@ function reloadEffectiveKimiRuntimeConfig(
   state.cwd = cwd;
   state.config = config;
   state.projectTrusted = projectTrusted;
+  // Push the effective region (project/home JSON wins over the env capture;
+  // env KIMI_CODE_REGION already sits in the merged config via the env layer)
+  // and re-bridge pi core's OAuth host so /login follows settings changes
+  // without a restart.
+  setKimiRegionOverride(config.region);
+  applyKimiRegionEnvBridge();
   setStoreResolvedKimiConfig({
     model: resolveKimiModelConfig(
       config.model,
@@ -238,6 +247,7 @@ async function openSettingsMenu(
         list.updateValue(toolName, formatToolMenuValue(toolName));
       }
       list.updateValue("protocol", drafts[scope].protocol);
+      list.updateValue("region", formatRegionValue(drafts[scope].region));
       list.updateValue("uploadThreshold", formatByteSize(drafts[scope].uploads.thresholdBytes));
     };
 
@@ -266,6 +276,12 @@ async function openSettingsMenu(
       }
       if (id === "protocol") {
         drafts[scope].protocol = newValue as KimiCodeConfig["protocol"];
+        list.updateValue(id, newValue);
+        save();
+        return;
+      }
+      if (id === "region") {
+        drafts[scope].region = newValue === "auto" ? null : (newValue as KimiRegion);
         list.updateValue(id, newValue);
         save();
         return;
@@ -343,6 +359,13 @@ async function openSettingsMenu(
       description: "API protocol for Kimi requests",
       currentValue: drafts[scope].protocol,
       values: ["openai", "anthropic", "responses"],
+    });
+    items.push({
+      id: "region",
+      label: "Region",
+      description: "Managed deployment region (auto follows KIMI_CODE_REGION / default)",
+      currentValue: formatRegionValue(drafts[scope].region),
+      values: ["auto", "mainland-cn", "global"],
     });
     items.push({
       id: "uploadThreshold",
@@ -655,9 +678,9 @@ function startModelDiscovery(pi: ExtensionAPI, state: KimiRuntimeState): void {
 
 export function KimiCode(overrides?: KimiCodeConfigPatch): ExtensionFactory {
   return async (pi: ExtensionAPI) => {
-    // Make /login follow KIMI_CODE_REGION on pi core's built-in kimi OAuth path
-    // too; the extension's own login flow reads the region via getOAuthHost().
-    applyKimiRegionEnvBridge();
+    // Region handling (setKimiRegionOverride + the OAuth host bridge) happens
+    // in reloadEffectiveKimiRuntimeConfig, which runs just below and on every
+    // /kimi-settings save.
     const cwd = process.cwd();
     const config = loadKimiCodeConfig(
       { cwd, home: os.homedir(), includeProject: false },
