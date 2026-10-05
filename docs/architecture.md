@@ -62,10 +62,11 @@ pi-provider-kimi-code/
 
 Pi loads `index.ts` directly via jiti (TypeScript-in-JS runtime), so no build
 step is required. The virtual modules `@earendil-works/pi-ai` and
-`@earendil-works/pi-coding-agent` are provided by the Pi runtime; no npm
-dependencies are needed. The split into `src/` modules keeps the pure payload
-/ stream layers free of I/O so they stay unit-testable; `index.ts` only wires
-the modules together.
+`@earendil-works/pi-coding-agent` are provided by the Pi runtime. The only runtime npm dependency is `proper-lockfile`, used
+by the OAuth layer to coordinate credential refreshes with pi's own
+FileAuthStorageBackend lock. The split into `src/` modules keeps the pure
+payload / stream layers free of I/O so they stay unit-testable; `index.ts`
+only wires the modules together.
 
 ## Provider Registration
 
@@ -107,11 +108,11 @@ fix for Linux / non-ASCII hostnames.
 
 The official catalog determines the models this provider publishes. These default IDs are used when catalog discovery is unavailable:
 
-| ID                          | Default Name             | Default Context | Max Output |
-| --------------------------- | ------------------------ | --------------- | ---------- |
-| `kimi-for-coding`           | Kimi K2.8 Code           | 256K            | 32K        |
-| `kimi-for-coding-highspeed` | Kimi K2.8 Code HighSpeed | 256K            | 32K        |
-| `k3`                        | Kimi K3                  | 256K            | 32K        |
+| ID                          | Default Name               | Default Context | Max Output |
+| --------------------------- | -------------------------- | --------------- | ---------- |
+| `kimi-for-coding`           | Kimi for Coding            | 256K            | 32K        |
+| `kimi-for-coding-highspeed` | Kimi for Coding High Speed | 256K            | 32K        |
+| `k3`                        | Kimi K3                    | 256K            | 32K        |
 
 The `kimi-for-coding` ID is stable across engine upgrades — K2.8 Preview (2026-09-11)
 replaced K2.7 behind the same ID, so no client config change is needed when Moonshot
@@ -245,6 +246,8 @@ Layer 2 — Pure given dependencies           (mutates input, calls injected Upl
     transformAnthropicPayloadFiles(payload, upload)
     applyKimiPayloadMutations(payload, ctx)
     (also: applyInlineMediaBudget, stripEmptyResponsesTextParts, optimizeToolSchemas)
+    Exception: applyInlineMediaBudget emits a console.warn when it drops
+    items — diagnostics only, no state change.
 
 Layer 3 — Pure stream transformation        (async generator, no external closure dependencies)
     filterEmptyResponseStream(upstream)
