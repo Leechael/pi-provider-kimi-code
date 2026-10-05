@@ -2,6 +2,7 @@ import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 
 import { buildMoonshotSearchTool } from "../src/tools/moonshot.ts";
+import { getKimiBaseV1 } from "../src/tools/common.ts";
 
 function renderText(component: { render: (width: number) => string[] }): string {
   return component.render(80).join("\n");
@@ -41,7 +42,7 @@ describe("moonshot_search", () => {
     );
 
     assert.equal(calls.length, 1);
-    assert.equal(calls[0].url, "https://api.kimi.com/coding/v1/search");
+    assert.equal(calls[0].url, `${getKimiBaseV1()}/search`);
     assert.equal(calls[0].init.method, "POST");
     assert.equal(
       (calls[0].init.headers as Record<string, string>).Authorization,

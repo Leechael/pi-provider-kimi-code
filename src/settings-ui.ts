@@ -58,6 +58,13 @@ export function setProtocol(
   return { ...config, protocol };
 }
 
+export function setRegion(
+  config: KimiCodeConfig,
+  region: KimiCodeConfig["region"],
+): KimiCodeConfig {
+  return { ...config, region };
+}
+
 export function setUploadThreshold(config: KimiCodeConfig, thresholdBytes: number): KimiCodeConfig {
   return { ...config, uploads: { ...config.uploads, thresholdBytes } };
 }
@@ -73,6 +80,7 @@ export function buildKimiMainTitle(
     "",
     `Model: ${modelName}`,
     `Protocol: ${config.protocol} (${sources.protocol})`,
+    `Region: ${formatRegionValue(config.region)} (${sources.region})`,
     `Upload threshold: ${formatByteSize(config.uploads.thresholdBytes)} (${sources.uploads.thresholdBytes})`,
     "",
     "Effective tools:",
@@ -136,6 +144,18 @@ export function homeRelative(filePath: string, home = os.homedir()): string {
 
 export function toolMenuItem(config: KimiCodeConfig, toolName: KimiToolName): string {
   return `${toolName} -> ${formatToolStatus(config, toolName)}`;
+}
+
+export function formatRegionValue(region: KimiCodeConfig["region"]): string {
+  return region ?? "auto";
+}
+
+export function formatRegionStatus(config: KimiCodeConfig): string {
+  return `region: ${formatRegionValue(config.region)}`;
+}
+
+export function regionMenuItem(config: KimiCodeConfig): string {
+  return `Region -> ${formatRegionValue(config.region)}`;
 }
 
 export function protocolMenuItem(config: KimiCodeConfig): string {

@@ -255,10 +255,15 @@ function getModelsUrl(protocol?: KimiWireProtocol): string {
   return buildModelsUrl(getBaseUrl(protocol));
 }
 
+// Both official managed deployments serve /coding/v1/models; global (kimi.ai)
+// users get model discovery too, not just mainland (.com).
 export function isOfficialKimiModelsUrl(url: string): boolean {
   try {
     const parsed = new URL(url);
-    return parsed.origin === "https://api.kimi.com" && parsed.pathname === "/coding/v1/models";
+    return (
+      (parsed.origin === "https://api.kimi.com" || parsed.origin === "https://api.kimi.ai") &&
+      parsed.pathname === "/coding/v1/models"
+    );
   } catch {
     return false;
   }

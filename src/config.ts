@@ -1,7 +1,7 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 
-import { PROVIDER_ID, type KimiWireProtocol } from "./constants.ts";
+import { PROVIDER_ID, type KimiRegion, type KimiWireProtocol } from "./constants.ts";
 
 export const KIMI_TOOL_NAMES = ["moonshot_search", "moonshot_fetch", "kimi_datasource"] as const;
 
@@ -47,6 +47,13 @@ export interface KimiCodeConfig {
   tools: Record<KimiToolName, { enabled: boolean; default_collapsed: boolean }>;
   uploads: { thresholdBytes: number };
   protocol: KimiWireProtocol;
+  /**
+   * Managed region for the default endpoints. `null` means "not specified
+   * here" — the module-load `KIMI_CODE_REGION` env capture (or the
+   * mainland-cn default) then decides. An explicit value from project/home
+   * config wins over the env capture once pushed via setKimiRegionOverride.
+   */
+  region: KimiRegion | null;
 }
 
 export type KimiCodeConfigPatch = Partial<{
@@ -62,6 +69,7 @@ export type KimiCodeConfigPatch = Partial<{
   tools: Partial<Record<KimiToolName, Partial<{ enabled: unknown; default_collapsed: unknown }>>>;
   uploads: Partial<{ thresholdBytes: unknown }>;
   protocol: unknown;
+  region: unknown;
 }>;
 
 export interface KimiCodeConfigSources {
@@ -81,6 +89,7 @@ export interface KimiCodeConfigSources {
   tools: Record<KimiToolName, { enabled: KimiConfigSource; default_collapsed: KimiConfigSource }>;
   uploads: { thresholdBytes: KimiConfigSource };
   protocol: KimiConfigSource;
+  region: KimiConfigSource;
 }
 
 export interface LoadKimiCodeConfigOptions {
@@ -132,6 +141,7 @@ export const DEFAULT_KIMI_CODE_CONFIG: KimiCodeConfig = {
   tools: makeDefaultTools(),
   uploads: { thresholdBytes: 1048576 },
   protocol: "openai",
+  region: null,
 };
 
 let runtimeOverride: KimiCodeConfigPatch = {};
@@ -257,6 +267,12 @@ function envConfigPatch(env: NodeJS.ProcessEnv): KimiCodeConfigPatch {
   const protocol = env.KIMI_CODE_PROTOCOL?.trim();
   if (protocol) patch.protocol = protocol;
 
+  // KIMI_CODE_REGION intentionally does NOT enter the merged config: the env
+  // acts as a fallback below the config.json layers (documented precedence:
+  // explicit config > env > built-in default), and an invalid value must not
+  // crash startup via strict validation — currentKimiRegion() falls back to
+  // the module-load capture instead.
+
   const capabilities = env.KIMI_MODEL_CAPABILITIES;
   if (capabilities) {
     const caps = new Set(
@@ -320,6 +336,20 @@ function requireProtocol(
     configPath,
     pointer,
     `expected "openai" | "anthropic" | "responses", got ${JSON.stringify(raw)}`,
+  );
+}
+
+function requireRegionOrNull(
+  raw: unknown,
+  configPath: string,
+  pointer: string,
+): KimiCodeConfig["region"] {
+  if (raw === null) return null;
+  if (raw === "mainland-cn" || raw === "global") return raw;
+  return fail(
+    configPath,
+    pointer,
+    `expected "mainland-cn" | "global" | null, got ${JSON.stringify(raw)}`,
   );
 }
 
@@ -438,6 +468,7 @@ export function validateKimiCodeConfig(
       ),
     },
     protocol: requireProtocol(config.protocol, configPath, "/protocol"),
+    region: requireRegionOrNull(config.region, configPath, "/region"),
   };
 }
 
@@ -487,6 +518,7 @@ function buildSources(
     tools,
     uploads: { thresholdBytes: sourceForPath(layers, ["uploads", "thresholdBytes"]) },
     protocol: sourceForPath(layers, ["protocol"]),
+    region: sourceForPath(layers, ["region"]),
   };
 }
 

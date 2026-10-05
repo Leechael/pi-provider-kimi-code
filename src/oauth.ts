@@ -155,7 +155,14 @@ async function lockStoredOAuthCredential(
   };
 }
 
-import { CLIENT_ID, PROVIDER_ID, RETRYABLE_REFRESH_STATUSES, getOAuthHost } from "./constants.ts";
+import {
+  CLIENT_ID,
+  PROVIDER_ID,
+  RETRYABLE_REFRESH_STATUSES,
+  getBaseUrl,
+  getOAuthHost,
+  normalizeKimiBaseV1,
+} from "./constants.ts";
 import { getCommonHeaders } from "./device.ts";
 import { type KimiOAuthCredentials, discoverKimiModelMetadata } from "./models.ts";
 
@@ -435,6 +442,25 @@ async function lockKimiCodeCredentials(signal?: AbortSignal): Promise<LockedKimi
   };
 }
 
+// Tokens are region-bound, but the kimi-code CLI credential file does not
+// record which OAuth host minted them — so a fresh credential reused across
+// regions (a mainland CLI login while KIMI_CODE_REGION=global, or vice versa)
+// would 401 every request. Probe the current region's managed API before
+// reuse. Only an explicit 401 disproves usability: network failures must not
+// force an unnecessary re-login. Exported for tests.
+export async function isKimiCredentialRegionValid(accessToken: string): Promise<boolean> {
+  const meUrl = `${normalizeKimiBaseV1(getBaseUrl())}/me`;
+  try {
+    const response = await fetch(meUrl, {
+      headers: { ...getCommonHeaders(), Authorization: `Bearer ${accessToken}` },
+      signal: AbortSignal.timeout(5_000),
+    });
+    return response.status !== 401;
+  } catch {
+    return true;
+  }
+}
+
 async function tryReuseKimiCliCredentials(
   callbacks: OAuthLoginCallbacks,
 ): Promise<KimiOAuthCredentials | null> {
@@ -449,6 +475,12 @@ async function tryReuseKimiCliCredentials(
   callbacks.onProgress?.("Found existing Kimi credentials, reusing them.");
 
   if (stillFresh) {
+    if (!(await isKimiCredentialRegionValid(data.access_token!))) {
+      callbacks.onProgress?.(
+        "Existing Kimi credentials are not valid for the configured region, starting a fresh login.",
+      );
+      return null;
+    }
     const extras = await discoverKimiModelMetadata(data.access_token!);
     return {
       access: data.access_token!,
@@ -461,6 +493,15 @@ async function tryReuseKimiCliCredentials(
   callbacks.onProgress?.("Kimi access token expired, refreshing.");
   try {
     const token = await refreshAccessToken(data.refresh_token!);
+    // Probe before persisting: a token that fails the region check must not
+    // be written into the shared CLI credential file, or a later CLI-side
+    // reuse (or the next /login) would pick up a token that 401s.
+    if (!(await isKimiCredentialRegionValid(token.access_token))) {
+      callbacks.onProgress?.(
+        "Refreshed Kimi credentials are not valid for the configured region, starting a fresh login.",
+      );
+      return null;
+    }
     const expiresMs = Date.now() + token.expires_in * 1000;
     writeKimiCodeCredentials(token.access_token, token.refresh_token, expiresMs);
     const extras = await discoverKimiModelMetadata(token.access_token);
