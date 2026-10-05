@@ -251,18 +251,15 @@ describe("parseUsageSummary", () => {
       { now: NOW, timeZone: SHANGHAI },
     );
 
-    const lines = summary.split("\n");
-    assert.deepEqual(lines.slice(0, 4), [
+    assert.deepEqual(summary.split("\n"), [
       "5h limit",
-      lines[1],
+      "██▍                                                5% used",
       "Resets Oct 1 at 2:59pm (Asia/Shanghai)",
       "",
+      "Weekly limit",
+      "█████████▊                                         20% used",
+      "Resets Oct 5 at 4:59pm (Asia/Shanghai)",
     ]);
-    assert.match(lines[1], / 5% used$/);
-    assert.equal(lines[4], "Weekly limit");
-    assert.match(lines[5], / 20% used$/);
-    assert.equal(lines[6], "Resets Oct 5 at 4:59pm (Asia/Shanghai)");
-    assert.equal(lines.length, 7);
   });
 
   it("adds the kimi/code breakdown line to the monthly quota row", () => {
@@ -278,11 +275,10 @@ describe("parseUsageSummary", () => {
 
     assert.deepEqual(summary.split("\n"), [
       "Monthly limit",
-      summary.split("\n")[1],
+      "█████████████████████                              42% used",
       "Resets Oct 1 at 8:00am (Asia/Shanghai)",
       "kimi 21% · code 21%",
     ]);
-    assert.match(summary.split("\n")[1], / 42% used$/);
   });
 
   it("omits monthly breakdown when the code split is not served", () => {
@@ -317,6 +313,26 @@ describe("parseUsageSummary", () => {
       usages: { limit_5h: { used_ratio: "nope" }, limit_7d: null },
     });
     assert.equal(malformed, "Usage: no usage data");
+
+    const nullRatioFallback = parseUsageSummary({
+      usage: { limit: 100, used: 25 },
+      usages: { limit_5h: { used_ratio: null } },
+    });
+    assert.match(nullRatioFallback, /^Current week\n[^\n]* 25% used$/);
+
+    const emptyRatioFallback = parseUsageSummary({
+      usage: { limit: 100, used: 25 },
+      usages: { limit_5h: { used_ratio: "" } },
+    });
+    assert.match(emptyRatioFallback, /^Current week\n[^\n]* 25% used$/);
+
+    const falseRatioWithValidWeekly = parseUsageSummary({
+      usages: { limit_5h: { used_ratio: false }, limit_7d: { used_ratio: 0.3 } },
+    });
+    assert.deepEqual(falseRatioWithValidWeekly.split("\n"), [
+      "Weekly limit",
+      "███████████████                                    30% used",
+    ]);
 
     const legacyFallback = parseUsageSummary({
       usage: { limit: 100, used: 25 },

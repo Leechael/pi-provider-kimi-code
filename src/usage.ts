@@ -167,9 +167,12 @@ function isRecordValue(value: unknown): value is Record<string, unknown> {
 }
 
 function toRatio(value: unknown): number | undefined {
-  const parsed = toNumber(value);
-  if (parsed === null) return undefined;
-  return Math.max(0, Math.min(1, parsed));
+  if (typeof value === "number") {
+    return Number.isFinite(value) ? Math.max(0, Math.min(1, value)) : undefined;
+  }
+  if (typeof value !== "string" || !value.trim()) return undefined;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? Math.max(0, Math.min(1, parsed)) : undefined;
 }
 
 function parseQuotaEntry(value: unknown): QuotaEntry | undefined {
