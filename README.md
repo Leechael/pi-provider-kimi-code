@@ -5,7 +5,7 @@
 
 > **Kimi Code extension for Pi — use K3, K2.8 Code, and HighSpeed models with your Kimi Code Plan.**
 >
-> Why you need it: Pi v0.82.0+ ships a built-in `kimi-coding` provider, but it only covers the raw LLM call. Without this extension, Pi and the official `kimi-code` CLI log in separately (a login in one does not authenticate the other), large inline images blow up requests or fail because nothing uploads them through Kimi's Files API, Moonshot's server-side tools (`moonshot_search`, `moonshot_fetch`, `kimi_datasource`) are unavailable, Pi's tool schemas regularly exceed Moonshot's 15 KB per-tool limit and get rejected, and accounts on the wrong side of the mainland-cn / global split (kimi.com vs kimi.ai) fail with 401 because the built-in provider has no region switching. This extension closes those gaps — see [Why this exists](#why-this-exists) below for details.
+> Why you need it: Pi v0.82.0+ ships a built-in `kimi-coding` provider for model discovery, reasoning controls, and OAuth login, but it does not provide this extension's Kimi Code integrations. Without this extension, Pi and the official `kimi-code` CLI log in separately (a login in one does not authenticate the other), large inline images blow up requests or fail because nothing uploads them through Kimi's Files API, Moonshot's server-side tools (`moonshot_search`, `moonshot_fetch`, `kimi_datasource`) are unavailable, Pi's tool schemas regularly exceed Moonshot's 15 KB per-tool limit and get rejected, and accounts on the wrong side of the mainland-cn / global split (kimi.com vs kimi.ai) fail with 401 because the built-in provider has no region switching. This extension closes those gaps — see [Why this exists](#why-this-exists) below for details.
 
 ## Why this exists
 
@@ -88,9 +88,9 @@ Kimi runs two managed sides: `api.kimi.com` / `auth.kimi.com` (mainland China, d
 
 Precedence, lowest to highest:
 
-1. `KIMI_CODE_REGION` env var (`mainland-cn` or `global`)
-2. `region` in home/project `config.json` (`"mainland-cn"` / `"global"` / `null` = auto)
-3. **Region** row in `/kimi-settings`
+1. Built-in default (`mainland-cn`)
+2. `KIMI_CODE_REGION` env var (`mainland-cn` or `global`)
+3. `region` in merged home/project `config.json` (`"mainland-cn"` / `"global"` / `null` = auto; project overrides home); the **Region** row in `/kimi-settings` edits this config
 
 `KIMI_CODE_BASE_URL` / `KIMI_CODE_OAUTH_HOST` overrides always win, and unknown values fall back to `mainland-cn`. `/login kimi-coding` follows the selected region end to end. See [docs/ENV.md](docs/ENV.md) for details.
 
@@ -245,7 +245,7 @@ Run `/kimi-settings` and check whether the tool is enabled in the home or projec
 
 ### Large images fail with a payload error
 
-This extension uploads images over `KIMI_CODE_UPLOAD_THRESHOLD_BYTES` (default 1 MB) to Kimi's Files API and references them as `ms://`. Independently of that, a per-request inline media budget (~20 MB of base64 on the wire) drops oversized media items from the payload and leaves a `[image omitted: dropped to fit the request media budget]` placeholder so the model knows content was removed. Set `KIMI_CODE_DEBUG=1` to see upload and budget decisions in the provider logs.
+This extension uploads images over `KIMI_CODE_UPLOAD_THRESHOLD_BYTES` (default 1 MB) to Kimi's Files API and references them as `ms://`. Independently of that, a per-request inline media budget (~20 MB of base64 on the wire) drops oversized inline images and videos from the payload and leaves a media-kind-specific placeholder, such as `[image omitted: dropped to fit the request media budget]` or `[video omitted: dropped to fit the request media budget]`, so the model knows content was removed. Set `KIMI_CODE_DEBUG=1` to see upload and budget decisions in the provider logs.
 
 ### Prompt cache never seems to hit
 

@@ -4,8 +4,8 @@ Empirical findings from the focused cache suites under
 [`scripts/e2e/cache/`](../scripts/e2e/cache/) (the 30-minute TTL and
 very-large-context probes are opt-in). Numbers below come from real runs against
 `https://api.kimi.com/coding/v1/messages` and `/coding/v1/chat/completions`
-(the `mainland-cn` region; the `global` region at `api.kimi.ai` behaves the
-same way) using `kimi-for-coding`.
+(the `mainland-cn` region; global-region equivalence is not established by
+the measurements below) using `kimi-for-coding`.
 
 ## TL;DR
 
