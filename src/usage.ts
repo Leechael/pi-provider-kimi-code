@@ -141,6 +141,85 @@ function formatExtraUsage(info: BoosterWalletInfo): string[] {
   return lines;
 }
 
+// Quota model (upstream kimi-code #3787): the platform /usages payload now
+// serves per-window used ratios under `usages` instead of absolute used/limit
+// rows. Keys are snake_case (`limit_5h`, `limit_7d`, `limit_month_total`,
+// `limit_month_code`); each entry carries `used_ratio` (0..1, sometimes a
+// decimal string) and an optional `reset_time`. Rows are presence-driven —
+// the backend omits windows the plan does not have. The legacy `usage` /
+// `limits` rows are still served alongside during the transition, but the
+// legacy wire is gone from kap-server, so quota rows win when present.
+interface QuotaEntry {
+  usedRatio: number;
+  resetTime?: string;
+}
+
+const QUOTA_WINDOWS = [
+  ["limit_5h", "5h limit"],
+  ["limit_7d", "Weekly limit"],
+  ["limit_month_total", "Monthly limit"],
+] as const;
+
+const QUOTA_MONTH_CODE_KEY = "limit_month_code";
+
+function isRecordValue(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function toRatio(value: unknown): number | undefined {
+  if (typeof value === "number") {
+    return Number.isFinite(value) ? Math.max(0, Math.min(1, value)) : undefined;
+  }
+  if (typeof value !== "string" || !value.trim()) return undefined;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? Math.max(0, Math.min(1, parsed)) : undefined;
+}
+
+function parseQuotaEntry(value: unknown): QuotaEntry | undefined {
+  if (!isRecordValue(value)) return undefined;
+  const usedRatio = toRatio(value.used_ratio);
+  if (usedRatio === undefined) return undefined;
+  const resetTime = toStringValue(value.reset_time);
+  return {
+    usedRatio,
+    ...(resetTime ? { resetTime } : {}),
+  };
+}
+
+function parseQuotaWindows(record: Record<string, unknown>): Map<string, QuotaEntry> {
+  const windows = new Map<string, QuotaEntry>();
+  const usages = record.usages;
+  if (!isRecordValue(usages)) return windows;
+  for (const key of [...QUOTA_WINDOWS.map(([key]) => key), QUOTA_MONTH_CODE_KEY]) {
+    const entry = parseQuotaEntry(usages[key]);
+    if (entry) windows.set(key, entry);
+  }
+  return windows;
+}
+
+function formatQuotaRow(label: string, entry: QuotaEntry, options: UsageFormatOptions): string {
+  const percent = Math.min(100, Math.max(0, Math.ceil(entry.usedRatio * 100)));
+  const lines = [label, `${quotaBar(entry.usedRatio * 100, 100)} ${percent}% used`];
+  const reset = formatResetTime(entry.resetTime, options);
+  if (reset) lines.push(`Resets ${reset}`);
+  return lines.join("\n");
+}
+
+// The kimi/code split of the monthly quota on the new plan: `code` is the
+// code-typed share of the monthly total as served, `kimi` the remainder
+// (mirrors upstream monthlyBreakdown in apps/kimi-code usage-format).
+function formatMonthlyBreakdown(
+  total: QuotaEntry,
+  windows: Map<string, QuotaEntry>,
+): string | null {
+  const code = windows.get(QUOTA_MONTH_CODE_KEY);
+  if (!code) return null;
+  const codePercent = Math.min(100, Math.max(0, Math.ceil(code.usedRatio * 100)));
+  const totalPercent = Math.min(100, Math.max(0, Math.ceil(total.usedRatio * 100)));
+  const kimiPercent = Math.max(0, totalPercent - codePercent);
+  return `kimi ${kimiPercent}% · code ${codePercent}%`;
+}
+
 export function parseUsageRow(value: unknown, fallbackLabel: string): UsageRow | null {
   if (typeof value !== "object" || value === null || Array.isArray(value)) return null;
   const record = value as Record<string, unknown>;
@@ -164,11 +243,28 @@ export function parseUsageSummary(payload: unknown, options: UsageFormatOptions 
 
   const record = payload as Record<string, unknown>;
   const lines: string[] = [];
-  const summary = parseUsageRow(record.usage, "Current week");
+
+  const quotaWindows = parseQuotaWindows(record);
+  // A code-split entry without a monthly total renders no row of its own; it
+  // only feeds the breakdown line, so it must not suppress the legacy rows.
+  const hasQuotaRows = QUOTA_WINDOWS.some(([key]) => quotaWindows.has(key));
+  if (hasQuotaRows) {
+    for (const [key, label] of QUOTA_WINDOWS) {
+      const entry = quotaWindows.get(key);
+      if (!entry) continue;
+      if (lines.length > 0) lines.push("");
+      lines.push(...formatQuotaRow(label, entry, options).split("\n"));
+      const breakdown =
+        key === "limit_month_total" ? formatMonthlyBreakdown(entry, quotaWindows) : null;
+      if (breakdown) lines.push(breakdown);
+    }
+  }
+
+  const summary = hasQuotaRows ? null : parseUsageRow(record.usage, "Current week");
   if (summary)
     lines.push(formatUsageRow({ ...summary, label: normalizeUsageLabel(summary.label) }, options));
 
-  if (Array.isArray(record.limits)) {
+  if (!hasQuotaRows && Array.isArray(record.limits)) {
     for (const [index, item] of record.limits.entries()) {
       const itemRecord =
         typeof item === "object" && item !== null && !Array.isArray(item)
