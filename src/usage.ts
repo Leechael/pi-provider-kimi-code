@@ -51,6 +51,13 @@ function toNumber(value: unknown): number | null {
   return Number.isFinite(number) ? number : null;
 }
 
+function toOptionalNumber(value: unknown): number | null {
+  if (typeof value === "number") return Number.isFinite(value) ? value : null;
+  if (typeof value !== "string" || !value.trim()) return null;
+  const number = Number(value);
+  return Number.isFinite(number) ? number : null;
+}
+
 function toStringValue(value: unknown): string | undefined {
   if (typeof value === "string" && value.trim()) return value;
   if (typeof value === "number" && Number.isFinite(value)) return String(value);
@@ -397,7 +404,7 @@ export function parseKimiUserInfo(payload: unknown): KimiUserInfo | null {
   const userId = toStringValue(record.user_id);
   if (!userId) return null;
   const email = toStringValue(record.email);
-  const goodsVersion = toNumber(record.goods_version);
+  const goodsVersion = toOptionalNumber(record.goods_version);
   return {
     userId,
     nickname: toStringValue(record.nickname) ?? "",
