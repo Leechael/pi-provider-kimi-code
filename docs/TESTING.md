@@ -68,7 +68,7 @@ CAPTURE_PORT=8787 CAPTURE_TARGET_ORIGIN=https://api.kimi.com CAPTURE_DIR=/tmp/ki
   node scripts/kimi-compat/capture_proxy.mjs
 
 KIMI_CODE_BASE_URL=http://127.0.0.1:8787/coding/v1 \
-  pi -ne -e . --model kimi-coding/kimi-for-coding -p "Say hi." --mode print
+  pi -ne -e . --model kimi-coding/kimi-for-coding -p "Say hi." --mode text
 ```
 
 ## Proxy / Networking

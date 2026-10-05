@@ -52,7 +52,7 @@ proxy_base_url="http://127.0.0.1:${CAPTURE_PORT}/coding/v1"
 KIMI_CODE_BASE_URL="$proxy_base_url" KIMI_CODE_PROTOCOL="${KIMI_E2E_PROVIDER_PROTOCOL:-openai}" \
   "$PI_BIN" -ne -e "$EXT_DIR" --model "$KIMI_E2E_MODEL" \
   -p "What is 17 * 23? Reply with just the number." \
-  --thinking "${KIMI_E2E_PROVIDER_THINKING:-high}" --mode print >/dev/null
+  --thinking "${KIMI_E2E_PROVIDER_THINKING:-high}" --mode text >/dev/null
 
 python3 - "$CAPTURE_DIR" "${KIMI_E2E_WIRE_MODEL}" "${KIMI_E2E_EXPECT_THINKING_EFFORT:-none}" <<'PY'
 import json
