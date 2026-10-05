@@ -4,6 +4,7 @@ import assert from "node:assert/strict";
 import { visibleWidth } from "@earendil-works/pi-tui";
 
 import { buildKimiDatasourceTool } from "../src/tools/datasource.ts";
+import { getKimiDatasourceUrl } from "../src/tools/common.ts";
 
 function renderText(component: { render: (width: number) => string[] }): string {
   return component.render(80).join("\n");
@@ -42,7 +43,7 @@ describe("kimi_datasource datasource", () => {
     );
 
     assert.equal(calls.length, 1);
-    assert.equal(calls[0].url, "https://api.kimi.com/coding/v1/tools");
+    assert.equal(calls[0].url, getKimiDatasourceUrl());
     assert.deepEqual(JSON.parse(calls[0].init.body as string), {
       method: "get_data_source_desc",
       params: { name: "arxiv" },

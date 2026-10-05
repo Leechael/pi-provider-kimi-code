@@ -28,6 +28,21 @@ export function parseKimiRegion(value: string | undefined): KimiRegion {
 
 export const ENV_KIMI_CODE_REGION: KimiRegion = parseKimiRegion(process.env.KIMI_CODE_REGION);
 
+// Bridge the selected region into pi core's built-in Kimi OAuth: pi-ai reads
+// KIMI_CODE_OAUTH_HOST at call time, so filling it makes /login follow
+// KIMI_CODE_REGION even when the login runs through pi's own kimi-coding auth
+// path instead of this extension's. Only fills the variable when the region
+// is non-default and the user has not configured an explicit override.
+export function applyKimiRegionEnvBridge(
+  env: NodeJS.ProcessEnv = process.env,
+  region: KimiRegion = ENV_KIMI_CODE_REGION,
+): boolean {
+  if (region === "mainland-cn") return false;
+  if (env.KIMI_CODE_OAUTH_HOST || env.KIMI_OAUTH_HOST) return false;
+  env.KIMI_CODE_OAUTH_HOST = KIMI_REGION_PROFILES[region].oauthHost;
+  return true;
+}
+
 export const DEFAULT_OAUTH_HOST = KIMI_REGION_PROFILES[ENV_KIMI_CODE_REGION].oauthHost;
 
 export const KIMI_WIRE_PROTOCOLS = ["openai", "anthropic", "responses"] as const;

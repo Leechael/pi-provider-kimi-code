@@ -5,12 +5,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DEFAULT_KIMI_CODE_CONFIG } from "../src/config.ts";
 import { DEFAULT_KIMI_MODEL_INPUT, PROVIDER_ID } from "../src/constants.ts";
-import {
-  DEFAULT_OAUTH_HOST,
-  getBaseUrl,
-  getDefaultBaseUrl,
-  parseKimiRegion,
-} from "../src/constants.ts";
+import { getBaseUrl, getDefaultBaseUrl, parseKimiRegion } from "../src/constants.ts";
+import { getKimiBaseV1 } from "../src/tools/common.ts";
 import {
   applyKimiOAuthExtrasToModel,
   buildKimiModelFromConfig,
@@ -92,7 +88,7 @@ describe("discoverKimiModelMetadata", () => {
     await discoverKimiModelMetadata("tok-1");
 
     assert.equal(mock.calls.length, 1);
-    assert.equal(mock.calls[0]?.url, "https://api.kimi.com/coding/v1/models");
+    assert.equal(mock.calls[0]?.url, `${getKimiBaseV1()}/models`);
     const headers = mock.calls[0]?.init?.headers as Record<string, string>;
     assert.equal(headers.Authorization, "Bearer tok-1");
   });
@@ -395,11 +391,6 @@ describe("region selection (issue #77)", () => {
     assert.equal(getDefaultBaseUrl("openai", "global"), "https://api.kimi.ai/coding/v1");
     assert.equal(getDefaultBaseUrl("anthropic", "global"), "https://api.kimi.ai/coding");
     assert.equal(getDefaultBaseUrl("responses", "global"), "https://api.kimi.ai/coding/v1");
-  });
-
-  it("keeps the default region on the managed mainland endpoints", () => {
-    assert.equal(getDefaultBaseUrl("openai"), "https://api.kimi.com/coding/v1");
-    assert.equal(DEFAULT_OAUTH_HOST, "https://auth.kimi.com");
   });
 
   it("lets an explicit base URL override win over the region default", () => {

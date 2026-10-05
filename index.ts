@@ -46,6 +46,7 @@ import {
   KIMI_WIRE_PROTOCOLS,
   PROVIDER_ID,
   PROVIDER_VERSION,
+  applyKimiRegionEnvBridge,
   getBaseUrl,
   getKimiApiType,
 } from "./src/constants.ts";
@@ -654,6 +655,9 @@ function startModelDiscovery(pi: ExtensionAPI, state: KimiRuntimeState): void {
 
 export function KimiCode(overrides?: KimiCodeConfigPatch): ExtensionFactory {
   return async (pi: ExtensionAPI) => {
+    // Make /login follow KIMI_CODE_REGION on pi core's built-in kimi OAuth path
+    // too; the extension's own login flow reads the region via getOAuthHost().
+    applyKimiRegionEnvBridge();
     const cwd = process.cwd();
     const config = loadKimiCodeConfig(
       { cwd, home: os.homedir(), includeProject: false },
