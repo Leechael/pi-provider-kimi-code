@@ -653,8 +653,9 @@ export function stripEmptyResponsesTextParts(payload: JsonRecord): boolean {
     }
     const role = item.role;
     const content = item.content;
+    const isAssistantLike = role === "assistant" || role == null;
     if (typeof content === "string") {
-      if (role === "assistant" && content.trim() === "") {
+      if (isAssistantLike && content.trim() === "") {
         changed = true;
         continue;
       }
@@ -662,19 +663,29 @@ export function stripEmptyResponsesTextParts(payload: JsonRecord): boolean {
       continue;
     }
     if (!Array.isArray(content)) {
+      // A message item with missing/non-array content carries nothing to
+      // render; drop assistant-shaped ones instead of replaying a
+      // contentless message (the upstream 400 path this fix targets).
+      if (isAssistantLike && (content === undefined || content === null)) {
+        changed = true;
+        continue;
+      }
       input.push(item);
       continue;
     }
     const next = content.filter((part) => !isEmptyTextPart(part));
+    // An assistant message with nothing left — either filtered here or
+    // arriving empty — carries no information; drop it rather than send a
+    // contentless message. User/system messages keep their content.
+    if (next.length === 0 && isAssistantLike) {
+      changed = true;
+      continue;
+    }
     if (next.length === content.length) {
       input.push(item);
       continue;
     }
     changed = true;
-    // An assistant message stripped of everything carries no information;
-    // drop it rather than send a contentless message. User/system messages
-    // keep (possibly empty) content arrays.
-    if (next.length === 0 && (role === "assistant" || role == null)) continue;
     input.push({ ...item, content: next });
   }
   if (changed) payload.input = input;

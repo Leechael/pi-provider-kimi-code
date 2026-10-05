@@ -1153,6 +1153,7 @@ describe("openai-responses payload", () => {
             { type: "input_text", text: "hello" },
           ],
         },
+        { role: "system", content: [{ type: "text", text: "be helpful" }] },
         { type: "function_call", name: "bash", arguments: "{}" },
         { type: "reasoning", reasoning: "thinking" },
       ],
@@ -1161,10 +1162,31 @@ describe("openai-responses payload", () => {
     await applyKimiPayloadMutations(payload, baseCtx({ api: "openai-responses" }));
 
     const input = payload.input as JsonRecord[];
-    assert.equal(input.length, 3);
+    assert.equal(input.length, 4);
     assert.deepEqual(input[0].content, [{ type: "input_text", text: "hello" }]);
-    assert.equal(input[1].type, "function_call");
-    assert.equal(input[2].type, "reasoning");
+    assert.equal(input[1].role, "system");
+    assert.deepEqual(input[1].content, [{ type: "text", text: "be helpful" }]);
+    assert.equal(input[2].type, "function_call");
+    assert.equal(input[3].type, "reasoning");
+  });
+
+  it("drops assistant items that arrive already contentless", async () => {
+    const payload: JsonRecord = {
+      input: [
+        { role: "assistant", content: [] },
+        { role: "assistant" },
+        { type: "message", role: "assistant", content: [] },
+        { role: "user", content: "hi" },
+      ],
+    };
+
+    await applyKimiPayloadMutations(payload, baseCtx({ api: "openai-responses" }));
+
+    const input = payload.input as JsonRecord[];
+    assert.deepEqual(
+      input.map((item) => item.role),
+      ["user"],
+    );
   });
 
   it("does not rewrite input when nothing is empty", async () => {
