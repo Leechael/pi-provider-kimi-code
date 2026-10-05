@@ -60,11 +60,26 @@ export function applyKimiRegionEnvBridge(
     delete env.KIMI_CODE_OAUTH_HOST;
   }
   regionBridgeOwnedValue = undefined;
+  // pi core's OAuth reads only KIMI_CODE_OAUTH_HOST; mirror the documented
+  // KIMI_OAUTH_HOST alias into it so the alias keeps working on the built-in
+  // login path. The alias stays the source of truth.
+  if (!env.KIMI_CODE_OAUTH_HOST && env.KIMI_OAUTH_HOST?.trim()) {
+    env.KIMI_CODE_OAUTH_HOST = env.KIMI_OAUTH_HOST.trim();
+    regionBridgeOwnedValue = env.KIMI_CODE_OAUTH_HOST;
+  }
   if (region === "mainland-cn") return false;
   if (env.KIMI_CODE_OAUTH_HOST || env.KIMI_OAUTH_HOST) return false;
   env.KIMI_CODE_OAUTH_HOST = KIMI_REGION_PROFILES[region].oauthHost;
   regionBridgeOwnedValue = env.KIMI_CODE_OAUTH_HOST;
   return true;
+}
+
+/** Normalize any managed base URL to its `/v1` form. Single implementation
+ * shared by the tool endpoints (src/tools/common.ts), the usage/account URLs
+ * (src/usage.ts), and the credential probe (src/oauth.ts). */
+export function normalizeKimiBaseV1(baseUrl: string): string {
+  const base = baseUrl.replace(/\/+$/, "");
+  return base.endsWith("/v1") ? base : `${base}/v1`;
 }
 
 export const DEFAULT_OAUTH_HOST = KIMI_REGION_PROFILES[ENV_KIMI_CODE_REGION].oauthHost;

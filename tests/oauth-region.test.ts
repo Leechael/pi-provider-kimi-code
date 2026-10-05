@@ -28,18 +28,42 @@ describe("applyKimiRegionEnvBridge", () => {
     assert.equal(applyKimiRegionEnvBridge(explicit, "global"), false);
     assert.equal(explicit.KIMI_CODE_OAUTH_HOST, "https://auth.example.com");
 
+    // A later re-apply must not retract the user's own value.
+    assert.equal(applyKimiRegionEnvBridge(explicit, "mainland-cn"), false);
+    assert.equal(explicit.KIMI_CODE_OAUTH_HOST, "https://auth.example.com");
+  });
+
+  it("forwards the KIMI_OAUTH_HOST alias into the variable pi core reads", () => {
     const aliased: NodeJS.ProcessEnv = { KIMI_OAUTH_HOST: "https://auth.example.com" };
     assert.equal(applyKimiRegionEnvBridge(aliased, "global"), false);
-    assert.equal(aliased.KIMI_CODE_OAUTH_HOST, undefined);
+    assert.equal(aliased.KIMI_CODE_OAUTH_HOST, "https://auth.example.com");
+    // The alias remains the source of truth.
+    assert.equal(aliased.KIMI_OAUTH_HOST, "https://auth.example.com");
   });
 });
 
 describe("region override from plugin config", () => {
+  const ENV_HOST_KEYS = ["KIMI_CODE_OAUTH_HOST", "KIMI_OAUTH_HOST"] as const;
+  const savedHostEnv: Record<string, string | undefined> = {};
+
   afterEach(() => {
     setKimiRegionOverride(null);
+    for (const key of ENV_HOST_KEYS) {
+      const saved = savedHostEnv[key];
+      if (saved === undefined) delete process.env[key];
+      else process.env[key] = saved;
+    }
   });
 
+  function clearHostEnv(): void {
+    for (const key of ENV_HOST_KEYS) {
+      savedHostEnv[key] = process.env[key];
+      delete process.env[key];
+    }
+  }
+
   it("drives default endpoints and the OAuth host from the override", () => {
+    clearHostEnv();
     setKimiRegionOverride("global");
     assert.equal(getDefaultBaseUrl("openai"), "https://api.kimi.ai/coding/v1");
     assert.equal(getOAuthHost(), "https://auth.kimi.ai");

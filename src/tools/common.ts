@@ -1,7 +1,7 @@
 import type { AgentToolResult } from "@earendil-works/pi-coding-agent";
 import { truncateToWidth } from "@earendil-works/pi-tui";
 
-import { PROVIDER_ID, getBaseUrl } from "../constants.ts";
+import { PROVIDER_ID, getBaseUrl, normalizeKimiBaseV1 } from "../constants.ts";
 import { getKimiProviderHeaders } from "../device.ts";
 import {
   KIMI_LOGIN_REQUIRED_MESSAGE,
@@ -57,8 +57,7 @@ export function buildTimeoutSignal(signal: AbortSignal | undefined): {
 }
 
 export function getKimiBaseV1(): string {
-  const base = getBaseUrl().replace(/\/+$/, "");
-  return base.endsWith("/v1") ? base : `${base}/v1`;
+  return normalizeKimiBaseV1(getBaseUrl());
 }
 
 export function getKimiDatasourceUrl(): string {

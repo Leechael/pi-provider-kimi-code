@@ -267,8 +267,11 @@ function envConfigPatch(env: NodeJS.ProcessEnv): KimiCodeConfigPatch {
   const protocol = env.KIMI_CODE_PROTOCOL?.trim();
   if (protocol) patch.protocol = protocol;
 
-  const region = env.KIMI_CODE_REGION?.trim();
-  if (region) patch.region = region;
+  // KIMI_CODE_REGION intentionally does NOT enter the merged config: the env
+  // acts as a fallback below the config.json layers (documented precedence:
+  // explicit config > env > built-in default), and an invalid value must not
+  // crash startup via strict validation — currentKimiRegion() falls back to
+  // the module-load capture instead.
 
   const capabilities = env.KIMI_MODEL_CAPABILITIES;
   if (capabilities) {

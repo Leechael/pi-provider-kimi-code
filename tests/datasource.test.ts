@@ -4,7 +4,6 @@ import assert from "node:assert/strict";
 import { visibleWidth } from "@earendil-works/pi-tui";
 
 import { buildKimiDatasourceTool } from "../src/tools/datasource.ts";
-import { getKimiDatasourceUrl } from "../src/tools/common.ts";
 
 function renderText(component: { render: (width: number) => string[] }): string {
   return component.render(80).join("\n");
@@ -16,6 +15,10 @@ function resultText(result: { content: Array<{ type: string; text?: string }> })
 
 describe("kimi_datasource datasource", () => {
   it("calls get_data_source_desc when api_name is omitted", async () => {
+    // Pin an explicit base URL so the expectation is independent of the
+    // ambient region/default while still asserting the real derivation.
+    const originalBase = process.env.KIMI_CODE_BASE_URL;
+    process.env.KIMI_CODE_BASE_URL = "https://proxy.example/kimi/v1";
     const calls: Array<{ url: string; init: RequestInit }> = [];
     const mockFetch: typeof fetch = async (input, init) => {
       calls.push({ url: String(input), init: init ?? {} });
@@ -30,27 +33,32 @@ describe("kimi_datasource datasource", () => {
       );
     };
 
-    const tool = buildKimiDatasourceTool({
-      deps: { fetch: mockFetch, getAccessToken: () => "oauth-token" },
-    });
+    try {
+      const tool = buildKimiDatasourceTool({
+        deps: { fetch: mockFetch, getAccessToken: () => "oauth-token" },
+      });
 
-    const result = await tool.execute(
-      "tool-call-1",
-      { data_source_name: "arxiv" },
-      undefined,
-      undefined,
-      undefined as never,
-    );
+      const result = await tool.execute(
+        "tool-call-1",
+        { data_source_name: "arxiv" },
+        undefined,
+        undefined,
+        undefined as never,
+      );
 
-    assert.equal(calls.length, 1);
-    assert.equal(calls[0].url, getKimiDatasourceUrl());
-    assert.deepEqual(JSON.parse(calls[0].init.body as string), {
-      method: "get_data_source_desc",
-      params: { name: "arxiv" },
-    });
-    const text = resultText(result);
-    assert.ok(text.startsWith("Available APIs: search, detail"));
-    assert.match(text, /\[kimi-datasource\] tool-call-id: tool-call-1/);
+      assert.equal(calls.length, 1);
+      assert.equal(calls[0].url, "https://proxy.example/kimi/v1/tools");
+      assert.deepEqual(JSON.parse(calls[0].init.body as string), {
+        method: "get_data_source_desc",
+        params: { name: "arxiv" },
+      });
+      const text = resultText(result);
+      assert.ok(text.startsWith("Available APIs: search, detail"));
+      assert.match(text, /\[kimi-datasource\] tool-call-id: tool-call-1/);
+    } finally {
+      if (originalBase === undefined) delete process.env.KIMI_CODE_BASE_URL;
+      else process.env.KIMI_CODE_BASE_URL = originalBase;
+    }
   });
 
   it("calls call_data_source_tool when api_name is provided", async () => {

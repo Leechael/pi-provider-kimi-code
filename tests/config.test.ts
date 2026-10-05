@@ -244,27 +244,33 @@ describe("layer config file helpers", () => {
     );
   });
 
-  it("accepts the region from env and config", () => {
+  it("accepts the region from config and leaves the env as fallback", () => {
     const cwd = tempDir("kimi-config-cwd");
     const home = tempDir("kimi-config-home");
+    // KIMI_CODE_REGION must NOT enter the merged config: an explicit config
+    // value wins over it, and an invalid value must not crash startup.
     const loaded = loadKimiCodeConfig({
       cwd,
       home,
       env: { KIMI_CODE_REGION: "global" },
     });
-    assert.equal(loaded.region, "global");
+    assert.equal(loaded.region, null);
 
     const saved = validateKimiCodeConfig({ ...DEFAULT_KIMI_CODE_CONFIG, region: "global" });
     assert.equal(saved.region, "global");
     assert.equal(validateKimiCodeConfig(DEFAULT_KIMI_CODE_CONFIG).region, null);
   });
 
-  it("lets project config region win over the env capture layer order", () => {
+  it("lets project config region win over a conflicting env value", () => {
     const cwd = tempDir("kimi-config-cwd");
     const home = tempDir("kimi-config-home");
     saveProjectKimiCodeConfig(cwd, config({ region: "global" }));
 
-    const sources = loadKimiCodeConfigSources({ cwd, home, env: {} });
+    const sources = loadKimiCodeConfigSources({
+      cwd,
+      home,
+      env: { KIMI_CODE_REGION: "mainland-cn" },
+    });
     assert.equal(sources.region, "project");
   });
 

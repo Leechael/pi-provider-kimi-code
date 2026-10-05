@@ -1,4 +1,4 @@
-import { PROVIDER_ID, getBaseUrl } from "./constants.ts";
+import { PROVIDER_ID, getBaseUrl, normalizeKimiBaseV1 } from "./constants.ts";
 import { getKimiProviderHeaders } from "./device.ts";
 import { readStoredOAuthCredential, refreshKimiAuthToken } from "./oauth.ts";
 
@@ -410,8 +410,7 @@ function partialBlock(value: number): string {
 }
 
 export function buildKimiUsageUrl(baseUrl = getBaseUrl("openai")): string {
-  const normalized = baseUrl.replace(/\/+$/, "");
-  return normalized.endsWith("/v1") ? `${normalized}/usages` : `${normalized}/v1/usages`;
+  return `${normalizeKimiBaseV1(baseUrl)}/usages`;
 }
 
 function fetchKimiUsage(token: string, signal: AbortSignal): Promise<Response> {
@@ -523,8 +522,7 @@ export function formatKimiUserInfo(info: KimiUserInfo): string {
 }
 
 export function buildKimiUserInfoUrl(baseUrl = getBaseUrl("openai")): string {
-  const normalized = baseUrl.replace(/\/+$/, "");
-  return normalized.endsWith("/v1") ? `${normalized}/me` : `${normalized}/v1/me`;
+  return `${normalizeKimiBaseV1(baseUrl)}/me`;
 }
 
 function fetchKimiUserInfo(token: string, signal: AbortSignal): Promise<Response> {

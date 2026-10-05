@@ -161,6 +161,7 @@ import {
   RETRYABLE_REFRESH_STATUSES,
   getBaseUrl,
   getOAuthHost,
+  normalizeKimiBaseV1,
 } from "./constants.ts";
 import { getCommonHeaders } from "./device.ts";
 import { type KimiOAuthCredentials, discoverKimiModelMetadata } from "./models.ts";
@@ -448,11 +449,10 @@ async function lockKimiCodeCredentials(signal?: AbortSignal): Promise<LockedKimi
 // reuse. Only an explicit 401 disproves usability: network failures must not
 // force an unnecessary re-login. Exported for tests.
 export async function isKimiCredentialRegionValid(accessToken: string): Promise<boolean> {
-  const base = getBaseUrl().replace(/\/+$/, "");
-  const meUrl = base.endsWith("/v1") ? `${base}/me` : `${base}/v1/me`;
+  const meUrl = `${normalizeKimiBaseV1(getBaseUrl())}/me`;
   try {
     const response = await fetch(meUrl, {
-      headers: { Authorization: `Bearer ${accessToken}` },
+      headers: { ...getCommonHeaders(), Authorization: `Bearer ${accessToken}` },
       signal: AbortSignal.timeout(5_000),
     });
     return response.status !== 401;
@@ -493,14 +493,17 @@ async function tryReuseKimiCliCredentials(
   callbacks.onProgress?.("Kimi access token expired, refreshing.");
   try {
     const token = await refreshAccessToken(data.refresh_token!);
-    const expiresMs = Date.now() + token.expires_in * 1000;
-    writeKimiCodeCredentials(token.access_token, token.refresh_token, expiresMs);
+    // Probe before persisting: a token that fails the region check must not
+    // be written into the shared CLI credential file, or a later CLI-side
+    // reuse (or the next /login) would pick up a token that 401s.
     if (!(await isKimiCredentialRegionValid(token.access_token))) {
       callbacks.onProgress?.(
         "Refreshed Kimi credentials are not valid for the configured region, starting a fresh login.",
       );
       return null;
     }
+    const expiresMs = Date.now() + token.expires_in * 1000;
+    writeKimiCodeCredentials(token.access_token, token.refresh_token, expiresMs);
     const extras = await discoverKimiModelMetadata(token.access_token);
     return {
       access: token.access_token,
