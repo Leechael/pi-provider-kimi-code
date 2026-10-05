@@ -104,7 +104,11 @@ with socket.socket() as sock:
     print(sock.getsockname()[1])
 PY
 )}"
-CAPTURE_TARGET_ORIGIN="${CAPTURE_TARGET_ORIGIN:-https://api.kimi.com}"
+default_capture_origin="https://api.kimi.com"
+if [ "${KIMI_CODE_REGION:-mainland-cn}" = "global" ]; then
+  default_capture_origin="https://api.kimi.ai"
+fi
+CAPTURE_TARGET_ORIGIN="${CAPTURE_TARGET_ORIGIN:-$default_capture_origin}"
 
 cleanup() {
   if [ -n "${proxy_pid:-}" ]; then
