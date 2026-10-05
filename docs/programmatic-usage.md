@@ -41,7 +41,7 @@ The argument is a `KimiCodeConfigPatch` — a deep-partial overlay applied **aft
 1. Built-in defaults
 2. Home config (`~/.pi/providers/kimi-coding/config.json`)
 3. Project config (`<cwd>/.pi/providers/kimi-coding/config.json`)
-4. Environment variables (`KIMI_CODE_PROTOCOL`, `KIMI_CODE_UPLOAD_THRESHOLD_BYTES`, etc.)
+4. Environment variables (`KIMI_CODE_PROTOCOL`, `KIMI_CODE_REGION`, `KIMI_CODE_UPLOAD_THRESHOLD_BYTES`, etc.)
 5. **`overrides` parameter** (highest priority)
 
 Users can still override your defaults through env vars only if you don't pass that key in `overrides`. If you set `protocol: "anthropic"` in overrides, it wins over `KIMI_CODE_PROTOCOL`.
@@ -52,6 +52,10 @@ Users can still override your defaults through env vars only if you don't pass t
 KimiCode({
   // Wire protocol: "openai" (default), "anthropic", or "responses"
   protocol: "anthropic",
+
+  // Managed region: "mainland-cn" (default) or "global" (kimi.ai endpoints).
+  // Wins over KIMI_CODE_REGION and the config files.
+  region: "global",
 
   // File upload threshold in bytes
   uploads: { thresholdBytes: 2 * 1024 * 1024 },
@@ -68,8 +72,8 @@ KimiCode({
     contextWindow: 262144,
     maxTokens: 32000,
     reasoning: true,
-    // Note: K2.7 Code only accepts temperature=1 and top_p=0.95;
-    // other values are silently stripped by the payload guard.
+    // Note: temperature/top_p are sent only when explicitly configured
+    // and are otherwise omitted (matching the official kimi-code client).
     generation: { maxCompletionTokens: 16384 },
   },
 });
