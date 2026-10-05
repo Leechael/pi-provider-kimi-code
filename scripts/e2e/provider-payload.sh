@@ -25,7 +25,13 @@ import sys
 import urllib.error
 import urllib.request
 
-base_url = os.environ.get("KIMI_CODE_BASE_URL", "https://api.kimi.com/coding/v1").rstrip("/")
+region = os.environ.get("KIMI_CODE_REGION", "mainland-cn")
+default_base_url = (
+    "https://api.kimi.ai/coding/v1" if region == "global" else "https://api.kimi.com/coding/v1"
+)
+base_url = (
+    os.environ.get("KIMI_CODE_BASE_URL") or os.environ.get("KIMI_BASE_URL") or default_base_url
+).rstrip("/")
 model_id = os.environ["KIMI_E2E_WIRE_MODEL"]
 thinking = os.environ.get("KIMI_E2E_PROVIDER_THINKING", "high")
 # Mirrors DEFAULT_KIMI_CODE_CONFIG.model.reasoningMap.
