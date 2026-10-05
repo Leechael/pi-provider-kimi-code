@@ -6,6 +6,12 @@ import { join } from "node:path";
 import { DEFAULT_KIMI_CODE_CONFIG } from "../src/config.ts";
 import { DEFAULT_KIMI_MODEL_INPUT, PROVIDER_ID } from "../src/constants.ts";
 import {
+  DEFAULT_OAUTH_HOST,
+  getBaseUrl,
+  getDefaultBaseUrl,
+  parseKimiRegion,
+} from "../src/constants.ts";
+import {
   applyKimiOAuthExtrasToModel,
   buildKimiModelFromConfig,
   buildKimiThinkingLevelMap,
@@ -361,6 +367,50 @@ describe("discoverKimiModelMetadata", () => {
   it("accepts the canonical Kimi Code catalog URL", () => {
     assert.equal(isOfficialKimiModelsUrl("https://api.kimi.com/coding/v1/models"), true);
     assert.equal(isOfficialKimiModelsUrl("https://api.kimi.com/coding/models"), false);
+  });
+
+  it("accepts the global (kimi.ai) catalog URL too", () => {
+    assert.equal(isOfficialKimiModelsUrl("https://api.kimi.ai/coding/v1/models"), true);
+    assert.equal(isOfficialKimiModelsUrl("https://api.kimi.ai/coding/models"), false);
+    assert.equal(
+      isOfficialKimiModelsUrl("https://api.kimi.ai.evil.example/coding/v1/models"),
+      false,
+    );
+  });
+});
+
+describe("region selection (issue #77)", () => {
+  it("parses KIMI_CODE_REGION with a mainland default", () => {
+    assert.equal(parseKimiRegion("global"), "global");
+    assert.equal(parseKimiRegion("mainland-cn"), "mainland-cn");
+    assert.equal(parseKimiRegion(undefined), "mainland-cn");
+    assert.equal(parseKimiRegion("us"), "mainland-cn");
+    assert.equal(parseKimiRegion(""), "mainland-cn");
+  });
+
+  it("serves region-appropriate default endpoints per protocol", () => {
+    assert.equal(getDefaultBaseUrl("openai", "mainland-cn"), "https://api.kimi.com/coding/v1");
+    assert.equal(getDefaultBaseUrl("anthropic", "mainland-cn"), "https://api.kimi.com/coding");
+    assert.equal(getDefaultBaseUrl("responses", "mainland-cn"), "https://api.kimi.com/coding/v1");
+    assert.equal(getDefaultBaseUrl("openai", "global"), "https://api.kimi.ai/coding/v1");
+    assert.equal(getDefaultBaseUrl("anthropic", "global"), "https://api.kimi.ai/coding");
+    assert.equal(getDefaultBaseUrl("responses", "global"), "https://api.kimi.ai/coding/v1");
+  });
+
+  it("keeps the default region on the managed mainland endpoints", () => {
+    assert.equal(getDefaultBaseUrl("openai"), "https://api.kimi.com/coding/v1");
+    assert.equal(DEFAULT_OAUTH_HOST, "https://auth.kimi.com");
+  });
+
+  it("lets an explicit base URL override win over the region default", () => {
+    const original = process.env.KIMI_CODE_BASE_URL;
+    process.env.KIMI_CODE_BASE_URL = "https://api.kimi.ai/coding/v1";
+    try {
+      assert.equal(getBaseUrl("openai"), "https://api.kimi.ai/coding/v1");
+    } finally {
+      if (original === undefined) delete process.env.KIMI_CODE_BASE_URL;
+      else process.env.KIMI_CODE_BASE_URL = original;
+    }
   });
 });
 
