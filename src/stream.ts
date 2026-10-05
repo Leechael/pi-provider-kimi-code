@@ -360,6 +360,7 @@ export function streamSimpleKimi(
             cacheKey,
             cacheRetention,
             reasoning: options?.reasoning,
+            requestMaxTokens: options?.maxTokens,
             modelConfig,
           });
           if (

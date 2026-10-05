@@ -838,20 +838,64 @@ describe("output cap policy (upstream #4091)", () => {
     assert.equal(payload.max_completion_tokens, 16384);
   });
 
-  it("honors generation.maxCompletionTokens as an explicit cap on the OpenAI wires", async () => {
+  it("honors generation.maxCompletionTokens by preserving an existing lower OpenAI cap", async () => {
     const cappedConfig: KimiResolvedModelConfig = {
       ...windowTrackedConfig,
       generation: { maxCompletionTokens: 8000 },
     };
     const payload: JsonRecord = {
       messages: [{ role: "user", content: "hi" }],
-      max_completion_tokens: 258048,
+      max_completion_tokens: 5000,
+    };
+    await applyKimiPayloadMutations(
+      payload,
+      baseCtx({ api: "openai-completions", modelConfig: cappedConfig }),
+    );
+    assert.equal(payload.max_completion_tokens, 5000);
+  });
+
+  it("fills generation.maxCompletionTokens when no OpenAI cap is seeded", async () => {
+    const cappedConfig: KimiResolvedModelConfig = {
+      ...windowTrackedConfig,
+      generation: { maxCompletionTokens: 8000 },
+    };
+    const payload: JsonRecord = {
+      messages: [{ role: "user", content: "hi" }],
     };
     await applyKimiPayloadMutations(
       payload,
       baseCtx({ api: "openai-completions", modelConfig: cappedConfig }),
     );
     assert.equal(payload.max_completion_tokens, 8000);
+  });
+
+  it("keeps a per-request options.maxTokens cap on openai-completions", async () => {
+    const payload: JsonRecord = {
+      messages: [{ role: "user", content: "hi" }],
+      max_completion_tokens: 12345,
+    };
+    await applyKimiPayloadMutations(
+      payload,
+      baseCtx({
+        api: "openai-completions",
+        modelConfig: windowTrackedConfig,
+        requestMaxTokens: 12345,
+      }),
+    );
+    assert.equal(payload.max_completion_tokens, 12345);
+  });
+
+  it("keeps an extra_body cap on openai-completions", async () => {
+    const payload: JsonRecord = {
+      messages: [{ role: "user", content: "hi" }],
+      extra_body: { max_completion_tokens: 12345 },
+    };
+    await applyKimiPayloadMutations(
+      payload,
+      baseCtx({ api: "openai-completions", modelConfig: windowTrackedConfig }),
+    );
+    assert.equal(payload.extra_body, undefined);
+    assert.equal(payload.max_completion_tokens, 12345);
   });
 
   it("keeps max_tokens on anthropic-messages, which requires it", async () => {
