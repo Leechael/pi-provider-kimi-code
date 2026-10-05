@@ -898,6 +898,22 @@ describe("output cap policy (upstream #4091)", () => {
     assert.equal(payload.max_completion_tokens, 12345);
   });
 
+  it("keeps a per-request cap on openai-responses", async () => {
+    const payload: JsonRecord = {
+      input: [{ role: "user", content: "hi" }],
+      max_output_tokens: 12345,
+    };
+    await applyKimiPayloadMutations(
+      payload,
+      baseCtx({
+        api: "openai-responses",
+        modelConfig: windowTrackedConfig,
+        requestMaxTokens: 12345,
+      }),
+    );
+    assert.equal(payload.max_output_tokens, 12345);
+  });
+
   it("keeps max_tokens on anthropic-messages, which requires it", async () => {
     const payload: JsonRecord = {
       messages: [{ role: "user", content: "hi" }],
