@@ -99,6 +99,15 @@ function resolveModelCost(
 // per-request cap still wins (options.maxTokens ?? model.maxTokens). Reconcile
 // wherever contextWindow is authored so the two stay in lockstep.
 //
+// Wire note (upstream kimi-code #4091): the OpenAI wires now omit the
+// completion cap entirely unless one is explicitly configured —
+// applyKimiPayloadMutations drops the pi-ai-seeded cap when the model cap is
+// window-tracked, keeping it only for Anthropic /messages (which requires
+// max_tokens, where the window-clamped value matches upstream's
+// kimiUnsetCompletionTokens). The window-tracked maxTokens therefore feeds
+// pi-ai internals (thinking-budget math) and the Anthropic wire, not the
+// OpenAI payloads.
+//
 // "Explicitly configured" means any value other than the built-in default:
 // ensureKimiCodeConfig materializes the full default config (including
 // maxTokens) into the home config file, so config-source tracking cannot

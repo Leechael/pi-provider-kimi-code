@@ -37,6 +37,8 @@ export interface KimiPayloadContext {
   cacheKey?: string;
   cacheRetention: CacheRetention;
   reasoning?: ThinkingLevel;
+  /** Per-request cap from the caller (pi options.maxTokens); wins over the omission policy. */
+  requestMaxTokens?: number;
   modelConfig: KimiResolvedModelConfig;
 }
 
@@ -590,8 +592,12 @@ export async function applyKimiPayloadMutations(
 
   // 5. Spread extra_body into the top-level payload before normalization and
   //    config caps. Top-level fields retain precedence over extra_body.
+  let extraBodyHadCap = false;
   if (isRecord(payload.extra_body)) {
     const extraBody = payload.extra_body as JsonRecord;
+    extraBodyHadCap = ["max_tokens", "max_completion_tokens", "max_output_tokens"].some(
+      (key) => typeof extraBody[key] === "number",
+    );
     delete payload.extra_body;
     for (const [key, value] of Object.entries(extraBody)) {
       if (payload[key] === undefined) {
@@ -620,6 +626,29 @@ export async function applyKimiPayloadMutations(
   }
 
   const generation = ctx.modelConfig.generation;
+  // Output cap policy (mirrors upstream kimi-code #4091): omit the completion
+  // cap on the OpenAI wires unless explicitly configured. pi-ai seeds a cap
+  // clamped to the context window (clampMaxTokensToContext), and forwarding
+  // that value breaks strict serving stacks (e.g. bare vLLM) that reject a
+  // cap above the model's real output limit with repeated 400s. A cap counts
+  // as explicit when generation.maxCompletionTokens is configured
+  // (KIMI_MODEL_MAX_COMPLETION_TOKENS / config generation.maxCompletionTokens),
+  // model.maxTokens holds a non-window value, or the caller supplies a
+  // per-request cap through options.maxTokens / extra_body. Anthropic /messages requires
+  // max_tokens, so that wire keeps pi-ai's window-clamped cap — the same
+  // window - usedContextTokens value upstream fills in when unset.
+  if (ctx.api === "openai-completions" || ctx.api === "openai-responses") {
+    const capKey = ctx.api === "openai-responses" ? "max_output_tokens" : "max_completion_tokens";
+    const explicitModelCap =
+      typeof ctx.modelConfig.maxTokens === "number" &&
+      ctx.modelConfig.maxTokens > 0 &&
+      ctx.modelConfig.maxTokens !== ctx.modelConfig.contextWindow;
+    const explicitRequestCap =
+      extraBodyHadCap || (typeof ctx.requestMaxTokens === "number" && ctx.requestMaxTokens > 0);
+    if (generation.maxCompletionTokens === undefined && !explicitModelCap && !explicitRequestCap) {
+      delete payload[capKey];
+    }
+  }
   // Official kimi-code sends temperature/top_p only when explicitly configured
   // (env KIMI_MODEL_TEMPERATURE / KIMI_MODEL_TOP_P → generation.*); otherwise it
   // omits them and lets the server apply its own defaults. Mirror that exactly:
