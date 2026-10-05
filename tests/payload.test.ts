@@ -1094,6 +1094,115 @@ describe("applyInlineMediaBudget (upstream #3784)", () => {
 });
 
 describe("openai-responses payload", () => {
+  it("strips empty text parts replayed from text-less assistant turns (issue #78)", async () => {
+    const payload: JsonRecord = {
+      input: [
+        { role: "user", content: "run the tool" },
+        {
+          type: "message",
+          role: "assistant",
+          content: [
+            { type: "output_text", text: "" },
+            { type: "function_call", name: "bash", arguments: "{}" },
+          ],
+        },
+        { role: "user", content: "next" },
+      ],
+    };
+
+    await applyKimiPayloadMutations(payload, baseCtx({ api: "openai-responses" }));
+
+    const input = payload.input as JsonRecord[];
+    assert.equal(input.length, 3);
+    const assistant = input[1];
+    assert.equal(assistant.role, "assistant");
+    assert.deepEqual(assistant.content, [{ type: "function_call", name: "bash", arguments: "{}" }]);
+  });
+
+  it("drops assistant messages left with no content after stripping", async () => {
+    const payload: JsonRecord = {
+      input: [
+        {
+          role: "assistant",
+          content: [{ type: "output_text", text: "   " }],
+        },
+        {
+          role: "assistant",
+          content: "",
+        },
+        { role: "user", content: "hi" },
+      ],
+    };
+
+    await applyKimiPayloadMutations(payload, baseCtx({ api: "openai-responses" }));
+
+    const input = payload.input as JsonRecord[];
+    assert.deepEqual(
+      input.map((item) => item.role),
+      ["user"],
+    );
+  });
+
+  it("keeps user/system text parts and non-message items untouched", async () => {
+    const payload: JsonRecord = {
+      input: [
+        {
+          role: "user",
+          content: [
+            { type: "input_text", text: "" },
+            { type: "input_text", text: "hello" },
+          ],
+        },
+        { role: "system", content: [{ type: "text", text: "be helpful" }] },
+        { type: "function_call", name: "bash", arguments: "{}" },
+        { type: "reasoning", reasoning: "thinking" },
+      ],
+    };
+
+    await applyKimiPayloadMutations(payload, baseCtx({ api: "openai-responses" }));
+
+    const input = payload.input as JsonRecord[];
+    assert.equal(input.length, 4);
+    assert.deepEqual(input[0].content, [{ type: "input_text", text: "hello" }]);
+    assert.equal(input[1].role, "system");
+    assert.deepEqual(input[1].content, [{ type: "text", text: "be helpful" }]);
+    assert.equal(input[2].type, "function_call");
+    assert.equal(input[3].type, "reasoning");
+  });
+
+  it("drops assistant items that arrive already contentless", async () => {
+    const payload: JsonRecord = {
+      input: [
+        { role: "assistant", content: [] },
+        { role: "assistant" },
+        { type: "message", role: "assistant", content: [] },
+        { role: "user", content: "hi" },
+      ],
+    };
+
+    await applyKimiPayloadMutations(payload, baseCtx({ api: "openai-responses" }));
+
+    const input = payload.input as JsonRecord[];
+    assert.deepEqual(
+      input.map((item) => item.role),
+      ["user"],
+    );
+  });
+
+  it("does not rewrite input when nothing is empty", async () => {
+    const payload: JsonRecord = {
+      input: [
+        { role: "assistant", content: [{ type: "output_text", text: "done" }] },
+        { type: "function_call", name: "bash", arguments: "{}" },
+      ],
+    };
+    const original = JSON.parse(JSON.stringify(payload.input));
+
+    await applyKimiPayloadMutations(payload, baseCtx({ api: "openai-responses" }));
+
+    assert.deepEqual(payload.input, original);
+  });
+
   it("strips prompt_cache_retention and Completions thinking fields", async () => {
     const payload: JsonRecord = {
       input: [{ role: "user", content: "hi" }],

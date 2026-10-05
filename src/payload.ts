@@ -623,6 +623,75 @@ async function transformAnthropicPayloadFiles(
 
 const RESPONSES_EFFORTS = new Set(["low", "high", "max"]);
 
+// Empty/whitespace-only text parts in the Responses `input` array. Assistant
+// turns that produced no text (reasoning + tool calls only) replay as
+// output_text:"" and upstream 400s on text non-emptiness; see issue #78.
+const RESPONSES_TEXT_PART_TYPES = new Set(["output_text", "text", "input_text"]);
+
+function isEmptyTextPart(part: unknown): boolean {
+  return (
+    isRecord(part) &&
+    typeof part.type === "string" &&
+    RESPONSES_TEXT_PART_TYPES.has(part.type) &&
+    (typeof part.text !== "string" || part.text.trim() === "")
+  );
+}
+
+export function stripEmptyResponsesTextParts(payload: JsonRecord): boolean {
+  if (!Array.isArray(payload.input)) return false;
+  let changed = false;
+  const input: unknown[] = [];
+  for (const item of payload.input) {
+    if (!isRecord(item)) {
+      input.push(item);
+      continue;
+    }
+    // Typed non-message items (function_call, reasoning, ...) pass through.
+    if (typeof item.type === "string" && item.type !== "message") {
+      input.push(item);
+      continue;
+    }
+    const role = item.role;
+    const content = item.content;
+    const isAssistantLike = role === "assistant" || role == null;
+    if (typeof content === "string") {
+      if (isAssistantLike && content.trim() === "") {
+        changed = true;
+        continue;
+      }
+      input.push(item);
+      continue;
+    }
+    if (!Array.isArray(content)) {
+      // A message item with missing/non-array content carries nothing to
+      // render; drop assistant-shaped ones instead of replaying a
+      // contentless message (the upstream 400 path this fix targets).
+      if (isAssistantLike && (content === undefined || content === null)) {
+        changed = true;
+        continue;
+      }
+      input.push(item);
+      continue;
+    }
+    const next = content.filter((part) => !isEmptyTextPart(part));
+    // An assistant message with nothing left — either filtered here or
+    // arriving empty — carries no information; drop it rather than send a
+    // contentless message. User/system messages keep their content.
+    if (next.length === 0 && isAssistantLike) {
+      changed = true;
+      continue;
+    }
+    if (next.length === content.length) {
+      input.push(item);
+      continue;
+    }
+    changed = true;
+    input.push({ ...item, content: next });
+  }
+  if (changed) payload.input = input;
+  return changed;
+}
+
 function responsesSupportedEfforts(ctx: KimiPayloadContext): string[] {
   const advertised = ctx.modelConfig.supportEfforts;
   if (advertised?.length) return advertised.filter((effort) => RESPONSES_EFFORTS.has(effort));
@@ -696,6 +765,19 @@ export async function applyKimiPayloadMutations(
     payload.messages = payload.messages.map((msg) =>
       isRecord(msg) && msg.role === "developer" ? { ...msg, role: "system" } : msg,
     );
+  }
+
+  // 1b. Responses wire: drop empty text parts replayed from text-less
+  // assistant turns (issue #78). pi-ai's Responses serializer keeps empty
+  // output_text blocks — unlike its Chat Completions serializer, which
+  // filters them — so a reasoning/tool-only turn is replayed as
+  // {role:"assistant", content:[{type:"output_text", text:""}]} on every
+  // subsequent request, and upstream endpoints reject the whole payload with
+  // a 400-class text-non-emptiness error. function_call / reasoning / all
+  // other part types are untouched; an assistant message left with no
+  // content is dropped entirely.
+  if (ctx.api === "openai-responses") {
+    stripEmptyResponsesTextParts(payload);
   }
 
   // 2. File upload dispatch (protocol-specific).
