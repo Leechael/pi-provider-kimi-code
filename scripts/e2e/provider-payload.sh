@@ -12,6 +12,89 @@ export KIMI_API_KEY="$API_KEY"
 SCRIPT_DIR="$(cd -- "$(dirname -- "$0")" && pwd)"
 source "$SCRIPT_DIR/common.sh"
 
+# Unset KIMI_E2E_EXPECT_THINKING_EFFORT derives from /models: send effort only
+# when the catalog advertises the mapped Pi thinking level (default high →
+# kimi effort high). kimi-for-coding now ships think_efforts; a hardcoded
+# none default false-fails the capture against current catalogs.
+export KIMI_E2E_PROVIDER_THINKING="${KIMI_E2E_PROVIDER_THINKING:-high}"
+if [ -z "${KIMI_E2E_EXPECT_THINKING_EFFORT:-}" ]; then
+  KIMI_E2E_EXPECT_THINKING_EFFORT="$(python3 - <<'PY'
+import json
+import os
+import sys
+import urllib.error
+import urllib.request
+
+region = os.environ.get("KIMI_CODE_REGION", "mainland-cn")
+default_base_url = (
+    "https://api.kimi.ai/coding/v1" if region == "global" else "https://api.kimi.com/coding/v1"
+)
+base_url = (
+    os.environ.get("KIMI_CODE_BASE_URL") or os.environ.get("KIMI_BASE_URL") or default_base_url
+).rstrip("/")
+model_id = os.environ["KIMI_E2E_WIRE_MODEL"]
+thinking = os.environ.get("KIMI_E2E_PROVIDER_THINKING", "high")
+# Mirrors DEFAULT_KIMI_CODE_CONFIG.model.reasoningMap.
+level_to_effort = {
+    "none": None,
+    "off": None,
+    "minimal": "low",
+    "low": "low",
+    "medium": "high",
+    "high": "high",
+    "xhigh": "max",
+    "max": "max",
+}
+if thinking not in level_to_effort:
+    print(f"FAIL: unknown KIMI_E2E_PROVIDER_THINKING={thinking!r}", file=sys.stderr)
+    sys.exit(1)
+mapped = level_to_effort[thinking]
+request = urllib.request.Request(
+    f"{base_url}/models",
+    headers={
+        "Authorization": f"Bearer {os.environ['KIMI_API_KEY']}",
+        "Accept": "application/json",
+        "User-Agent": "KimiCLI/1.44.0",
+        "X-Msh-Platform": "kimi_cli",
+        "X-Msh-Version": "1.44.0",
+    },
+)
+try:
+    with urllib.request.urlopen(request, timeout=60) as response:
+        catalog = json.load(response)
+except urllib.error.HTTPError as error:
+    print(f"FAIL /models: HTTP {error.code}: {error.read().decode('utf-8', errors='replace')[:500]}", file=sys.stderr)
+    sys.exit(1)
+except Exception as error:
+    print(f"FAIL /models: {error}", file=sys.stderr)
+    sys.exit(1)
+
+models = catalog.get("data", catalog) if isinstance(catalog, dict) else catalog
+model = next((item for item in models if isinstance(item, dict) and item.get("id") == model_id), None)
+if model is None:
+    print(f"FAIL /models: model {model_id!r} was not returned", file=sys.stderr)
+    sys.exit(1)
+
+if mapped is None:
+    print("none")
+    sys.exit(0)
+efforts = model.get("think_efforts")
+valid = efforts.get("valid_efforts") if isinstance(efforts, dict) else None
+if (
+    isinstance(efforts, dict)
+    and efforts.get("support") is True
+    and isinstance(valid, list)
+    and mapped in valid
+):
+    print(mapped)
+else:
+    print("none")
+PY
+)"
+  export KIMI_E2E_EXPECT_THINKING_EFFORT
+  log "Derived expected thinking.effort=${KIMI_E2E_EXPECT_THINKING_EFFORT} (thinking=${KIMI_E2E_PROVIDER_THINKING})"
+fi
+
 CAPTURE_DIR="${CAPTURE_DIR:-$(mktemp -d -t kimi-provider-payload-XXXXXX)}"
 CAPTURE_PORT="${CAPTURE_PORT:-$(python3 - <<'PY'
 import socket
@@ -21,7 +104,11 @@ with socket.socket() as sock:
     print(sock.getsockname()[1])
 PY
 )}"
-CAPTURE_TARGET_ORIGIN="${CAPTURE_TARGET_ORIGIN:-https://api.kimi.com}"
+default_capture_origin="https://api.kimi.com"
+if [ "${KIMI_CODE_REGION:-mainland-cn}" = "global" ]; then
+  default_capture_origin="https://api.kimi.ai"
+fi
+CAPTURE_TARGET_ORIGIN="${CAPTURE_TARGET_ORIGIN:-$default_capture_origin}"
 
 cleanup() {
   if [ -n "${proxy_pid:-}" ]; then
@@ -52,7 +139,7 @@ proxy_base_url="http://127.0.0.1:${CAPTURE_PORT}/coding/v1"
 KIMI_CODE_BASE_URL="$proxy_base_url" KIMI_CODE_PROTOCOL="${KIMI_E2E_PROVIDER_PROTOCOL:-openai}" \
   "$PI_BIN" -ne -e "$EXT_DIR" --model "$KIMI_E2E_MODEL" \
   -p "What is 17 * 23? Reply with just the number." \
-  --thinking "${KIMI_E2E_PROVIDER_THINKING:-high}" --mode print >/dev/null
+  --thinking "${KIMI_E2E_PROVIDER_THINKING:-high}" --mode text >/dev/null
 
 python3 - "$CAPTURE_DIR" "${KIMI_E2E_WIRE_MODEL}" "${KIMI_E2E_EXPECT_THINKING_EFFORT:-none}" <<'PY'
 import json

@@ -32,24 +32,25 @@ The cache suites issue many requests and some have long waits. Run an individual
 
 ## Live E2E Variables
 
-| Variable                          | Default                          | Description                                                                                                      |
-| --------------------------------- | -------------------------------- | ---------------------------------------------------------------------------------------------------------------- |
-| `KIMI_API_KEY`                    | required                         | API key used for direct API probes and Pi.                                                                       |
-| `KIMI_CODE_BASE_URL`              | `https://api.kimi.com/coding/v1` | Coding API base URL.                                                                                             |
-| `KIMI_E2E_MODEL`                  | `kimi-coding/kimi-for-coding`    | Pi model alias for provider smoke tests.                                                                         |
-| `KIMI_E2E_WIRE_MODEL`             | `kimi-for-coding`                | Wire model id used by direct API contract suites.                                                                |
-| `KIMI_E2E_EFFORT`                 | model default                    | A server-declared effort to test. The contract suite rejects values not listed in `think_efforts.valid_efforts`. |
-| `KIMI_E2E_EFFORT_PROTOCOLS`       | `openai,anthropic`               | Comma-separated direct protocols for the effort contract suite.                                                  |
-| `KIMI_E2E_EXPECT_THINKING_EFFORT` | `none`                           | Expected nested effort in provider payload captures; `none` requires the field to be absent.                     |
-| `KIMI_E2E_SCHEMA_ENDPOINTS`       | `models,openai,anthropic`        | Comma-separated endpoints queried by the schema inspection suite.                                                |
-| `KIMI_E2E_SCHEMA_OUTPUT`          | temporary file                   | Destination for the normalized API schema snapshot.                                                              |
-| `KIMI_E2E_SCHEMA_BASELINE`        | unset                            | Existing snapshot to diff against; a difference makes the suite fail.                                            |
-| `KIMI_E2E_THINKING_LEVELS`        | `off low medium high`            | Pi thinking levels exercised by the smoke suite.                                                                 |
-| `KIMI_E2E_VERBOSE`                | `1`                              | Print suite setup and Pi version.                                                                                |
-| `KIMI_E2E_CACHE_REPEAT`           | `2000`                           | Long-text repeat count used by cache suites.                                                                     |
-| `KIMI_E2E_SKIP_TTL_UPPER`         | `1`                              | Set to `0` to run the 30-minute TTL upper-bound probe.                                                           |
-| `KIMI_E2E_SKIP_VERY_LARGE_CACHE`  | `1`                              | Set to `0` to run the very-large-context cache probe.                                                            |
-| `KIMI_E2E_KEEP_CAPTURES`          | `0`                              | Set to `1` to retain provider-payload captures under `/tmp`.                                                     |
+| Variable                          | Default                          | Description                                                                                                                                                                 |
+| --------------------------------- | -------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `KIMI_API_KEY`                    | required                         | API key used for direct API probes and Pi.                                                                                                                                  |
+| `KIMI_CODE_BASE_URL`              | `https://api.kimi.com/coding/v1` | Coding API base URL.                                                                                                                                                        |
+| `KIMI_E2E_MODEL`                  | `kimi-coding/kimi-for-coding`    | Pi model alias for provider smoke tests.                                                                                                                                    |
+| `KIMI_E2E_WIRE_MODEL`             | `kimi-for-coding`                | Wire model id used by direct API contract suites.                                                                                                                           |
+| `KIMI_E2E_EFFORT`                 | model default                    | A server-declared effort to test. The contract suite rejects values not listed in `think_efforts.valid_efforts`.                                                            |
+| `KIMI_E2E_EFFORT_PROTOCOLS`       | `openai,anthropic`               | Comma-separated direct protocols for the effort contract suite.                                                                                                             |
+| `KIMI_E2E_PROVIDER_THINKING`      | `high`                           | Pi `--thinking` level used by `provider-payload.sh`.                                                                                                                        |
+| `KIMI_E2E_EXPECT_THINKING_EFFORT` | catalog-derived                  | Expected nested effort in provider payload captures. Unset derives from `/models` `think_efforts` and `KIMI_E2E_PROVIDER_THINKING`; `none` requires the field to be absent. |
+| `KIMI_E2E_SCHEMA_ENDPOINTS`       | `models,openai,anthropic`        | Comma-separated endpoints queried by the schema inspection suite.                                                                                                           |
+| `KIMI_E2E_SCHEMA_OUTPUT`          | temporary file                   | Destination for the normalized API schema snapshot.                                                                                                                         |
+| `KIMI_E2E_SCHEMA_BASELINE`        | unset                            | Existing snapshot to diff against; a difference makes the suite fail.                                                                                                       |
+| `KIMI_E2E_THINKING_LEVELS`        | `off low medium high`            | Pi thinking levels exercised by the smoke suite.                                                                                                                            |
+| `KIMI_E2E_VERBOSE`                | `1`                              | Print suite setup and Pi version.                                                                                                                                           |
+| `KIMI_E2E_CACHE_REPEAT`           | `2000`                           | Long-text repeat count used by cache suites.                                                                                                                                |
+| `KIMI_E2E_SKIP_TTL_UPPER`         | `1`                              | Set to `0` to run the 30-minute TTL upper-bound probe.                                                                                                                      |
+| `KIMI_E2E_SKIP_VERY_LARGE_CACHE`  | `1`                              | Set to `0` to run the very-large-context cache probe.                                                                                                                       |
+| `KIMI_E2E_KEEP_CAPTURES`          | `0`                              | Set to `1` to retain provider-payload captures under `/tmp`.                                                                                                                |
 
 ## Provider Payload Capture
 
@@ -68,7 +69,7 @@ CAPTURE_PORT=8787 CAPTURE_TARGET_ORIGIN=https://api.kimi.com CAPTURE_DIR=/tmp/ki
   node scripts/kimi-compat/capture_proxy.mjs
 
 KIMI_CODE_BASE_URL=http://127.0.0.1:8787/coding/v1 \
-  pi -ne -e . --model kimi-coding/kimi-for-coding -p "Say hi." --mode print
+  pi -ne -e . --model kimi-coding/kimi-for-coding -p "Say hi." --mode text
 ```
 
 ## Proxy / Networking

@@ -24,8 +24,8 @@ run_pi_test() {
   printf '\n'
 }
 
-run_pi_test "Smoke: Anthropic protocol" anthropic "Who are you? Respond in one sentence." --mode print
-run_pi_test "Smoke: OpenAI protocol" openai "Who are you? Respond in one sentence." --mode print
+run_pi_test "Smoke: Anthropic protocol" anthropic "Who are you? Respond in one sentence." --mode text
+run_pi_test "Smoke: OpenAI protocol" openai "Who are you? Respond in one sentence." --mode text
 
 log "=== Thinking level x protocol matrix ==="
 pass=0
@@ -35,7 +35,7 @@ for protocol in anthropic openai; do
   for level in $levels; do
     label="$protocol/thinking=$level"
     if KIMI_CODE_PROTOCOL="$protocol" "$PI_BIN" -ne -e "$EXT_DIR" --model "$KIMI_E2E_MODEL" \
-      -p "What is 17*23? Reply with just the number." --thinking "$level" --mode print >/dev/null 2>&1; then
+      -p "What is 17*23? Reply with just the number." --thinking "$level" --mode text >/dev/null 2>&1; then
       log "  PASS  $label"
       pass=$((pass + 1))
     else

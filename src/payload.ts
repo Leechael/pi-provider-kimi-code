@@ -985,7 +985,7 @@ export async function applyKimiPayloadMutations(
     }
   }
 
-  // 8. K2.7 Code API constraints: the server rejects tool_choice "required" /
+  // 8. Kimi coding endpoint constraints: the server rejects tool_choice "required" /
   //    function-specific when thinking is enabled (always-on). Responses only
   //    accepts auto. temperature/top_p are handled in step 6 — omitted unless
   //    explicitly configured, matching the official kimi-code client rather

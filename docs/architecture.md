@@ -15,13 +15,18 @@ models. It supports two authentication modes:
 The Kimi Code API is wire-compatible with Anthropic Messages, OpenAI Chat
 Completions, and OpenAI Responses. The extension picks which wire protocol to use via the
 `KIMI_CODE_PROTOCOL` environment variable. Supported values are `openai` (default),
-`anthropic`, and `responses`. A `streamSimpleKimi()` wrapper sits on top of Pi's built-in
-streaming to:
+`anthropic`, and `responses`. Managed endpoints (API base and OAuth host) are selected
+per region — `mainland-cn` (`api.kimi.com` / `auth.kimi.com`, default) or `global`
+(`api.kimi.ai` / `auth.kimi.ai`) — via `KIMI_CODE_REGION`, the `region` config key, or
+`/kimi-settings`. A `streamSimpleKimi()` wrapper (in `src/stream.ts`) sits on top of Pi's
+built-in streaming to:
 
 - upload large inline base64 images to Kimi's `/v1/files` endpoint as `ms://` references
+- enforce a per-request inline media budget (~20 MB of base64 on the wire), dropping oversized media items and leaving a placeholder so the model knows content was removed
 - inject Kimi's proprietary `prompt_cache_key` alongside Anthropic `cache_control`
-- apply env-level hyperparameter overrides (`max_completion_tokens`; `temperature` and `top_p` are stripped for K2.7 Code which only accepts fixed values)
+- apply env-level hyperparameter overrides (`max_completion_tokens`; `temperature` and `top_p` are sent only when explicitly configured — matching the official `kimi-code` client — and are otherwise omitted; on the OpenAI wires the completion cap is omitted entirely unless configured)
 - map Pi's `reasoning` level to top-level `thinking`, including only server-advertised effort values
+- strip empty text parts that pi-ai's Responses serializer replays from text-less assistant turns (issue #78)
 - suppress Kimi's `(Empty response: ...)` placeholder text blocks from the response stream
 
 ## File Structure
@@ -30,20 +35,38 @@ streaming to:
 pi-provider-kimi-code/
 ├── .gitignore          # Excludes node_modules/, docs/, etc. from npm
 ├── package.json        # Extension manifest (pi.extensions field)
-├── index.ts            # OAuth + provider registration + stream wrapper
+├── index.ts            # Extension entry point: provider registration, OAuth wiring,
+│                       #   /kimi-settings command, tool registration, kimi-code sync
+├── src/
+│   ├── constants.ts    # CLIENT_ID, region profiles, endpoint derivation, protocol
+│   ├── config.ts       # Config schema + load/merge (defaults < home < project < env < overrides)
+│   ├── oauth.ts        # Device-code flow, token refresh, region-validity probe
+│   ├── device.ts       # X-Msh-* device identity headers, stable device_id
+│   ├── models.ts       # Model catalog discovery, thinking-level map, model building
+│   ├── payload.ts      # Payload mutation pipeline + Kimi Files API upload
+│   ├── stream.ts       # filterEmptyResponseStream + streamSimpleKimi orchestrator
+│   ├── usage.ts        # /usages + /me parsing, quota bar rendering
+│   ├── settings-ui.ts  # /kimi-settings rows and editing
+│   ├── schema-dedup.ts # $ref/$defs tool-schema dedup (Moonshot 15 KB per-tool limit)
+│   ├── project-trust.ts# Project-config trust prompt
+│   └── tools/          # moonshot_search, moonshot_fetch, kimi_datasource
 ├── docs/
 │   ├── architecture.md # This document
 │   ├── ENV.md          # Environment variable reference
 │   └── TESTING.md      # E2E test runbook
 └── scripts/
+    ├── e2e/            # End-to-end test scripts (smoke, provider-payload, ...)
     ├── test_e2e.sh     # End-to-end test runner
     └── next-version.sh # Release version bump helper
 ```
 
-The package is intentionally a single-file extension. Pi loads `index.ts` directly
-via jiti (TypeScript-in-JS runtime), so no build step is required. The virtual modules
-`@earendil-works/pi-ai` and `@earendil-works/pi-coding-agent` are provided by
-the Pi runtime; no npm dependencies are needed.
+Pi loads `index.ts` directly via jiti (TypeScript-in-JS runtime), so no build
+step is required. The virtual modules `@earendil-works/pi-ai` and
+`@earendil-works/pi-coding-agent` are provided by the Pi runtime. The only runtime npm dependency is `proper-lockfile`, used
+by the OAuth layer to coordinate credential refreshes with pi's own
+FileAuthStorageBackend lock. The split into `src/` modules keeps the pure
+payload / stream layers free of I/O so they stay unit-testable; `index.ts`
+only wires the modules together.
 
 ## Provider Registration
 
@@ -52,13 +75,16 @@ The default export is a function that receives `ExtensionAPI` and calls
 
 ```
 Provider ID:    kimi-coding
-Base URL:       https://api.kimi.com/coding/v1    (openai-completions / openai-responses, default)
-                https://api.kimi.com/coding       (anthropic-messages)
+Base URL:       <region apiBase>/coding/v1    (openai-completions / openai-responses, default)
+                <region apiBase>/coding       (anthropic-messages)
 API type:       openai-completions | anthropic-messages | openai-responses  (via KIMI_CODE_PROTOCOL=openai|anthropic|responses)
 Env var key:    KIMI_API_KEY
+Region:         mainland-cn (default) | global   (via KIMI_CODE_REGION, config.json, or /kimi-settings)
 ```
 
-The base URL can also be overridden with `KIMI_CODE_BASE_URL`. See
+`<region apiBase>` is `https://api.kimi.com` for `mainland-cn` and
+`https://api.kimi.ai` for `global`. The base URL can also be overridden with
+`KIMI_CODE_BASE_URL`, which wins over the region profile. See
 [ENV.md](./ENV.md) for the full list of supported environment variables.
 
 ### Common Headers
@@ -82,13 +108,19 @@ fix for Linux / non-ASCII hostnames.
 
 The official catalog determines the models this provider publishes. These default IDs are used when catalog discovery is unavailable:
 
-| ID                          | Default Name             | Default Context | Max Output |
-| --------------------------- | ------------------------ | --------------- | ---------- |
-| `kimi-for-coding`           | Kimi K2.7 Code           | 256K            | 32K        |
-| `kimi-for-coding-highspeed` | Kimi K2.7 Code HighSpeed | 256K            | 32K        |
-| `k3`                        | Kimi K3                  | 256K            | 32K        |
+| ID                          | Default Name               | Default Context | Max Output |
+| --------------------------- | -------------------------- | --------------- | ---------- |
+| `kimi-for-coding`           | Kimi for Coding            | 256K            | 32K        |
+| `kimi-for-coding-highspeed` | Kimi for Coding High Speed | 256K            | 32K        |
+| `k3`                        | Kimi K3                    | 256K            | 32K        |
 
-The official catalog at `https://api.kimi.com/coding/v1/models` is authoritative for model availability and context windows. It also refreshes model reasoning and input modalities. If discovery is unavailable, the extension uses the default IDs and fallback metadata above.
+The `kimi-for-coding` ID is stable across engine upgrades — K2.8 Preview (2026-09-11)
+replaced K2.7 behind the same ID, so no client config change is needed when Moonshot
+rolls out a new generation. The official catalog at
+`https://api.kimi.com/coding/v1/models` is authoritative for model availability and
+context windows (K2.8 advertises up to 1M tokens); the table above shows the
+conservative fallback metadata used only when discovery is unavailable. It also
+refreshes model reasoning and input modalities.
 
 ## OAuth Device-Code Flow
 
@@ -97,12 +129,17 @@ The login flow follows [RFC 8628](https://datatracker.ietf.org/doc/html/rfc8628)
 
 ### Endpoints
 
-| Purpose              | URL                                                    |
-| -------------------- | ------------------------------------------------------ |
-| Device authorization | `https://auth.kimi.com/api/oauth/device_authorization` |
-| Token exchange       | `https://auth.kimi.com/api/oauth/token`                |
+| Purpose              | mainland-cn                                            | global                                                |
+| -------------------- | ------------------------------------------------------ | ----------------------------------------------------- |
+| Device authorization | `https://auth.kimi.com/api/oauth/device_authorization` | `https://auth.kimi.ai/api/oauth/device_authorization` |
+| Token exchange       | `https://auth.kimi.com/api/oauth/token`                | `https://auth.kimi.ai/api/oauth/token`                |
 
-The OAuth host can be overridden with `KIMI_CODE_OAUTH_HOST` or `KIMI_OAUTH_HOST`.
+The OAuth host follows the selected region (and `/login kimi-coding` follows it
+end to end). It can be overridden with `KIMI_CODE_OAUTH_HOST` or
+`KIMI_OAUTH_HOST`. When the region is switched at runtime (e.g. from
+`/kimi-settings`), the extension bridges the non-default region into Pi core's
+built-in Kimi OAuth by setting `KIMI_CODE_OAUTH_HOST` in-process, so a login
+through Pi's own `kimi-coding` provider still hits the right side.
 
 ### Sequence
 
@@ -168,27 +205,30 @@ getApiKey: (cred) => cred.access;
 ## Internals
 
 The sections above describe the public contract. This one is for contributors:
-how `index.ts` is layered internally, and where to thread new features so the
-tests still cover them.
+how the extension is layered internally, and where to thread new features so
+the tests still cover them.
 
 ### Module layout
 
-`index.ts` is organized into layered sections. Each section is marked with a
-`// ===` banner comment and has a clearly bounded responsibility.
+Responsibilities are split across `src/` modules; `index.ts` is only the entry
+point that wires them into `pi.registerProvider()`.
 
 ```
-index.ts
-├── Constants                       # CLIENT_ID, endpoints, version, paths
-├── Device identification           # X-Msh-* header construction, stable device_id
-├── OAuth Implementation            # device_authorization / token / refresh fetches
-├── OAuth login / refresh wrappers  # loginKimiCode + refreshKimiCodeToken
-├── Payload / stream helpers        # types + pure utilities
-├── File upload                     # uploadKimiFile (I/O edge)
-├── Payload file transformers       # transformOpenAI / transformAnthropic
-├── Payload mutation pipeline       # applyKimiPayloadMutations
-├── Event stream filter             # filterEmptyResponseStream
-├── Stream wrapper                  # streamSimpleKimi (orchestrator)
-└── Extension Entry Point           # pi.registerProvider
+index.ts                # pi.registerProvider, OAuth wiring, /kimi-settings command,
+                        #   tool registration, kimi-code credential sync
+src/constants.ts        # CLIENT_ID, region profiles + endpoint derivation, protocol
+src/config.ts           # config schema, load/merge chain, env overrides
+src/oauth.ts            # device_authorization / token / refresh fetches, login wrappers,
+                        #   region-validity probe, credential read/mapping
+src/device.ts           # X-Msh-* header construction, stable device_id
+src/models.ts           # catalog discovery, thinking-level map, model building
+src/payload.ts          # uploadKimiFile + transform*/applyKimiPayloadMutations pipeline
+src/stream.ts           # filterEmptyResponseStream + streamSimpleKimi orchestrator
+src/usage.ts            # /usages + /me parsing (incl. quota-model payload, goods_version)
+src/settings-ui.ts      # /kimi-settings rows and editing
+src/schema-dedup.ts     # $ref/$defs dedup for Moonshot's 15 KB per-tool limit
+src/project-trust.ts    # project-config trust prompt
+src/tools/              # moonshot_search / moonshot_fetch / kimi_datasource
 ```
 
 ### Purity boundary
@@ -198,31 +238,34 @@ ones; lower layers never reach upward.
 
 ```
 Layer 1 — Pure                             (no side effects, deterministic)
-    isRecord, mapThinkingLevel, parseInlineUploadThreshold, deriveFilesBaseUrl,
-    parseDataUrl, getUploadFilename, asciiHeaderValue
+    isRecord, resolveReasoningForLevel, parseInlineUploadThreshold,
+    deriveFilesBaseUrl, parseDataUrl, getUploadFilename, asciiHeaderValue
 
 Layer 2 — Pure given dependencies           (mutates input, calls injected Uploader)
     transformOpenAIPayloadFiles(payload, upload)
     transformAnthropicPayloadFiles(payload, upload)
     applyKimiPayloadMutations(payload, ctx)
+    (also: applyInlineMediaBudget, stripEmptyResponsesTextParts, optimizeToolSchemas)
+    Exception: applyInlineMediaBudget emits a console.warn when it drops
+    items — diagnostics only, no state change.
 
 Layer 3 — Pure stream transformation        (async generator, no external closure dependencies)
     filterEmptyResponseStream(upstream)
 
 Layer 4 — I/O edges                         (process.env, fs, network, execSync)
-    getOAuthHost / getBaseUrl, readEnvOverrides,
-    readPersistedDeviceId / persistDeviceId / ensurePrivateFile,
-    getMacOSVersion / getDeviceModel / getStableDeviceId, getCommonHeaders,
+    currentKimiRegion / getBaseUrl / getOAuthHost, loadKimiCodeConfig,
+    device id persistence, getCommonHeaders,
     uploadKimiFile,
     requestDeviceAuthorization / requestDeviceToken / refreshAccessToken,
     loginKimiCode / refreshKimiCodeToken,
-    streamSimpleKimi  (orchestrator — reads env + options, wires layers 2/3)
+    streamSimpleKimi  (orchestrator — reads config + options, wires layers 2/3)
 ```
 
 The key rule: **Layers 1–3 must never touch `process.env`, `fs`, or `fetch`
-directly.** Environment values are read at the orchestrator boundary
-(`streamSimpleKimi`) and passed down as plain data in `KimiPayloadContext`, so
-the middle layers are unit-testable without mocking modules.
+directly.** Environment and config values are read at the orchestrator boundary
+(`streamSimpleKimi`, or module scope for region/protocol selection) and passed
+down as plain data in `KimiPayloadContext`, so the middle layers are
+unit-testable without mocking modules.
 
 ### Data flow: streamSimpleKimi
 
@@ -243,12 +286,18 @@ the middle layers are unit-testable without mocking modules.
             ▼                                   ▼
    applyKimiPayloadMutations(payload, ctx)  filterEmptyResponseStream(upstream)
      1. developer → system role map              │
-     2. transform*PayloadFiles(payload, upload)  │  buffer text_start/text_delta,
-        (OpenAI or Anthropic)                    │  drop block on "(Empty response:" marker,
-           └─> upload(mimeType, data)            │  replace done.message.content with filtered copy
+     1b. Responses: strip empty text parts      │  buffer text_start/text_delta,
+        replayed from text-less turns (#78)     │  drop block on "(Empty response:" marker,
+     2. transform*PayloadFiles(payload, upload)  │  replace done.message.content with filtered copy
+        (OpenAI or Anthropic)                    │
+           └─> upload(mimeType, data)            │
+     2b. applyInlineMediaBudget                 │
+     2c. normalize tool calls + dedup schemas    │
      3. prompt_cache_key injection               │
-     4. env overrides                            ▼
-     5. thinking type/effort mapping     filtered.push(event)
+     4. stream_options / extra_body              │
+     5. env + config caps, thinking map          │
+                                                ▼
+                                        filtered.push(event)
             │
             ▼
    originalOnPayload chain
@@ -309,7 +358,7 @@ Every unit below can be tested without touching the network, the filesystem, or
 | Function                          | Contract                                                                                  | Fixture strategy                                       |
 | --------------------------------- | ----------------------------------------------------------------------------------------- | ------------------------------------------------------ |
 | `isRecord(value)`                 | Type guard for plain objects                                                              | Boolean assertions over `null`, `[]`, `{}`, primitives |
-| `mapThinkingLevel(level)`         | `ThinkingLevel` → `{effort, enabled}`                                                     | Table test, all 7 levels + `undefined`                 |
+| `resolveReasoningForLevel(...)`   | Thinking level + catalog → `{effort, enabled}`                                            | Table test, all levels + catalog with/without efforts  |
 | `parseInlineUploadThreshold(raw)` | `string \| undefined` → bytes                                                             | Valid int, empty, `undefined`, negative, non-numeric   |
 | `deriveFilesBaseUrl(baseUrl)`     | Ensure the base URL ends with `/v1` (the `/files` suffix is appended by `uploadKimiFile`) | `/coding` vs `/coding/v1` vs trailing slash            |
 | `parseDataUrl(url)`               | Data URL regex → `{mimeType, data} \| null`                                               | Valid, missing `;base64,`, non-data URL                |
@@ -317,11 +366,11 @@ Every unit below can be tested without touching the network, the filesystem, or
 
 #### Layer 2 — pure given injected dependencies
 
-| Function                                          | Contract                                                                                           | Fixture strategy                                                                                                                                                                                                                    |
-| ------------------------------------------------- | -------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `transformOpenAIPayloadFiles(payload, upload)`    | Replace inline base64 `image_url` fields with `ms://` refs                                         | Build payload fixture, pass fake `upload = async () => "ms://fake"`, assert mutated payload. Cover: plain data URL, already `ms://`, mime that fails `parseDataUrl`, cache dedup for repeated URLs                                  |
-| `transformAnthropicPayloadFiles(payload, upload)` | Replace base64 `image` blocks (including inside `tool_result`) with `{source: {type: "url", url}}` | Fixture with nested `tool_result.content`, assert recursive replacement + `cache_control` preservation                                                                                                                              |
-| `applyKimiPayloadMutations(payload, ctx)`         | Apply all payload steps in order                                                                   | Table test per step: (a) developer→system, (b) upload dispatch by `ctx.api`, (c) cache_key precedence (existing > ctx.cacheKey > nothing), (d) env overrides only when set, (e) thinking effort only when the catalog advertises it |
+| Function                                          | Contract                                                                                           | Fixture strategy                                                                                                                                                                                                                                                                                          |
+| ------------------------------------------------- | -------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `transformOpenAIPayloadFiles(payload, upload)`    | Replace inline base64 `image_url` fields with `ms://` refs                                         | Build payload fixture, pass fake `upload = async () => "ms://fake"`, assert mutated payload. Cover: plain data URL, already `ms://`, mime that fails `parseDataUrl`, cache dedup for repeated URLs                                                                                                        |
+| `transformAnthropicPayloadFiles(payload, upload)` | Replace base64 `image` blocks (including inside `tool_result`) with `{source: {type: "url", url}}` | Fixture with nested `tool_result.content`, assert recursive replacement + `cache_control` preservation                                                                                                                                                                                                    |
+| `applyKimiPayloadMutations(payload, ctx)`         | Apply all payload steps in order                                                                   | Table test per step: (a) developer→system, (a2) Responses empty-text stripping, (b) upload dispatch by `ctx.api`, (b2) inline media budget, (c) cache_key precedence (existing > ctx.cacheKey > nothing), (d) env/config overrides only when set, (e) thinking effort only when the catalog advertises it |
 
 #### Layer 3 — pure stream transformation
 
@@ -345,15 +394,19 @@ thread it through the same boundary — read at the edge in `streamSimpleKimi` o
 | ---------------------------------------------------------------------------------- | --------------------------------------------------- | ------------ |
 | `KIMI_API_KEY`                                                                     | `streamSimpleKimi` (also Pi core)                   | Orchestrator |
 | `KIMI_CODE_PROTOCOL`                                                               | `PROTOCOL` constant                                 | Module load  |
+| `KIMI_CODE_REGION`                                                                 | region capture in `src/constants.ts`                | Module load  |
 | `KIMI_CODE_BASE_URL`                                                               | `getBaseUrl` + `uploadKimiFile`                     | I/O edge     |
 | `KIMI_CODE_OAUTH_HOST` / `KIMI_OAUTH_HOST`                                         | `getOAuthHost`                                      | I/O edge     |
 | `KIMI_CODE_UPLOAD_THRESHOLD_BYTES`                                                 | `uploadKimiFile` (via `parseInlineUploadThreshold`) | I/O edge     |
 | `KIMI_CODE_DEBUG`                                                                  | `uploadKimiFile`                                    | I/O edge     |
-| `KIMI_MODEL_TEMPERATURE` / `KIMI_MODEL_TOP_P` / `KIMI_MODEL_MAX_COMPLETION_TOKENS` | `readEnvOverrides` → `streamSimpleKimi`             | Orchestrator |
+| `KIMI_MODEL_TEMPERATURE` / `KIMI_MODEL_TOP_P` / `KIMI_MODEL_MAX_COMPLETION_TOKENS` | `loadKimiCodeConfig` env layer → `streamSimpleKimi` | Orchestrator |
+| `KIMI_MODEL_THINKING_KEEP`                                                         | `loadKimiCodeConfig` env layer → `streamSimpleKimi` | Orchestrator |
 
 OAuth behavior is extended via the `oauth` field in `pi.registerProvider`.
 Payload mutation is extended by adding a new step to `applyKimiPayloadMutations`
 and (if the step needs new inputs) a new field on `KimiPayloadContext`.
+New config keys are threaded through `src/config.ts` (schema, sources, patch
+type) and surfaced in `src/settings-ui.ts` if they belong in `/kimi-settings`.
 
 ## Design Decisions
 

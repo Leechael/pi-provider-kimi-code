@@ -3,7 +3,9 @@
 [![npm](https://img.shields.io/npm/v/pi-provider-kimi-code)](https://www.npmjs.com/package/pi-provider-kimi-code)
 [![license](https://img.shields.io/npm/l/pi-provider-kimi-code)](./LICENSE)
 
-> **Kimi Code extension for Pi — use K3, K2.7 Code, and HighSpeed models with your Kimi Code Plan.** This extension brings the full Kimi Code surface into Pi: shared OAuth login state with the official `kimi-code` CLI, Kimi Files API uploads, and Kimi-native tools such as `moonshot_search`, `moonshot_fetch`, and `kimi_datasource`. (Pi v0.82.0+ ships a built-in `kimi-coding` provider for the LLM layer; this extension covers everything around it.)
+> **Kimi Code extension for Pi — use K3, K2.8 Code, and HighSpeed models with your Kimi Code Plan.**
+>
+> Why you need it: Pi v0.82.0+ ships a built-in `kimi-coding` provider for model discovery, reasoning controls, and OAuth login, but it does not provide this extension's Kimi Code integrations. Without this extension, Pi and the official `kimi-code` CLI log in separately (a login in one does not authenticate the other), large inline images blow up requests or fail because nothing uploads them through Kimi's Files API, Moonshot's server-side tools (`moonshot_search`, `moonshot_fetch`, `kimi_datasource`) are unavailable, Pi's tool schemas regularly exceed Moonshot's 15 KB per-tool limit and get rejected, and accounts on the wrong side of the mainland-cn / global split (kimi.com vs kimi.ai) fail with 401 because the built-in provider has no region switching. This extension closes those gaps — see [Why this exists](#why-this-exists) below for details.
 
 ## Why this exists
 
@@ -12,7 +14,8 @@ Use the built-in provider if you only want to chat with Kimi models. Install thi
 - **Share a session with the official `kimi-code` CLI.** Reuse an existing `kimi-code` login, or sync Pi's OAuth login back to `kimi-code` so both CLIs stay authenticated.
 - **Send files the Kimi way.** Large inline images go through Kimi's Files API and become `ms://` references instead of huge base64 payloads.
 - **Use Kimi-native tools.** `moonshot_search`, `moonshot_fetch`, and `kimi_datasource` are opt-in tools that call Moonshot's server-side services.
-- **Keep Pi's tools working.** Moonshot's API rejects tool schemas over 15 KB — a limit that Pi's extension ecosystem regularly hits ([#16](https://github.com/Leechael/pi-provider-kimi-code/issues/16), [#21](https://github.com/Leechael/pi-provider-kimi-code/issues/21)). This extension automatically deduplicates schemas with `$ref`/`$defs` before sending, so subagents and other extensions don't break.
+- **Meet Kimi's official schema requirements.** Moonshot's API rejects tool schemas over 15 KB — a limit that Pi's extension ecosystem regularly hits ([#16](https://github.com/Leechael/pi-provider-kimi-code/issues/16), [#21](https://github.com/Leechael/pi-provider-kimi-code/issues/21)). This extension adapts Pi's tool schemas to Kimi's requirements by automatically deduplicating them with `$ref`/`$defs` before sending, so subagents and other extensions don't break.
+- **Switch regions.** Kimi runs two managed sides (`mainland-cn` on kimi.com, `global` on kimi.ai). The extension carries the region selection through API endpoints, OAuth, and `/login`, so a kimi.ai account no longer dies with a 401 against the default `.com` endpoints.
 - **Embed in your own build.** The `KimiCode()` factory lets you ship Kimi Code support inside a custom Pi agent with programmatic config overrides — no file-based extension path needed.
 
 ## What this package adds
@@ -72,11 +75,24 @@ Pi's built-in `kimi-coding` provider already supports OAuth login via `/login`. 
 - **Syncs refreshed tokens back to `kimi-code`.** Pi stores credentials at `~/.pi/agent/auth.json`; this extension keeps the official CLI's credential file (`~/.kimi-code/credentials/kimi-code.json`) up to date so both stay authenticated.
 - **Reuses existing `kimi-code` sessions.** If you already use the official CLI, the extension reads its session directly. Set `KIMI_CODE_HOME` if its home directory lives somewhere else.
 - **Supports the legacy `~/.kimi` path.** Read-only. Set `KIMI_SHARE_DIR` to override it.
+- **Follows your region.** Managed endpoints follow the selected region (`mainland-cn` default, `global` for kimi.ai accounts) for API, OAuth, and `/login`. See [Region selection](#region-selection).
 - **`KIMI_API_KEY` fallback.** For CI or key-based access:
 
 ```bash
 KIMI_API_KEY=sk-... pi
 ```
+
+### Region selection
+
+Kimi runs two managed sides: `api.kimi.com` / `auth.kimi.com` (mainland China, default) and `api.kimi.ai` / `auth.kimi.ai` (global). If your account lives on the kimi.ai side, a global OAuth session or API key against the default `.com` endpoints fails with 401.
+
+Precedence, lowest to highest:
+
+1. Built-in default (`mainland-cn`)
+2. `KIMI_CODE_REGION` env var (`mainland-cn` or `global`)
+3. `region` in merged home/project `config.json` (`"mainland-cn"` / `"global"` / `null` = auto; project overrides home); the **Region** row in `/kimi-settings` edits this config
+
+`KIMI_CODE_BASE_URL` / `KIMI_CODE_OAUTH_HOST` overrides always win, and unknown values fall back to `mainland-cn`. `/login kimi-coding` follows the selected region end to end. See [docs/ENV.md](docs/ENV.md) for details.
 
 ## Models (legacy provider registration)
 
@@ -90,9 +106,9 @@ When this extension does register models, the official catalog determines what i
 | `kimi-coding/kimi-for-coding-highspeed` | Kimi for Coding High Speed | Official catalog |
 | `kimi-coding/k3`                        | Kimi K3                    | Official catalog |
 
-Kimi's official catalog at `https://api.kimi.com/coding/v1/models` is authoritative for model availability and context windows. When discovery is unavailable, the extension uses the fallback models and defaults below.
+Kimi's official catalog at `https://api.kimi.com/coding/v1/models` is authoritative for model availability and context windows. Since the K2.8 Preview rollout (2026-09-11), the `kimi-for-coding` ID is upgraded in place — same model ID, new engine, no config change needed. K2.8 advertises up to 1M tokens of context across all membership tiers; the catalog reports the exact window for your account.
 
-Fallback values:
+When discovery is unavailable, the extension uses the fallback models and defaults below (conservative pre-discovery values):
 
 - Context window: `256k` tokens
 - Max output: `32k` tokens
@@ -113,7 +129,7 @@ Inside Pi, run:
 /kimi-settings
 ```
 
-That command shows your signed-in account (via Kimi's `/me` endpoint), the current server-side model name (e.g. "K2.7 Code High Speed"), your Kimi quota and Extra Usage balance, and lets you edit the home or project config. Changes apply to the active session tool set.
+That command shows your signed-in account (via Kimi's `/me` endpoint), the current server-side model name (e.g. "K2.8 Code High Speed"), your Kimi quota and Extra Usage balance, the effective region, and lets you edit the home or project config. Changes apply to the active session tool set.
 
 Configurable settings include protocol mode, upload threshold, and per-tool enable/collapse.
 
@@ -137,6 +153,7 @@ Project config overrides home config with a deep merge. Missing files or missing
 ```json
 {
   "protocol": "openai",
+  "region": "global",
   "uploads": { "thresholdBytes": 1048576 },
   "tools": {
     "moonshot_search": { "enabled": true, "default_collapsed": true },
@@ -184,6 +201,7 @@ Most users do not need environment variables. Two are worth knowing:
 
 - `KIMI_API_KEY` — static API key for CI or key-based access.
 - `KIMI_CODE_PROTOCOL` — `openai` by default; set to `anthropic` for Anthropic-compatible requests, or `responses` for the OpenAI Responses API.
+- `KIMI_CODE_REGION` — `mainland-cn` (default) or `global`; selects the managed API/OAuth endpoints for kimi.com vs kimi.ai accounts.
 
 Tools, protocol, and upload threshold are all configurable through `/kimi-settings` or JSON config files.
 
@@ -219,7 +237,7 @@ The login flow always prints a verification URL. Copy it into a browser manually
 
 ### "Access denied" or subscription errors after a successful login
 
-Your Moonshot account needs an active Kimi Code Plan. If the same account works in `kimi-code`, re-run `/login kimi-coding` to refresh credentials.
+Your Moonshot account needs an active Kimi Code Plan. If the same account works in `kimi-code`, re-run `/login kimi-coding` to refresh credentials. A 401 right after login can also mean a region mismatch — accounts registered on the kimi.ai side must run with `KIMI_CODE_REGION=global` (or the matching `region` config / `/kimi-settings` row).
 
 ### Tools do not show up or return errors
 
@@ -227,7 +245,7 @@ Run `/kimi-settings` and check whether the tool is enabled in the home or projec
 
 ### Large images fail with a payload error
 
-This extension uploads images over `KIMI_CODE_UPLOAD_THRESHOLD_BYTES` (default 1 MB) to Kimi's Files API and references them as `ms://`. Set `KIMI_CODE_DEBUG=1` to see upload decisions in the provider logs.
+This extension uploads images over `KIMI_CODE_UPLOAD_THRESHOLD_BYTES` (default 1 MB) to Kimi's Files API and references them as `ms://`. Independently of that, a per-request inline media budget (~20 MB of base64 on the wire) drops oversized inline images and videos from the payload and leaves a media-kind-specific placeholder, such as `[image omitted: dropped to fit the request media budget]` or `[video omitted: dropped to fit the request media budget]`, so the model knows content was removed. Set `KIMI_CODE_DEBUG=1` to see upload and budget decisions in the provider logs.
 
 ### Prompt cache never seems to hit
 

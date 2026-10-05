@@ -38,12 +38,12 @@ These mirror the same-name environment variables in upstream `kimi-code`. When s
 
 ## Generation overrides
 
-| Variable                           | Description                                                                                                                                                                                                                         |
-| ---------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `KIMI_MODEL_TEMPERATURE`           | Force temperature on outbound requests. K2.7 Code only accepts `1`; other values are silently stripped.                                                                                                                             |
-| `KIMI_MODEL_TOP_P`                 | Force top-p on outbound requests. K2.7 Code only accepts `0.95`; other values are silently stripped.                                                                                                                                |
-| `KIMI_MODEL_MAX_COMPLETION_TOKENS` | Cap max completion tokens on outbound requests without increasing Pi's remaining-context limit.                                                                                                                                     |
-| `KIMI_MODEL_THINKING_KEEP`         | When thinking is enabled, forwarded verbatim as top-level `thinking.keep`. Moonshot-specific switch for preserving thinking content across turns (e.g. `"all"`). Has no effect when reasoning is off. Mirrors upstream `kimi-code`. |
+| Variable                           | Description                                                                                                                                                                                                                                      |
+| ---------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `KIMI_MODEL_TEMPERATURE`           | Force temperature on outbound requests. Sent only when set; otherwise `temperature` is omitted from the payload, matching the official `kimi-code` client (the old pin-to-`1` behavior for K2.7 is gone — K2.8 accepts configured values).       |
+| `KIMI_MODEL_TOP_P`                 | Force top-p on outbound requests. Sent only when set; otherwise `top_p` is omitted from the payload, matching the official `kimi-code` client (the old pin-to-`0.95` behavior for K2.7 is gone).                                                 |
+| `KIMI_MODEL_MAX_COMPLETION_TOKENS` | Cap max completion tokens on outbound requests without increasing Pi's remaining-context limit. The implicit Pi context-window cap is omitted on OpenAI wires (upstream #4091); caller-provided caps remain, subject to this configured maximum. |
+| `KIMI_MODEL_THINKING_KEEP`         | When thinking is enabled, forwarded verbatim as top-level `thinking.keep`. Moonshot-specific switch for preserving thinking content across turns (e.g. `"all"`). Has no effect when reasoning is off. Mirrors upstream `kimi-code`.              |
 
 ## Diagnostics
 
