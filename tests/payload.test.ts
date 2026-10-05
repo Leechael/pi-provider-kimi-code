@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import type { Api, Model, ThinkingLevel } from "@earendil-works/pi-ai";
 import { DEFAULT_KIMI_CODE_CONFIG, type KimiResolvedModelConfig } from "../src/config.ts";
 import {
+  applyInlineMediaBudget,
   applyKimiPayloadMutations,
   clearKimiUploadedFileCache,
   type JsonRecord,
@@ -924,6 +925,171 @@ describe("output cap policy (upstream #4091)", () => {
       baseCtx({ api: "anthropic-messages", modelConfig: windowTrackedConfig }),
     );
     assert.equal(payload.max_tokens, 258048);
+  });
+});
+
+describe("applyInlineMediaBudget (upstream #3784)", () => {
+  let uniqueCounter = 0;
+  // The budget dedupes by content, so every test image needs unique bytes.
+  const dataUrl = (bytes: number, mime = "image/png") => {
+    uniqueCounter += 1;
+    return `data:${mime};base64,${uniqueCounter}${"A".repeat(bytes)}`;
+  };
+
+  const openaiPayloadWith = (urls: string[]): JsonRecord => ({
+    messages: urls.map((url) => ({
+      role: "user",
+      content: [{ type: "image_url", image_url: { url } }],
+    })),
+  });
+
+  it("leaves payloads under the budget untouched", async () => {
+    const payload = openaiPayloadWith([dataUrl(64), dataUrl(64)]);
+    const originalContent = JSON.parse(
+      JSON.stringify((payload.messages as JsonRecord[]).map((message) => message.content)),
+    );
+    await applyKimiPayloadMutations(payload, baseCtx({ api: "openai-completions" }));
+    const messages = payload.messages as JsonRecord[];
+    assert.deepEqual(
+      messages.map((message) => message.content),
+      originalContent,
+    );
+  });
+
+  it("drops the oldest media until the total is under the low-water mark", () => {
+    const payload = openaiPayloadWith([dataUrl(40), dataUrl(40), dataUrl(40)]);
+    // Each data URL is 62 bytes: total 186 > 150, so the two oldest drop and
+    // the newest survives once the total (62) is under the low-water mark.
+    const changed = applyInlineMediaBudget(payload, "openai-completions", 150, 100);
+    assert.equal(changed, true);
+    const messages = payload.messages as JsonRecord[];
+    const block = (index: number): JsonRecord => (messages[index].content as JsonRecord[])[0];
+    assert.deepEqual(block(0), {
+      type: "text",
+      text: "[image omitted: dropped to fit the request media budget]",
+    });
+    assert.deepEqual(block(1), block(0));
+    assert.equal((block(2) as JsonRecord).type, "image_url");
+  });
+
+  it("counts string-form image URLs and videos, with a video placeholder", () => {
+    const payload: JsonRecord = {
+      messages: [
+        {
+          role: "user",
+          content: [
+            { type: "image_url", image_url: dataUrl(40) },
+            { type: "video_url", video_url: { url: dataUrl(40, "video/mp4") } },
+          ],
+        },
+      ],
+    };
+    // Two 62-byte items total 124 > 100; both drop to reach 0 <= 50.
+    applyInlineMediaBudget(payload, "openai-completions", 100, 50);
+    const blocks = (payload.messages as JsonRecord[])[0].content as JsonRecord[];
+    assert.equal(blocks[0].type, "text");
+    assert.equal(blocks[0].text, "[image omitted: dropped to fit the request media budget]");
+    assert.equal(blocks[1].type, "text");
+    assert.equal(blocks[1].text, "[video omitted: dropped to fit the request media budget]");
+  });
+
+  it("deduplicates repeated media so it counts once and drops everywhere", () => {
+    const shared = dataUrl(60);
+    const payload = openaiPayloadWith([shared, dataUrl(30), shared]);
+    // The shared image (82 bytes) dedupes to one entry: 82 + 52 = 134 > 100,
+    // dropping the shared key leaves 52 <= 60, so the unique image survives.
+    applyInlineMediaBudget(payload, "openai-completions", 100, 60);
+    const messages = payload.messages as JsonRecord[];
+    const block = (index: number): JsonRecord => (messages[index].content as JsonRecord[])[0];
+    assert.equal(block(0).type, "text");
+    assert.equal(block(2).type, "text");
+    assert.equal(block(1).type, "image_url");
+  });
+
+  it("ignores ms:// references left by the upload transforms", () => {
+    const payload = openaiPayloadWith(["ms://file-1", "ms://file-2"]);
+    const changed = applyInlineMediaBudget(payload, "openai-completions", 1, 1);
+    assert.equal(changed, false);
+  });
+
+  it("drops anthropic base64 images, including inside tool_result content", () => {
+    const payload: JsonRecord = {
+      messages: [
+        {
+          role: "user",
+          content: [
+            {
+              type: "image",
+              source: { type: "base64", media_type: "image/png", data: "A".repeat(40) },
+            },
+            {
+              type: "tool_result",
+              tool_use_id: "tu_1",
+              content: [
+                {
+                  type: "image",
+                  source: { type: "base64", media_type: "image/png", data: "B".repeat(40) },
+                },
+              ],
+            },
+          ],
+        },
+      ],
+    };
+    applyInlineMediaBudget(payload, "anthropic-messages", 60, 30);
+    const blocks = (payload.messages as JsonRecord[])[0].content as JsonRecord[];
+    assert.deepEqual(blocks[0], {
+      type: "text",
+      text: "[image omitted: dropped to fit the request media budget]",
+    });
+    const nested = (blocks[1] as JsonRecord).content as JsonRecord[];
+    assert.equal(nested[0].type, "text");
+    assert.match(String(nested[0].text), /image omitted/);
+  });
+
+  it("drops anthropic base64 videos with a video placeholder", () => {
+    const payload: JsonRecord = {
+      messages: [
+        {
+          role: "user",
+          content: [
+            {
+              type: "video",
+              source: { type: "base64", media_type: "video/mp4", data: "A".repeat(40) },
+            },
+          ],
+        },
+      ],
+    };
+    const changed = applyInlineMediaBudget(payload, "anthropic-messages", 20, 10);
+    assert.equal(changed, true);
+    const block = ((payload.messages as JsonRecord[])[0].content as JsonRecord[])[0];
+    assert.deepEqual(block, {
+      type: "text",
+      text: "[video omitted: dropped to fit the request media budget]",
+    });
+  });
+
+  it("keeps anthropic payloads under the budget untouched", () => {
+    const payload: JsonRecord = {
+      messages: [
+        {
+          role: "user",
+          content: [
+            {
+              type: "image",
+              source: { type: "base64", media_type: "image/png", data: "AAAA" },
+            },
+          ],
+        },
+      ],
+    };
+    const originalContent = JSON.parse(
+      JSON.stringify((payload.messages as JsonRecord[])[0].content),
+    );
+    const changed = applyInlineMediaBudget(payload, "anthropic-messages");
+    assert.equal(changed, false);
+    assert.deepEqual((payload.messages as JsonRecord[])[0].content, originalContent);
   });
 });
 
