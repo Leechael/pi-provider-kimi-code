@@ -51,6 +51,13 @@ function toNumber(value: unknown): number | null {
   return Number.isFinite(number) ? number : null;
 }
 
+function toOptionalNumber(value: unknown): number | null {
+  if (typeof value === "number") return Number.isFinite(value) ? value : null;
+  if (typeof value !== "string" || !value.trim()) return null;
+  const number = Number(value);
+  return Number.isFinite(number) ? number : null;
+}
+
 function toStringValue(value: unknown): string | undefined {
   if (typeof value === "string" && value.trim()) return value;
   if (typeof value === "number" && Number.isFinite(value)) return String(value);
@@ -479,6 +486,12 @@ export interface KimiUserInfo {
   userLevel: number;
   userLevelName: string;
   email?: string;
+  /**
+   * Plan generation from the managed /me profile (upstream #3921). upstream
+   * gates feedback surveys and plan-dependent surfaces by it; the monthly
+   * kimi/code quota split only exists on newer goods versions.
+   */
+  goodsVersion?: number;
 }
 
 export function parseKimiUserInfo(payload: unknown): KimiUserInfo | null {
@@ -487,12 +500,14 @@ export function parseKimiUserInfo(payload: unknown): KimiUserInfo | null {
   const userId = toStringValue(record.user_id);
   if (!userId) return null;
   const email = toStringValue(record.email);
+  const goodsVersion = toOptionalNumber(record.goods_version);
   return {
     userId,
     nickname: toStringValue(record.nickname) ?? "",
     userLevel: toNumber(record.user_level) ?? 0,
     userLevelName: toStringValue(record.user_level_name) ?? "",
     ...(email ? { email } : {}),
+    ...(goodsVersion !== null ? { goodsVersion } : {}),
   };
 }
 
