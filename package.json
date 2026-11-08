@@ -58,14 +58,15 @@
     "proper-lockfile": "^4.1.2"
   },
   "devDependencies": {
-    "@earendil-works/pi-ai": "^0.99.2",
-    "@earendil-works/pi-coding-agent": "^0.99.2",
-    "@earendil-works/pi-tui": "^0.99.2",
-    "@j178/prek": "^0.5.2",
-    "@types/node": "^24.0.0",
+    "@earendil-works/pi-ai": "^1.5.0",
+    "@earendil-works/pi-coding-agent": "^1.5.0",
+    "@earendil-works/pi-tui": "^1.5.0",
+    "@j178/prek": "^0.5.10",
+    "@types/node": "^24.19.2",
     "@types/proper-lockfile": "^4.1.4",
-    "oxfmt": "^0.67.0",
-    "oxlint": "^1.82.0",
+    "oxfmt": "^0.77.0",
+    "oxlint": "^1.92.0",
+    "typebox": "^1.4.6",
     "typescript": "^5.9.0"
   },
   "peerDependencies": {
