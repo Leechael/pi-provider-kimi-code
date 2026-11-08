@@ -218,6 +218,24 @@ export async function requestDeviceAuthorization(): Promise<DeviceAuthorization>
     throw new Error("Invalid device authorization response");
   }
 
+  // Guard against a malicious or buggy server handing us a non-web URL
+  // (file:, custom scheme, ...) that the OS URL handler would happily open.
+  // Mirrors pi 1.5.0's check for the built-in OAuth providers.
+  for (const url of [data.verification_uri, verificationUrl]) {
+    if (!url) continue;
+    let parsed: URL;
+    try {
+      parsed = new URL(url);
+    } catch {
+      throw new Error("Device authorization returned an invalid verification URL");
+    }
+    if (parsed.protocol !== "https:" && parsed.protocol !== "http:") {
+      throw new Error(
+        `Device authorization returned a non-web verification URL (${parsed.protocol})`,
+      );
+    }
+  }
+
   return {
     user_code: data.user_code,
     device_code: data.device_code,
