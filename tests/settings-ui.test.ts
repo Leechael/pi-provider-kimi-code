@@ -23,6 +23,7 @@ import {
   protocolMenuItem,
   regionMenuItem,
   setProtocol,
+  setThinkingKeep,
   setUploadThreshold,
   toggleCollapsed,
   toggleEnabled,
@@ -107,6 +108,7 @@ describe("settings title, status, and menu helpers", () => {
         "Protocol: anthropic (env)",
         "Region: auto (default)",
         "Upload threshold: 1.50 KiB (runtime)",
+        "Thinking keep: all (default)",
         "",
         "Effective tools:",
         "- moonshot_search: enabled (home)",
@@ -174,12 +176,17 @@ describe("settings config mutators", () => {
     const expanded = toggleCollapsed(base, "moonshot_search");
     const protocol = setProtocol(base, "responses");
     const threshold = setUploadThreshold(base, 2048);
+    const keepLast = setThinkingKeep(base, "last");
+    const keepDefault = setThinkingKeep(base, null);
 
     assert.equal(base.tools.moonshot_search.enabled, false);
     assert.equal(enabled.tools.moonshot_search.enabled, true);
     assert.equal(expanded.tools.moonshot_search.default_collapsed, false);
     assert.equal(protocol.protocol, "responses");
     assert.equal(threshold.uploads.thresholdBytes, 2048);
+    assert.equal(base.model.thinkingKeep, "all");
+    assert.equal(keepLast.model.thinkingKeep, "last");
+    assert.equal(keepDefault.model.thinkingKeep, null);
   });
 });
 

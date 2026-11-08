@@ -250,6 +250,7 @@ async function openSettingsMenu(
         list.updateValue("protocol", drafts[scope].protocol);
         list.updateValue("region", formatRegionValue(drafts[scope].region));
         list.updateValue("uploadThreshold", formatByteSize(drafts[scope].uploads.thresholdBytes));
+        list.updateValue("thinkingKeep", drafts[scope].model.thinkingKeep ?? "default");
       };
 
       const save = () => {
@@ -295,6 +296,13 @@ async function openSettingsMenu(
           }
           drafts[scope].uploads.thresholdBytes = bytes;
           list.updateValue(id, formatByteSize(bytes));
+          save();
+          return;
+        }
+        if (id === "thinkingKeep") {
+          drafts[scope].model.thinkingKeep =
+            newValue === "default" ? null : (newValue as KimiCodeConfig["model"]["thinkingKeep"]);
+          list.updateValue(id, newValue);
           save();
           return;
         }
@@ -367,6 +375,14 @@ async function openSettingsMenu(
         description: "Managed deployment region (auto follows KIMI_CODE_REGION / default)",
         currentValue: formatRegionValue(drafts[scope].region),
         values: ["auto", "mainland-cn", "global"],
+      });
+      items.push({
+        id: "thinkingKeep",
+        label: "Keep thinking",
+        description:
+          "thinking.keep sent to the Kimi API: how much reasoning history the server should retain across turns",
+        currentValue: drafts[scope].model.thinkingKeep ?? "default",
+        values: ["default", "all", "last", "none"],
       });
       items.push({
         id: "uploadThreshold",

@@ -15,3 +15,4 @@
 
 - The `/kimi-coding` settings dialog now reports pi as blocked on user input (OSC 7501 program status) while it is open, so supporting terminals show the correct waiting state.
 - This changelog: pi 1.5.0 shows extension update notes on the next launch after an update.
+- The `/kimi-settings` dialog now exposes **Keep thinking** (`model.thinkingKeep`: `default` / `all` / `last` / `none`), controlling the `thinking.keep` value sent to the Kimi API — i.e. how much reasoning history the server retains across turns. The wire and config plumbing already existed; this makes it adjustable without editing JSON.

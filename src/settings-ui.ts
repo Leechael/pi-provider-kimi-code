@@ -69,6 +69,13 @@ export function setUploadThreshold(config: KimiCodeConfig, thresholdBytes: numbe
   return { ...config, uploads: { ...config.uploads, thresholdBytes } };
 }
 
+export function setThinkingKeep(
+  config: KimiCodeConfig,
+  thinkingKeep: KimiCodeConfig["model"]["thinkingKeep"],
+): KimiCodeConfig {
+  return { ...config, model: { ...config.model, thinkingKeep } };
+}
+
 export function buildKimiMainTitle(
   config: KimiCodeConfig,
   extras: KimiOAuthExtras,
@@ -82,6 +89,7 @@ export function buildKimiMainTitle(
     `Protocol: ${config.protocol} (${sources.protocol})`,
     `Region: ${formatRegionValue(config.region)} (${sources.region})`,
     `Upload threshold: ${formatByteSize(config.uploads.thresholdBytes)} (${sources.uploads.thresholdBytes})`,
+    `Thinking keep: ${config.model.thinkingKeep ?? "default"} (${sources.model.thinkingKeep})`,
     "",
     "Effective tools:",
     ...KIMI_TOOL_NAMES.map((toolName) => {
