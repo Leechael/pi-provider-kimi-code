@@ -18,11 +18,7 @@ jobs:
       fail-fast: false
       matrix:
         pi-version:
-          - 0.78.1
-          - 0.79.10
-          - 0.80.9
-          - 0.85.1
-          - 0.99.2
+          - 1.5.0
     name: test (pi ${{ matrix.pi-version }})
     steps:
       - name: Checkout
@@ -94,7 +90,7 @@ jobs:
         run: npm run format:check
 
       - name: Package size
-        if: matrix.pi-version == '0.79.10'
+        if: matrix.pi-version == '1.5.0'
         id: package
         shell: bash
         run: |
@@ -122,7 +118,7 @@ jobs:
           } >> "$GITHUB_OUTPUT"
 
       - name: Comment coverage and package size
-        if: always() && matrix.pi-version == '0.79.10' && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+        if: always() && matrix.pi-version == '1.5.0' && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
         uses: actions/github-script@v9
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
