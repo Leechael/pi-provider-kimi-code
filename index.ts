@@ -224,204 +224,209 @@ async function openSettingsMenu(
   let scope: KimiConfigScope = projectTrusted ? "project" : "home";
   let dirty = false;
 
-  await ctx.ui.custom<void>((tui, theme, _keybindings, done) => {
-    const settingsTheme = buildSettingsTheme(theme);
+  await ctx.ui.custom<void>(
+    (tui, theme, _keybindings, done) => {
+      const settingsTheme = buildSettingsTheme(theme);
 
-    let list: SettingsList;
+      let list: SettingsList;
 
-    const toolLabel = (toolName: KimiToolName) => {
-      if (toolName === "moonshot_search") return "Search tool";
-      if (toolName === "moonshot_fetch") return "Fetch tool";
-      return "Real-world data API";
-    };
+      const toolLabel = (toolName: KimiToolName) => {
+        if (toolName === "moonshot_search") return "Search tool";
+        if (toolName === "moonshot_fetch") return "Fetch tool";
+        return "Real-world data API";
+      };
 
-    const formatToolMenuValue = (toolName: KimiToolName) => {
-      const tool = drafts[scope].tools[toolName];
-      if (!tool.enabled) return "disabled";
-      return tool.default_collapsed ? "enabled without preview" : "enabled with preview";
-    };
+      const formatToolMenuValue = (toolName: KimiToolName) => {
+        const tool = drafts[scope].tools[toolName];
+        if (!tool.enabled) return "disabled";
+        return tool.default_collapsed ? "enabled without preview" : "enabled with preview";
+      };
 
-    const refreshDisplays = () => {
-      scopeItem.description = formatScopeDescription(scope, ctx.cwd);
-      for (const toolName of KIMI_TOOL_NAMES) {
-        list.updateValue(toolName, formatToolMenuValue(toolName));
-      }
-      list.updateValue("protocol", drafts[scope].protocol);
-      list.updateValue("region", formatRegionValue(drafts[scope].region));
-      list.updateValue("uploadThreshold", formatByteSize(drafts[scope].uploads.thresholdBytes));
-    };
+      const refreshDisplays = () => {
+        scopeItem.description = formatScopeDescription(scope, ctx.cwd);
+        for (const toolName of KIMI_TOOL_NAMES) {
+          list.updateValue(toolName, formatToolMenuValue(toolName));
+        }
+        list.updateValue("protocol", drafts[scope].protocol);
+        list.updateValue("region", formatRegionValue(drafts[scope].region));
+        list.updateValue("uploadThreshold", formatByteSize(drafts[scope].uploads.thresholdBytes));
+      };
 
-    const save = () => {
-      if (scope === "project" && !projectTrusted) {
-        ctx.ui.notify("Project config cannot be saved until the project is trusted.", "warning");
-        return;
-      }
-      try {
-        saveScopeKimiCodeConfig(scope, ctx.cwd, drafts[scope]);
-        applyEffectiveKimiRuntimeConfig(pi, state, ctx.cwd, {
-          updateActiveTools: true,
-          projectTrusted: scope === "project" ? true : projectTrusted,
-        });
-        dirty = true;
-      } catch (error: unknown) {
-        ctx.ui.notify((error as Error).message, "error");
-      }
-    };
-
-    const onChange = (id: string, newValue: string) => {
-      if (id === "scope") {
-        scope = newValue as KimiConfigScope;
-        refreshDisplays();
-        return;
-      }
-      if (id === "protocol") {
-        drafts[scope].protocol = newValue as KimiCodeConfig["protocol"];
-        list.updateValue(id, newValue);
-        save();
-        return;
-      }
-      if (id === "region") {
-        drafts[scope].region = newValue === "auto" ? null : (newValue as KimiRegion);
-        list.updateValue(id, newValue);
-        save();
-        return;
-      }
-      if (id === "uploadThreshold") {
-        const bytes = parseByteSizeInput(newValue);
-        if (bytes === undefined || bytes <= 0) {
-          ctx.ui.notify("Upload threshold must be a positive size, for example 2 MiB", "error");
+      const save = () => {
+        if (scope === "project" && !projectTrusted) {
+          ctx.ui.notify("Project config cannot be saved until the project is trusted.", "warning");
           return;
         }
-        drafts[scope].uploads.thresholdBytes = bytes;
-        list.updateValue(id, formatByteSize(bytes));
-        save();
-        return;
-      }
-      const toolMatch = /^(?<tool>.+):(?<field>enabled|collapsed)$/.exec(id);
-      if (toolMatch?.groups) {
-        const toolName = toolMatch.groups.tool as KimiToolName;
-        const field = toolMatch.groups.field as "enabled" | "collapsed";
-        if (field === "enabled") {
-          drafts[scope].tools[toolName].enabled = newValue === "true";
-        } else {
-          drafts[scope].tools[toolName].default_collapsed = newValue !== "true";
+        try {
+          saveScopeKimiCodeConfig(scope, ctx.cwd, drafts[scope]);
+          applyEffectiveKimiRuntimeConfig(pi, state, ctx.cwd, {
+            updateActiveTools: true,
+            projectTrusted: scope === "project" ? true : projectTrusted,
+          });
+          dirty = true;
+        } catch (error: unknown) {
+          ctx.ui.notify((error as Error).message, "error");
         }
-        list.updateValue(toolName, formatToolMenuValue(toolName));
-        save();
-      }
-    };
+      };
 
-    const scopeItem: SettingItem = {
-      id: "scope",
-      label: "Config scope",
-      description: projectTrusted
-        ? formatScopeDescription(scope, ctx.cwd)
-        : "Project config disabled until the project is trusted; editing home config only",
-      currentValue: scope,
-      values: projectTrusted ? ["project", "home"] : ["home"],
-    };
-
-    const items: SettingItem[] = [scopeItem];
-    for (const toolName of KIMI_TOOL_NAMES) {
-      items.push({
-        id: toolName,
-        label: toolLabel(toolName),
-        description: `Configure ${toolName} registration and preview defaults`,
-        currentValue: formatToolMenuValue(toolName),
-        submenu: (_current, submenuDone) =>
-          new SettingsList(
-            [
-              {
-                id: `${toolName}:enabled`,
-                label: "Enabled",
-                description: `Register ${toolName} at session start`,
-                currentValue: String(drafts[scope].tools[toolName].enabled),
-                values: ["true", "false"],
-              },
-              {
-                id: `${toolName}:collapsed`,
-                label: "Show preview",
-                description: `Show ${toolName} result previews by default`,
-                currentValue: String(!drafts[scope].tools[toolName].default_collapsed),
-                values: ["true", "false"],
-              },
-            ],
-            2,
-            settingsTheme,
-            onChange,
-            () => submenuDone(),
-          ),
-      });
-    }
-    items.push({
-      id: "protocol",
-      label: "Protocol",
-      description: "API protocol for Kimi requests",
-      currentValue: drafts[scope].protocol,
-      values: ["openai", "anthropic", "responses"],
-    });
-    items.push({
-      id: "region",
-      label: "Region",
-      description: "Managed deployment region (auto follows KIMI_CODE_REGION / default)",
-      currentValue: formatRegionValue(drafts[scope].region),
-      values: ["auto", "mainland-cn", "global"],
-    });
-    items.push({
-      id: "uploadThreshold",
-      label: "Upload threshold",
-      description: "Max size for inline file uploads",
-      currentValue: formatByteSize(drafts[scope].uploads.thresholdBytes),
-      submenu: (_current, submenuDone) => {
-        const input = new Input();
-        input.setValue(formatByteSize(drafts[scope].uploads.thresholdBytes));
-        input.onSubmit = (value) => {
-          const bytes = parseByteSizeInput(value);
+      const onChange = (id: string, newValue: string) => {
+        if (id === "scope") {
+          scope = newValue as KimiConfigScope;
+          refreshDisplays();
+          return;
+        }
+        if (id === "protocol") {
+          drafts[scope].protocol = newValue as KimiCodeConfig["protocol"];
+          list.updateValue(id, newValue);
+          save();
+          return;
+        }
+        if (id === "region") {
+          drafts[scope].region = newValue === "auto" ? null : (newValue as KimiRegion);
+          list.updateValue(id, newValue);
+          save();
+          return;
+        }
+        if (id === "uploadThreshold") {
+          const bytes = parseByteSizeInput(newValue);
           if (bytes === undefined || bytes <= 0) {
             ctx.ui.notify("Upload threshold must be a positive size, for example 2 MiB", "error");
-            submenuDone();
             return;
           }
-          submenuDone(formatByteSize(bytes));
-        };
-        input.onEscape = () => submenuDone();
-        return input;
-      },
-    });
+          drafts[scope].uploads.thresholdBytes = bytes;
+          list.updateValue(id, formatByteSize(bytes));
+          save();
+          return;
+        }
+        const toolMatch = /^(?<tool>.+):(?<field>enabled|collapsed)$/.exec(id);
+        if (toolMatch?.groups) {
+          const toolName = toolMatch.groups.tool as KimiToolName;
+          const field = toolMatch.groups.field as "enabled" | "collapsed";
+          if (field === "enabled") {
+            drafts[scope].tools[toolName].enabled = newValue === "true";
+          } else {
+            drafts[scope].tools[toolName].default_collapsed = newValue !== "true";
+          }
+          list.updateValue(toolName, formatToolMenuValue(toolName));
+          save();
+        }
+      };
 
-    list = new SettingsList(items, items.length, settingsTheme, onChange, () => done(), {
-      enableSearch: true,
-    });
+      const scopeItem: SettingItem = {
+        id: "scope",
+        label: "Config scope",
+        description: projectTrusted
+          ? formatScopeDescription(scope, ctx.cwd)
+          : "Project config disabled until the project is trusted; editing home config only",
+        currentValue: scope,
+        values: projectTrusted ? ["project", "home"] : ["home"],
+      };
 
-    return {
-      items,
-      onChange,
-      render(width: number) {
-        const usageLines = usage.split("\n").map((line) => truncateToWidth(`  ${line}`, width));
-        return [
-          truncateToWidth(
-            theme.fg("accent", theme.bold(`Kimi settings (provider v${PROVIDER_VERSION})`)),
-            width,
-          ),
-          "",
-          truncateToWidth(theme.fg("accent", theme.bold("Kimi account")), width),
-          truncateToWidth(`  ${account}`, width),
-          "",
-          truncateToWidth(theme.fg("accent", theme.bold("Kimi usage")), width),
-          ...usageLines,
-          "",
-          ...list.render(width),
-        ];
-      },
-      handleInput(data: string) {
-        list.handleInput?.(data);
-        tui.requestRender();
-      },
-      invalidate() {
-        list.invalidate();
-      },
-    };
-  });
+      const items: SettingItem[] = [scopeItem];
+      for (const toolName of KIMI_TOOL_NAMES) {
+        items.push({
+          id: toolName,
+          label: toolLabel(toolName),
+          description: `Configure ${toolName} registration and preview defaults`,
+          currentValue: formatToolMenuValue(toolName),
+          submenu: (_current, submenuDone) =>
+            new SettingsList(
+              [
+                {
+                  id: `${toolName}:enabled`,
+                  label: "Enabled",
+                  description: `Register ${toolName} at session start`,
+                  currentValue: String(drafts[scope].tools[toolName].enabled),
+                  values: ["true", "false"],
+                },
+                {
+                  id: `${toolName}:collapsed`,
+                  label: "Show preview",
+                  description: `Show ${toolName} result previews by default`,
+                  currentValue: String(!drafts[scope].tools[toolName].default_collapsed),
+                  values: ["true", "false"],
+                },
+              ],
+              2,
+              settingsTheme,
+              onChange,
+              () => submenuDone(),
+            ),
+        });
+      }
+      items.push({
+        id: "protocol",
+        label: "Protocol",
+        description: "API protocol for Kimi requests",
+        currentValue: drafts[scope].protocol,
+        values: ["openai", "anthropic", "responses"],
+      });
+      items.push({
+        id: "region",
+        label: "Region",
+        description: "Managed deployment region (auto follows KIMI_CODE_REGION / default)",
+        currentValue: formatRegionValue(drafts[scope].region),
+        values: ["auto", "mainland-cn", "global"],
+      });
+      items.push({
+        id: "uploadThreshold",
+        label: "Upload threshold",
+        description: "Max size for inline file uploads",
+        currentValue: formatByteSize(drafts[scope].uploads.thresholdBytes),
+        submenu: (_current, submenuDone) => {
+          const input = new Input();
+          input.setValue(formatByteSize(drafts[scope].uploads.thresholdBytes));
+          input.onSubmit = (value) => {
+            const bytes = parseByteSizeInput(value);
+            if (bytes === undefined || bytes <= 0) {
+              ctx.ui.notify("Upload threshold must be a positive size, for example 2 MiB", "error");
+              submenuDone();
+              return;
+            }
+            submenuDone(formatByteSize(bytes));
+          };
+          input.onEscape = () => submenuDone();
+          return input;
+        },
+      });
+
+      list = new SettingsList(items, items.length, settingsTheme, onChange, () => done(), {
+        enableSearch: true,
+      });
+
+      return {
+        items,
+        onChange,
+        render(width: number) {
+          const usageLines = usage.split("\n").map((line) => truncateToWidth(`  ${line}`, width));
+          return [
+            truncateToWidth(
+              theme.fg("accent", theme.bold(`Kimi settings (provider v${PROVIDER_VERSION})`)),
+              width,
+            ),
+            "",
+            truncateToWidth(theme.fg("accent", theme.bold("Kimi account")), width),
+            truncateToWidth(`  ${account}`, width),
+            "",
+            truncateToWidth(theme.fg("accent", theme.bold("Kimi usage")), width),
+            ...usageLines,
+            "",
+            ...list.render(width),
+          ];
+        },
+        handleInput(data: string) {
+          list.handleInput?.(data);
+          tui.requestRender();
+        },
+        invalidate() {
+          list.invalidate();
+        },
+      };
+    },
+    {
+      blocked: { kind: "question", message: "Kimi settings" },
+    },
+  );
 
   if (dirty) await ctx.reload();
 }
