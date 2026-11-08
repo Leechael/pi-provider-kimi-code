@@ -1,5 +1,5 @@
 import { defineTool } from "@earendil-works/pi-coding-agent";
-import { Type, type Static } from "typebox";
+import { lit, map, obj, opt, str, union, unknown, type Static } from "@earendil-works/pi-schema";
 
 import {
   type BuildKimiToolOptions,
@@ -66,21 +66,21 @@ const DATASOURCE_DEFINITIONS = [
 
 const DATASOURCE_NAMES = DATASOURCE_DEFINITIONS.map((source) => source.name);
 
-export const kimiDatasourceSchema = Type.Object({
-  data_source_name: Type.Union(
-    DATASOURCE_NAMES.map((name) => Type.Literal(name)),
+export const kimiDatasourceSchema = obj({
+  data_source_name: union(
+    DATASOURCE_NAMES.map((name) => lit(name)),
     {
       description:
         "Source: stock_finance_data stocks/reports; yahoo_finance quotes/options; world_bank_open_data GDP/population; imf FX/CPI/GDP forecasts; tianyancha Chinese company registry/legal rep; arxiv preprints; scholar citations; yuandian_law Chinese laws/cases/contracts; wind A-share intraday minute series/funds/bonds (map field names via wind_search_fields first); gildata natural-language stock/fund screening; sec_edgar US filings (10-K/10-Q, S-1, Form 4, 13F, 8-K); sp_data S&P fundamentals (estimates, valuation, transcripts).",
     },
   ),
-  api_name: Type.Optional(
-    Type.String({
+  api_name: opt(
+    str({
       description: "API name from the datasource docs. Omit to get docs first.",
     }),
   ),
-  params: Type.Optional(
-    Type.Record(Type.String(), Type.Unknown(), {
+  params: opt(
+    map(unknown(), {
       description: "Parameters matching the selected datasource API docs.",
     }),
   ),
@@ -176,7 +176,7 @@ export function buildKimiDatasourceTool(options: BuildKimiToolOptions = {}) {
     promptSnippet: "Query Kimi datasource APIs; get docs first, then call documented api_name",
     parameters: kimiDatasourceSchema,
 
-    async execute(toolCallId, params, signal) {
+    async execute(toolCallId, params: KimiDatasourceParams, signal) {
       const accessToken = deps.getAccessToken();
       if (!accessToken) {
         return errorResult<string>(
