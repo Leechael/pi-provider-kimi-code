@@ -83,6 +83,16 @@ import {
   getBaseUrl,
 } from "./constants.ts";
 import { getKimiProviderHeaders } from "./device.ts";
+import { improveKimiErrorMessage } from "./errors.ts";
+
+function improveErrorEvent(event: AssistantMessageEvent): AssistantMessageEvent {
+  if (event.type !== "error") return event;
+  const message = event.error?.errorMessage;
+  if (!message) return event;
+  const improved = improveKimiErrorMessage(message);
+  if (improved === message || !event.error) return event;
+  return { ...event, error: { ...event.error, errorMessage: improved } };
+}
 import {
   isKimiAuthErrorMessage,
   readStoredOAuthCredential,
@@ -471,10 +481,11 @@ export function streamSimpleKimi(
           }
 
           // First non-start, non-retry event: flush buffered prefix, then
-          // stream normally.
+          // stream normally. Quota-exhaustion errors get an actionable
+          // rewrite (hard limit, not a transient 429).
           for (const e of prefixBuffer) filtered.push(e);
           prefixBuffer = [];
-          filtered.push(event);
+          filtered.push(improveErrorEvent(event));
         }
 
         // Stream ended normally: flush any remaining buffered starts.
@@ -509,7 +520,9 @@ export function streamSimpleKimi(
               model: model.id,
               content: [],
               stopReason: "error",
-              errorMessage: err instanceof Error ? err.message : String(err),
+              errorMessage: improveKimiErrorMessage(
+                err instanceof Error ? err.message : String(err),
+              ),
               usage: {
                 input: 0,
                 output: 0,
