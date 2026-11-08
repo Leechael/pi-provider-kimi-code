@@ -1,9 +1,29 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
+import { writeFileSync } from "node:fs";
 
 import { visibleWidth } from "@earendil-works/pi-tui";
 
+import {
+  BUNDLED_DATASOURCE_SOURCES,
+  resetDatasourceCatalogForTests,
+} from "../src/tools/datasource-catalog.ts";
 import { buildKimiDatasourceTool } from "../src/tools/datasource.ts";
+
+// Isolate the catalog cache: never read or write the developer's real
+// ~/.kimi-code/kimi-datasource-catalog.json from tests. Seed a fresh cache so
+// the lazy background sync never touches the mocked fetch.
+process.env.KIMI_DATASOURCE_CATALOG_PATH ??= `/tmp/kimi-ds-test-${process.pid}.json`;
+writeFileSync(
+  process.env.KIMI_DATASOURCE_CATALOG_PATH,
+  JSON.stringify({
+    version: "test",
+    sources: BUNDLED_DATASOURCE_SOURCES,
+    capabilities: "test",
+    fetchedAt: Date.now(),
+  }),
+);
+resetDatasourceCatalogForTests();
 
 function renderText(component: { render: (width: number) => string[] }): string {
   return component.render(80).join("\n");

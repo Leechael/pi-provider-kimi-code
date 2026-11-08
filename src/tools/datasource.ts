@@ -1,5 +1,12 @@
 import { defineTool } from "@earendil-works/pi-coding-agent";
-import { lit, map, obj, opt, str, union, unknown, type Static } from "@earendil-works/pi-schema";
+import { map, obj, opt, str, unknown, type Static } from "@earendil-works/pi-schema";
+
+import {
+  ensureDatasourceCatalog,
+  peekDatasourceCatalog,
+  readCatalogCacheSync,
+  refreshDatasourceCatalogInBackground,
+} from "./datasource-catalog.ts";
 
 import {
   type BuildKimiToolOptions,
@@ -15,65 +22,14 @@ import {
   textComponent,
 } from "./common.ts";
 
-const DATASOURCE_DEFINITIONS = [
-  {
-    name: "stock_finance_data",
-    description: "A/HK/US stocks, prices, financial reports, indicators, shareholders.",
-  },
-  {
-    name: "yahoo_finance",
-    description: "Global finance: quotes, analyst ratings, options, indexes, historical prices.",
-  },
-  {
-    name: "world_bank_open_data",
-    description: "World Bank macro data: GDP, inflation, population, country comparisons.",
-  },
-  {
-    name: "tianyancha",
-    description: "Chinese enterprise registry: shareholders, legal representative, risks, patents.",
-  },
-  { name: "arxiv", description: "arXiv preprints: paper search, abstracts, arXiv IDs." },
-  {
-    name: "scholar",
-    description: "Google Scholar: academic papers, authors, citations, high-citation surveys.",
-  },
-  {
-    name: "yuandian_law",
-    description: "Chinese laws, regulations, judicial cases; labor contracts and legal clauses.",
-  },
-  {
-    name: "wind",
-    description:
-      "A-share intraday minute series, funds, bonds; map PE/PB/ROE-style field names via wind_search_fields first.",
-  },
-  {
-    name: "imf",
-    description: "IMF macro data: FX rates, CPI, GDP forecasts, balance of payments.",
-  },
-  {
-    name: "gildata",
-    description: "Natural-language stock/fund screening.",
-  },
-  {
-    name: "sec_edgar",
-    description: "US SEC filings: 10-K/10-Q, S-1, Form 4, 13F, 8-K.",
-  },
-  {
-    name: "sp_data",
-    description: "S&P fundamentals: consensus estimates, valuation ratios, transcripts.",
-  },
-] as const;
-
-const DATASOURCE_NAMES = DATASOURCE_DEFINITIONS.map((source) => source.name);
-
+// Source names are validated at call time against the synced catalog
+// (datasource-catalog.ts) instead of a static enum, so sources added
+// server-side never get rejected by a stale client schema.
 export const kimiDatasourceSchema = obj({
-  data_source_name: union(
-    DATASOURCE_NAMES.map((name) => lit(name)),
-    {
-      description:
-        "Source: stock_finance_data stocks/reports; yahoo_finance quotes/options; world_bank_open_data GDP/population; imf FX/CPI/GDP forecasts; tianyancha Chinese company registry/legal rep; arxiv preprints; scholar citations; yuandian_law Chinese laws/cases/contracts; wind A-share intraday minute series/funds/bonds (map field names via wind_search_fields first); gildata natural-language stock/fund screening; sec_edgar US filings (10-K/10-Q, S-1, Form 4, 13F, 8-K); sp_data S&P fundamentals (estimates, valuation, transcripts).",
-    },
-  ),
+  data_source_name: str({
+    description:
+      "Data source name. The set of available sources is synced from the official kimi-datasource plugin and cached for 24h; if a call fails with an unknown-source error, pick one of the names listed in that error.",
+  }),
   api_name: opt(
     str({
       description: "API name from the datasource docs. Omit to get docs first.",
@@ -164,6 +120,16 @@ function buildTraceLine(toolCallId: string, requestId: string | undefined): stri
   return `\n\n[kimi-datasource] ${parts.join(" · ")}`;
 }
 
+function buildDescription(): string {
+  const base =
+    "Call Kimi datasource APIs: finance/quotes, macro & government data, papers, Chinese law, chemistry/bio/materials, and more. First omit api_name to get docs, then call api_name with documented params.";
+  // Registration-time snapshot: embed the cached catalog so the model sees the
+  // current source list without any network I/O. Refreshed lazily on use.
+  const cached = readCatalogCacheSync();
+  if (!cached) return base;
+  return `${base} Known sources (kimi-datasource v${cached.version}): ${cached.capabilities}`;
+}
+
 export function buildKimiDatasourceTool(options: BuildKimiToolOptions = {}) {
   const deps = buildKimiToolDeps(options);
   const defaultCollapsed = options.defaultCollapsed ?? true;
@@ -171,8 +137,7 @@ export function buildKimiDatasourceTool(options: BuildKimiToolOptions = {}) {
   return defineTool({
     name: "kimi_datasource",
     label: "Kimi Datasource",
-    description:
-      "Call Kimi datasource APIs. Covers stocks/finance, macro data, Chinese company registry, papers, and Chinese law/cases/contracts. First omit api_name to get docs, then call api_name with documented params.",
+    description: buildDescription(),
     promptSnippet: "Query Kimi datasource APIs; get docs first, then call documented api_name",
     parameters: kimiDatasourceSchema,
 
@@ -186,19 +151,40 @@ export function buildKimiDatasourceTool(options: BuildKimiToolOptions = {}) {
 
       const timeout = buildTimeoutSignal(signal);
       try {
+        const sourceName = params.data_source_name.trim();
+
+        // Lazy catalog sync: validate against the best-known catalog without
+        // blocking, and refresh in the background when it is stale. Unknown
+        // names get one forced refresh before we reject them, so newly added
+        // server-side sources work even when the local cache is old.
+        let catalog = peekDatasourceCatalog();
+        if (!catalog.sources.includes(sourceName)) {
+          catalog = await ensureDatasourceCatalog({
+            fetchImpl: deps.fetch,
+            forceRefresh: true,
+          });
+          if (!catalog.sources.includes(sourceName)) {
+            return errorResult<string>(
+              `Unknown data source "${sourceName}". Available sources (kimi-datasource v${catalog.version}): ${catalog.sources.join(", ")}`,
+            );
+          }
+        } else {
+          refreshDatasourceCatalogInBackground(deps.fetch);
+        }
+
         const apiName = params.api_name?.trim();
         const body = apiName
           ? {
               method: "call_data_source_tool",
               params: {
-                data_source_name: params.data_source_name,
+                data_source_name: sourceName,
                 api_name: apiName,
                 params: params.params ?? {},
               },
             }
           : {
               method: "get_data_source_desc",
-              params: { name: params.data_source_name },
+              params: { name: sourceName },
             };
 
         const response = await fetchWithAuthRetry(deps, accessToken, (token) =>
