@@ -332,6 +332,89 @@ describe("discoverKimiModelMetadata", () => {
     assert.equal(result.supportsReasoning, true);
   });
 
+  // Unified /models schema (upstream kimi-code #4209): the official client
+  // reads ONLY limit.context / reasoning / modalities.input / tools, so these
+  // fields must win over the legacy flat ones when both are present.
+  it("prefers unified limit.context over legacy context_length", async () => {
+    mock = mockFetch(() =>
+      jsonResponse({
+        data: [{ id: "kimi-for-coding", context_length: 131072, limit: { context: 1048576 } }],
+      }),
+    );
+
+    const result = await discoverKimiModelMetadata("tok-1");
+    assert.equal(result.contextLength, 1048576);
+  });
+
+  it("prefers unified reasoning over legacy thinking fields", async () => {
+    mock = mockFetch(() =>
+      jsonResponse({
+        data: [
+          {
+            id: "kimi-for-coding",
+            supports_thinking_type: "no",
+            think_efforts: { support: true, valid_efforts: ["low"], default_effort: "low" },
+            reasoning: { type: "only", effort: { valid: ["low", "high", "max"], default: "max" } },
+          },
+        ],
+      }),
+    );
+
+    const result = await discoverKimiModelMetadata("tok-1");
+    assert.equal(result.supportsThinkingType, "only");
+    assert.equal(result.supportsReasoning, true);
+    assert.deepEqual(result.supportEfforts, ["low", "high", "max"]);
+    assert.equal(result.defaultEffort, "max");
+  });
+
+  it("maps unified reasoning type 'none' to thinking 'no' and clears stale reasoning", async () => {
+    mock = mockFetch(() =>
+      jsonResponse({
+        data: [{ id: "kimi-for-coding", supports_reasoning: true, reasoning: { type: "none" } }],
+      }),
+    );
+
+    const result = await discoverKimiModelMetadata("tok-1");
+    assert.equal(result.supportsThinkingType, "no");
+    assert.equal(result.supportsReasoning, false);
+  });
+
+  it("drops a unified effort default that is not listed in valid", async () => {
+    mock = mockFetch(() =>
+      jsonResponse({
+        data: [
+          {
+            id: "kimi-for-coding",
+            reasoning: { type: "both", effort: { valid: ["low", "high"], default: "max" } },
+          },
+        ],
+      }),
+    );
+
+    const result = await discoverKimiModelMetadata("tok-1");
+    assert.deepEqual(result.supportEfforts, ["low", "high"]);
+    assert.equal(result.defaultEffort, undefined);
+  });
+
+  it("prefers unified modalities.input over legacy image/video flags", async () => {
+    mock = mockFetch(() =>
+      jsonResponse({
+        data: [
+          {
+            id: "kimi-for-coding",
+            supports_image_in: true,
+            supports_video_in: true,
+            modalities: { input: ["text", "image"], output: ["text"] },
+          },
+        ],
+      }),
+    );
+
+    const result = await discoverKimiModelMetadata("tok-1");
+    assert.equal(result.supportsImageIn, true);
+    assert.equal(result.supportsVideoIn, false);
+  });
+
   it("marks a fresh standard-only catalog so unavailable models can be removed", async () => {
     mock = mockFetch(() => jsonResponse({ data: [{ id: "kimi-for-coding" }] }));
     const result = await discoverKimiModelMetadata("tok-1");

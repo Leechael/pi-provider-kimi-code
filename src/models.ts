@@ -184,6 +184,13 @@ interface KimiServerModel {
   supports_thinking_type?: unknown;
   protocol?: unknown;
   think_efforts?: unknown;
+  // Unified schema (upstream kimi-code #4209). The server currently sends
+  // both shapes; the official client already reads ONLY these fields, so
+  // prefer them and treat the flat legacy fields above as fallback.
+  limit?: unknown;
+  reasoning?: unknown;
+  modalities?: unknown;
+  tools?: unknown;
 }
 
 function parseSupportsThinkingType(value: unknown): "only" | "no" | "both" | undefined {
@@ -221,28 +228,89 @@ function parseThinkEfforts(value: unknown): {
   };
 }
 
+// Unified `reasoning` object: { type: "only" | "both" | "none", effort: {
+// valid: [...], default } }. A missing object means the legacy flat fields
+// decide; a present object always wins (type "none" clears a stale thinking
+// default, matching upstream's three-state mapping to internal "no").
+function parseUnifiedReasoning(value: unknown): {
+  readonly matched: boolean;
+  readonly supportsThinkingType?: "only" | "no" | "both";
+  readonly supportsReasoning?: boolean;
+  readonly supportEfforts?: string[];
+  readonly defaultEffort?: string;
+} {
+  if (!isRecord(value)) return { matched: false };
+  const rawType = value.type;
+  const supportsThinkingType =
+    rawType === "only" || rawType === "both" ? rawType : rawType === "none" ? "no" : undefined;
+  const effort = isRecord(value.effort) ? value.effort : undefined;
+  const supportEfforts = Array.isArray(effort?.valid)
+    ? effort.valid.filter((e): e is string => typeof e === "string" && !!e)
+    : undefined;
+  const rawDefault =
+    typeof effort?.default === "string" && effort.default ? effort.default : undefined;
+  // A default not listed in valid is dropped, same as upstream.
+  const defaultEffort =
+    rawDefault && supportEfforts && !supportEfforts.includes(rawDefault) ? undefined : rawDefault;
+  return {
+    matched: true,
+    ...(supportsThinkingType ? { supportsThinkingType } : {}),
+    supportsReasoning: supportsThinkingType !== undefined && supportsThinkingType !== "no",
+    ...(supportEfforts && supportEfforts.length > 0 ? { supportEfforts } : {}),
+    ...(defaultEffort ? { defaultEffort } : {}),
+  };
+}
+
+function parseInputModalities(value: unknown): {
+  supportsImageIn?: boolean;
+  supportsVideoIn?: boolean;
+} {
+  if (!isRecord(value) || !Array.isArray(value.input)) return {};
+  const input = value.input;
+  return {
+    supportsImageIn: input.includes("image"),
+    supportsVideoIn: input.includes("video"),
+  };
+}
+
 function parseKimiModelMetadata(model: KimiServerModel): KimiModelMetadata | undefined {
   if (typeof model.id !== "string" || !model.id) return undefined;
   const metadata: KimiModelMetadata = { wireModelId: model.id };
   if (typeof model.display_name === "string") metadata.modelDisplay = model.display_name;
-  if (typeof model.context_length === "number" && model.context_length > 0) {
+  // Unified limit.context wins over legacy context_length.
+  const limit = isRecord(model.limit) ? model.limit : undefined;
+  if (typeof limit?.context === "number" && limit.context > 0) {
+    metadata.contextLength = limit.context;
+  } else if (typeof model.context_length === "number" && model.context_length > 0) {
     metadata.contextLength = model.context_length;
   }
-  const thinkingType = parseSupportsThinkingType(model.supports_thinking_type);
-  if (thinkingType) {
-    metadata.supportsThinkingType = thinkingType;
-  } else if (typeof model.supports_reasoning === "boolean") {
-    metadata.supportsReasoning = model.supports_reasoning;
+  const unifiedReasoning = parseUnifiedReasoning(model.reasoning);
+  if (unifiedReasoning.matched) {
+    const { matched: _, ...fields } = unifiedReasoning;
+    Object.assign(metadata, fields);
+  } else {
+    const thinkingType = parseSupportsThinkingType(model.supports_thinking_type);
+    if (thinkingType) {
+      metadata.supportsThinkingType = thinkingType;
+    } else if (typeof model.supports_reasoning === "boolean") {
+      metadata.supportsReasoning = model.supports_reasoning;
+    }
+    Object.assign(metadata, parseThinkEfforts(model.think_efforts));
   }
-  if (typeof model.supports_image_in === "boolean") {
-    metadata.supportsImageIn = model.supports_image_in;
-  }
-  if (typeof model.supports_video_in === "boolean") {
-    metadata.supportsVideoIn = model.supports_video_in;
+  const modalities = parseInputModalities(model.modalities);
+  if (modalities.supportsImageIn !== undefined) {
+    metadata.supportsImageIn = modalities.supportsImageIn;
+    metadata.supportsVideoIn = modalities.supportsVideoIn;
+  } else {
+    if (typeof model.supports_image_in === "boolean") {
+      metadata.supportsImageIn = model.supports_image_in;
+    }
+    if (typeof model.supports_video_in === "boolean") {
+      metadata.supportsVideoIn = model.supports_video_in;
+    }
   }
   const protocol = parseKimiCatalogProtocol(model.protocol);
   if (protocol) metadata.protocol = protocol;
-  Object.assign(metadata, parseThinkEfforts(model.think_efforts));
   return metadata;
 }
 

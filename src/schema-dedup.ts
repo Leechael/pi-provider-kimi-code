@@ -1,5 +1,13 @@
 // Tool schema deduplication: extract repeated sub-schemas into $defs/$ref
 // to stay under Moonshot's ~15 KB per-tool function.parameters limit.
+//
+// Known risk (upstream kimi-code #4489-era): the official client does the
+// OPPOSITE for its Anthropic-protocol path — it fully dereferences $ref
+// (normalizeKimiToolSchema) because Anthropic-style serving stacks do not
+// resolve $defs. No managed Kimi model declares `protocol: "anthropic"` in
+// /models yet (verified 2026-11), so dedup is safe on the OpenAI-compatible
+// path this extension uses today. If a managed model ever ships with the
+// anthropic protocol, gate this dedup off for that protocol.
 
 import { createHash } from "node:crypto";
 
