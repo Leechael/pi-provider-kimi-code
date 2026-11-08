@@ -604,6 +604,35 @@ describe("device authorization", () => {
     assert.equal(auth.verification_uri_complete, "https://auth.example.com/device");
   });
 
+  it("rejects verification URLs that are not http(s)", async () => {
+    mock = mockFetch(() =>
+      jsonResponse({
+        user_code: "ABCD-EFGH",
+        device_code: "device-1",
+        verification_uri: "file:///etc/passwd",
+        verification_uri_complete: "file:///etc/passwd?user_code=ABCD-EFGH",
+        expires_in: 600,
+        interval: 5,
+      }),
+    );
+
+    await assert.rejects(requestDeviceAuthorization(), /non-web verification URL/);
+  });
+
+  it("rejects unparseable verification URLs", async () => {
+    mock = mockFetch(() =>
+      jsonResponse({
+        user_code: "ABCD-EFGH",
+        device_code: "device-1",
+        verification_uri: "not a url at all:::",
+        expires_in: 600,
+        interval: 5,
+      }),
+    );
+
+    await assert.rejects(requestDeviceAuthorization(), /invalid verification URL/);
+  });
+
   it("treats slow_down as a polling state", async () => {
     mock = mockFetch(() => jsonResponse({ error: "slow_down" }, 400));
 

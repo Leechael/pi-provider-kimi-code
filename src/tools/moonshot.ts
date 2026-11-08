@@ -1,5 +1,5 @@
 import { defineTool, type AgentToolResult } from "@earendil-works/pi-coding-agent";
-import { Type, type Static } from "@earendil-works/pi-ai";
+import { obj, str, type Static } from "@earendil-works/pi-schema";
 
 import {
   type BuildKimiToolOptions,
@@ -15,12 +15,12 @@ import {
   textComponent,
 } from "./common.ts";
 
-export const moonshotSearchSchema = Type.Object({
-  query: Type.String({ description: "The query text to search for." }),
+export const moonshotSearchSchema = obj({
+  query: str({ description: "The query text to search for." }),
 });
 
-export const moonshotFetchSchema = Type.Object({
-  url: Type.String({ description: "The URL to fetch content from." }),
+export const moonshotFetchSchema = obj({
+  url: str({ description: "The URL to fetch content from." }),
 });
 
 export type MoonshotSearchParams = Static<typeof moonshotSearchSchema>;
@@ -119,7 +119,7 @@ export function buildMoonshotSearchTool(options: BuildKimiToolOptions = {}) {
       "Search the web with Kimi Coding, then fetch the few relevant result URLs before answering",
     parameters: moonshotSearchSchema,
 
-    async execute(toolCallId, params, signal) {
+    async execute(toolCallId, params: MoonshotSearchParams, signal) {
       const accessToken = deps.getAccessToken();
       if (!accessToken) {
         return errorResult<MoonshotSearchResult[]>(
@@ -176,7 +176,7 @@ export function buildMoonshotFetchTool(options: BuildKimiToolOptions = {}) {
     promptSnippet: "Fetch a web page with Kimi Coding's Moonshot fetch service",
     parameters: moonshotFetchSchema,
 
-    async execute(toolCallId, params, signal) {
+    async execute(toolCallId, params: MoonshotFetchParams, signal) {
       const accessToken = deps.getAccessToken();
       if (!accessToken) {
         return errorResult<MoonshotFetchResult>(

@@ -173,10 +173,16 @@ jobs:
           echo "version=$version" >> "$GITHUB_OUTPUT"
           echo "tag=$tag" >> "$GITHUB_OUTPUT"
 
-      - name: Update package.json and constants version
+      - name: Update package.json, constants version, and changelog
         run: |
           npm version '${{ steps.version.outputs.version }}' --no-git-tag-version
           sed -i 's/^export const PROVIDER_VERSION = ".*";$/export const PROVIDER_VERSION = "${{ steps.version.outputs.version }}";/' src/constants.ts
+          # Stamp the changelog's [Unreleased] section with the release version
+          # and date so pi's extension-update notes can match it to package.json.
+          if [ -f CHANGELOG.md ] && grep -q '^## \[Unreleased\]$' CHANGELOG.md; then
+            sed -i 's/^## \[Unreleased\]$/## [${{ steps.version.outputs.version }}] - '$(date +%F)'/' CHANGELOG.md
+            git add CHANGELOG.md
+          fi
           git add package.json src/constants.ts
           git commit -m "chore: release ${{ steps.version.outputs.tag }}"
           git push origin HEAD:${{ env.SOURCE_REF }}
