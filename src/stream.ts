@@ -36,6 +36,8 @@ const piAiRuntime = piAi as unknown as {
   streamSimpleAnthropic?: KimiStreamSimple;
   streamSimpleOpenAICompletions?: KimiStreamSimple;
   streamSimpleOpenAIResponses?: KimiStreamSimple;
+  streamSimple?: KimiStreamSimple;
+  isBuiltinApi?: (api: Api) => boolean;
   lazyApi?: (load: () => Promise<object>) => { streamSimple: KimiStreamSimple };
 };
 
@@ -54,19 +56,26 @@ function lazyStreamSimple(load: () => Promise<object>): KimiStreamSimple | undef
   return piAiRuntime.lazyApi?.(load)?.streamSimple;
 }
 
+// omp exports the generic dispatcher from pi-ai's root and identifies it with
+// isBuiltinApi. Prefer it there because the legacy per-API subpaths moved.
+const ompStreamSimple = piAiRuntime.isBuiltinApi ? piAiRuntime.streamSimple : undefined;
+
 // Not readonly: tests swap entries to simulate runtimes missing an API.
 const streamSimpleImpls: Record<KimiWireProtocol, KimiStreamSimple | undefined> = {
   openai:
     piAiRuntime.openAICompletionsApi?.().streamSimple ??
     piAiRuntime.streamSimpleOpenAICompletions ??
+    ompStreamSimple ??
     lazyStreamSimple(() => import(openAICompletionsModule)),
   anthropic:
     piAiRuntime.anthropicMessagesApi?.().streamSimple ??
     piAiRuntime.streamSimpleAnthropic ??
+    ompStreamSimple ??
     lazyStreamSimple(() => import(anthropicMessagesModule)),
   responses:
     piAiRuntime.openAIResponsesApi?.().streamSimple ??
     piAiRuntime.streamSimpleOpenAIResponses ??
+    ompStreamSimple ??
     lazyStreamSimple(() => import(openAIResponsesModule)),
 };
 import {

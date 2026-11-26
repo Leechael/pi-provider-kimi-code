@@ -11,10 +11,8 @@ import type {
   ExtensionCommandContext,
   ProviderConfig,
   RegisteredCommand,
-  Theme,
   ToolDefinition,
 } from "@earendil-works/pi-coding-agent";
-import { SettingsList } from "@earendil-works/pi-tui";
 import {
   DEFAULT_KIMI_CODE_CONFIG,
   KIMI_TOOL_NAMES,
@@ -207,52 +205,39 @@ async function captureConsoleErrors(fn: () => Promise<void>): Promise<string[]> 
   return messages;
 }
 
-function mockTheme(): Theme {
-  return {
-    fg: (_color: string, text: string) => text,
-    bold: (text: string) => text,
-  } as unknown as Theme;
-}
-
-type TestSettingItem = {
-  id: string;
-  label?: string;
-  currentValue: string;
-  values?: string[];
-  submenu?: (currentValue: string, done: (selectedValue?: string) => void) => SettingsList;
+type SettingsDialog = {
+  kind: "select" | "input";
+  title: string;
+  options: string[];
 };
 
-type SettingsOperation = (list: SettingsList, done: () => void) => void;
+type SettingsDialogOperation = (dialog: SettingsDialog) => string | undefined;
 
 async function runSettingsHandler(
   handler: (args: string, ctx: ExtensionCommandContext) => Promise<void>,
   ctx: ExtensionCommandContext,
-  operation: SettingsOperation,
-): Promise<void> {
-  const customCtx = {
+  operation: SettingsDialogOperation = () => undefined,
+): Promise<SettingsDialog[]> {
+  const dialogs: SettingsDialog[] = [];
+  const dialogCtx = {
     ...ctx,
     ui: {
       ...ctx.ui,
-      custom: async (
-        factory: (tui: unknown, theme: Theme, keybindings: unknown, done: () => void) => unknown,
-      ) => {
-        let resolveCustom: (() => void) | undefined;
-        let doneCalled = false;
-        const done = () => {
-          doneCalled = true;
-          if (resolveCustom) resolveCustom();
-        };
-        const component = factory(undefined, mockTheme(), undefined, done);
-        operation(component as SettingsList, done);
-        return new Promise<void>((resolve) => {
-          resolveCustom = resolve;
-          if (doneCalled) resolve();
-        });
+      select: async (title: string, options: string[]) => {
+        const dialog = { kind: "select" as const, title, options };
+        dialogs.push(dialog);
+        return operation(dialog);
+      },
+      input: async (title: string) => {
+        const dialog = { kind: "input" as const, title, options: [] };
+        dialogs.push(dialog);
+        return operation(dialog);
       },
     },
   } as unknown as ExtensionCommandContext;
 
-  await handler("", customCtx);
+  await handler("", dialogCtx);
+  return dialogs;
 }
 
 describe("extension tool registration", () => {
@@ -1027,16 +1012,12 @@ describe("extension tool registration", () => {
 
       const kimiCommand = commands.get("kimi-settings");
       assert.ok(kimiCommand);
-      await runSettingsHandler(
-        kimiCommand.handler,
-        {
-          cwd,
-          mode: "tui",
-          ui: { notify: () => {} },
-          reload: async () => {},
-        } as unknown as ExtensionCommandContext,
-        (_list, done) => done(),
-      );
+      await runSettingsHandler(kimiCommand.handler, {
+        cwd,
+        mode: "tui",
+        ui: { notify: () => {} },
+        reload: async () => {},
+      } as unknown as ExtensionCommandContext);
 
       const allegrettoModels = [
         ["kimi-for-coding", 262144],
@@ -1050,16 +1031,12 @@ describe("extension tool registration", () => {
         allegrettoModels,
       );
 
-      await runSettingsHandler(
-        kimiCommand.handler,
-        {
-          cwd,
-          mode: "tui",
-          ui: { notify: () => {} },
-          reload: async () => {},
-        } as unknown as ExtensionCommandContext,
-        (_list, done) => done(),
-      );
+      await runSettingsHandler(kimiCommand.handler, {
+        cwd,
+        mode: "tui",
+        ui: { notify: () => {} },
+        reload: async () => {},
+      } as unknown as ExtensionCommandContext);
       assert.deepEqual(
         providerConfigs
           .get("kimi-coding")
@@ -1106,16 +1083,12 @@ describe("extension tool registration", () => {
       await withCwd(cwd, () => loadKimiExtension(pi));
       const kimiCommand = commands.get("kimi-settings");
       assert.ok(kimiCommand);
-      await runSettingsHandler(
-        kimiCommand.handler,
-        {
-          cwd,
-          mode: "tui",
-          ui: { notify: () => {} },
-          reload: async () => {},
-        } as unknown as ExtensionCommandContext,
-        (_list, done) => done(),
-      );
+      await runSettingsHandler(kimiCommand.handler, {
+        cwd,
+        mode: "tui",
+        ui: { notify: () => {} },
+        reload: async () => {},
+      } as unknown as ExtensionCommandContext);
 
       assert.equal(modelRequests, 2);
       assert.deepEqual(
@@ -1341,9 +1314,7 @@ describe("extension tool registration", () => {
       const kimiCommand = commands.get("kimi-settings");
       assert.ok(kimiCommand);
 
-      let items: TestSettingItem[] = [];
-      let rendered = "";
-      await runSettingsHandler(
+      const dialogs = await runSettingsHandler(
         kimiCommand.handler,
         {
           cwd,
@@ -1351,52 +1322,26 @@ describe("extension tool registration", () => {
           ui: { notify: () => {} },
           reload: async () => {},
         } as unknown as ExtensionCommandContext,
-        (list, done) => {
-          items = (list as unknown as { items: TestSettingItem[] }).items;
-          rendered = list.render(80).join("\n");
-          done();
-        },
+        () => "Done",
       );
 
+      const mainDialog = dialogs[0];
+      assert.ok(mainDialog);
       assert.match(
-        rendered,
-        /^Kimi settings \(provider v\d+\.\d+\.\d+\)\n\nKimi account\n  tester\n\nKimi usage\n  Current week\n\s+0% used/m,
+        mainDialog.title,
+        /^Kimi settings \(provider v\d+\.\d+\.\d+\)\n\nKimi account\ntester\n\nKimi usage\nCurrent week\n\s+0% used/m,
       );
-      assert.deepEqual(
-        items
-          .filter(
-            (i) =>
-              i.id === "moonshot_search" || i.id === "moonshot_fetch" || i.id === "kimi_datasource",
-          )
-          .map((i) => [i.id, i.label]),
-        [
-          ["moonshot_search", "Search tool"],
-          ["moonshot_fetch", "Fetch tool"],
-          ["kimi_datasource", "Real-world data API"],
-        ],
-      );
-      assert.equal(
-        items.find((i) => i.id === "moonshot_search")?.currentValue,
-        "enabled without preview",
-      );
-      assert.equal(items.find((i) => i.id === "kimi_datasource")?.currentValue, "disabled");
-      assert.equal(items.find((i) => i.id === "scope")?.currentValue, "project");
-      assert.equal(
-        items.some((i) => i.id === "moonshot_search:enabled"),
-        false,
-      );
-
-      const moonshotSearch = items.find((i) => i.id === "moonshot_search");
-      assert.ok(moonshotSearch?.submenu);
-      const submenu = moonshotSearch.submenu(moonshotSearch.currentValue, () => {});
-      const submenuItems = (submenu as unknown as { items: TestSettingItem[] }).items;
-      assert.deepEqual(
-        submenuItems.map((i) => [i.id, i.label, i.currentValue]),
-        [
-          ["moonshot_search:enabled", "Enabled", "true"],
-          ["moonshot_search:collapsed", "Show preview", "false"],
-        ],
-      );
+      assert.deepEqual(mainDialog.options, [
+        "Config scope: project",
+        "Search tool: enabled without preview",
+        "Fetch tool: disabled",
+        "Real-world data API: disabled",
+        "Protocol: openai",
+        "Region: auto",
+        "Keep thinking: all",
+        "Upload threshold: 1 MiB",
+        "Done",
+      ]);
     } finally {
       globalThis.fetch = originalFetch;
       if (originalKimiApiKey === undefined) {
@@ -1444,8 +1389,7 @@ describe("extension tool registration", () => {
       const kimiCommand = commands.get("kimi-settings");
       assert.ok(kimiCommand);
 
-      let items: TestSettingItem[] = [];
-      await runSettingsHandler(
+      const dialogs = await runSettingsHandler(
         kimiCommand.handler,
         {
           cwd,
@@ -1454,15 +1398,16 @@ describe("extension tool registration", () => {
           ui: { notify: () => {} },
           reload: async () => {},
         } as unknown as ExtensionCommandContext,
-        (list, done) => {
-          items = (list as unknown as { items: TestSettingItem[] }).items;
-          done();
-        },
+        () => "Done",
       );
 
-      const scopeItem = items.find((i) => i.id === "scope");
-      assert.deepEqual(scopeItem?.values, ["home"]);
-      assert.equal(items.find((i) => i.id === "moonshot_search")?.currentValue, "disabled");
+      const mainDialog = dialogs[0];
+      assert.ok(mainDialog);
+      assert.equal(
+        mainDialog.options.some((option) => option.startsWith("Config scope:")),
+        false,
+      );
+      assert.ok(mainDialog.options.includes("Search tool: disabled"));
     } finally {
       globalThis.fetch = originalFetch;
       process.chdir(originalCwd);
@@ -1536,8 +1481,7 @@ describe("extension tool registration", () => {
       const kimiCommand = commands.get("kimi-settings");
       assert.ok(kimiCommand);
 
-      let rendered = "";
-      await runSettingsHandler(
+      const dialogs = await runSettingsHandler(
         kimiCommand.handler,
         {
           cwd,
@@ -1549,13 +1493,10 @@ describe("extension tool registration", () => {
           },
           reload: async () => {},
         } as unknown as ExtensionCommandContext,
-        (list, done) => {
-          rendered = list.render(80).join("\n");
-          done();
-        },
+        () => "Done",
       );
 
-      assert.match(rendered, /Current week\n  ▌\s+1% used/);
+      assert.match(dialogs[0]?.title ?? "", /Current week\n▌\s+1% used/);
     } finally {
       globalThis.fetch = originalFetch;
       if (originalKimiApiKey === undefined) {
@@ -1599,6 +1540,7 @@ describe("extension tool registration", () => {
       const kimiCommand = commands.get("kimi-settings");
       assert.ok(kimiCommand);
 
+      let menuStep = 0;
       await runSettingsHandler(
         kimiCommand.handler,
         {
@@ -1611,12 +1553,17 @@ describe("extension tool registration", () => {
           },
           reload: async () => {},
         } as unknown as ExtensionCommandContext,
-        (list, done) => {
-          const onChange = (list as unknown as { onChange: (id: string, value: string) => void })
-            .onChange;
-          onChange("protocol", "anthropic");
-          onChange("uploadThreshold", "2 MiB");
-          done();
+        (dialog) => {
+          if (dialog.kind === "input") return "2 MiB";
+          if (dialog.title === "API protocol") return "anthropic";
+          if (dialog.title.startsWith("Kimi settings")) {
+            const step = menuStep++;
+            if (step === 0) return dialog.options.find((option) => option.startsWith("Protocol:"));
+            if (step === 1) {
+              return dialog.options.find((option) => option.startsWith("Upload threshold:"));
+            }
+          }
+          return "Done";
         },
       );
     } finally {
@@ -1671,6 +1618,7 @@ describe("extension tool registration", () => {
       const kimiCommand = commands.get("kimi-settings");
       assert.ok(kimiCommand);
 
+      let menuStep = 0;
       await runSettingsHandler(
         kimiCommand.handler,
         {
@@ -1679,12 +1627,17 @@ describe("extension tool registration", () => {
           ui: { notify: () => {} },
           reload: async () => {},
         } as unknown as ExtensionCommandContext,
-        (list, done) => {
-          const onChange = (list as unknown as { onChange: (id: string, value: string) => void })
-            .onChange;
-          onChange("scope", "home");
-          onChange("protocol", "anthropic");
-          done();
+        (dialog) => {
+          if (dialog.title === "Config scope") return "home";
+          if (dialog.title === "API protocol") return "anthropic";
+          if (dialog.title.startsWith("Kimi settings")) {
+            const step = menuStep++;
+            if (step === 0) {
+              return dialog.options.find((option) => option.startsWith("Config scope:"));
+            }
+            if (step === 1) return dialog.options.find((option) => option.startsWith("Protocol:"));
+          }
+          return "Done";
         },
       );
     } finally {
@@ -1733,6 +1686,7 @@ describe("extension tool registration", () => {
       const kimiCommand = commands.get("kimi-settings");
       assert.ok(kimiCommand);
 
+      let menuStep = 0;
       await runSettingsHandler(
         kimiCommand.handler,
         {
@@ -1745,12 +1699,19 @@ describe("extension tool registration", () => {
           },
           reload: async () => {},
         } as unknown as ExtensionCommandContext,
-        (list, done) => {
-          const onChange = (list as unknown as { onChange: (id: string, value: string) => void })
-            .onChange;
-          onChange("moonshot_search:enabled", "true");
-          onChange("moonshot_fetch:collapsed", "true");
-          done();
+        (dialog) => {
+          if (dialog.title.startsWith("Search tool:")) return "Enabled";
+          if (dialog.title.startsWith("Enable moonshot_search")) return "true";
+          if (dialog.title.startsWith("Fetch tool:")) return "Show preview";
+          if (dialog.title.startsWith("Show moonshot_fetch previews")) return "true";
+          if (dialog.title.startsWith("Kimi settings")) {
+            const step = menuStep++;
+            if (step === 0)
+              return dialog.options.find((option) => option.startsWith("Search tool:"));
+            if (step === 1)
+              return dialog.options.find((option) => option.startsWith("Fetch tool:"));
+          }
+          return "Done";
         },
       );
     } finally {

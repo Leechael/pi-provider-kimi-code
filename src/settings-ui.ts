@@ -1,8 +1,5 @@
 import os from "node:os";
 import { relative } from "node:path";
-import type { Theme } from "@earendil-works/pi-coding-agent";
-import type { SettingsListTheme } from "@earendil-works/pi-tui";
-
 import {
   type KimiCodeConfig,
   type KimiCodeConfigSources,
@@ -113,17 +110,6 @@ export function buildConfigScopeTitle(
     "",
     moonshotStatus(config),
   ].join("\n");
-}
-
-export function buildSettingsTheme(theme: Theme): SettingsListTheme {
-  return {
-    label: (text: string, selected: boolean) => (selected ? theme.fg("accent", text) : text),
-    value: (text: string, selected: boolean) =>
-      selected ? theme.bold(theme.fg("accent", text)) : theme.fg("muted", text),
-    description: (text: string) => theme.fg("dim", text),
-    cursor: theme.fg("accent", "> "),
-    hint: (text: string) => theme.fg("dim", text),
-  };
 }
 
 export function formatScopeDescription(
