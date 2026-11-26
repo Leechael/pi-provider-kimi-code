@@ -10,7 +10,6 @@ import { PROVIDER_VERSION } from "../src/constants.ts";
 import {
   buildConfigScopeTitle,
   buildKimiMainTitle,
-  buildSettingsTheme,
   formatByteSize,
   formatProtocolStatus,
   formatRegionStatus,
@@ -190,34 +189,7 @@ describe("settings config mutators", () => {
   });
 });
 
-describe("SettingsList helpers", () => {
-  it("builds a theme that delegates to the supplied theme", () => {
-    const calls: string[] = [];
-    const theme = {
-      fg: (color: string, text: string) => {
-        calls.push(`fg:${color}:${text}`);
-        return text;
-      },
-      bold: (text: string) => `bold:${text}`,
-    } as unknown as import("@earendil-works/pi-coding-agent").Theme;
-
-    const settingsTheme = buildSettingsTheme(theme);
-    assert.equal(settingsTheme.label("hello", false), "hello");
-    assert.equal(settingsTheme.label("hello", true), "hello");
-    assert.equal(settingsTheme.value("world", false), "world");
-    assert.equal(settingsTheme.value("world", true), "bold:world");
-    assert.equal(settingsTheme.description("desc"), "desc");
-    assert.equal(settingsTheme.hint("hint"), "hint");
-    assert.deepEqual(calls, [
-      "fg:accent:> ",
-      "fg:accent:hello",
-      "fg:muted:world",
-      "fg:accent:world",
-      "fg:dim:desc",
-      "fg:dim:hint",
-    ]);
-  });
-
+describe("settings scope helpers", () => {
   it("formats scope description with the config file path", () => {
     assert.equal(
       formatScopeDescription("home", "/tmp/project", "/tmp/home"),

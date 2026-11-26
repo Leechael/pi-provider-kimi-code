@@ -1,5 +1,11 @@
 # Changelog
 
+## [Unreleased]
+
+### Added
+
+- Oh My Pi (omp) 19+ support. `/kimi-settings` now uses the portable selector and input dialogs shared by Pi and omp, and tool renderers use host-neutral ANSI text utilities instead of the removed legacy TUI component API.
+
 ## [0.6.14] - 2026-11-15
 
 ### Changed

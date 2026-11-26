@@ -1,5 +1,5 @@
 import type { AgentToolResult } from "@earendil-works/pi-coding-agent";
-import { truncateToWidth } from "@earendil-works/pi-tui";
+import { truncateToWidth } from "../text-width.ts";
 
 import { PROVIDER_ID, getBaseUrl, normalizeKimiBaseV1 } from "../constants.ts";
 import { getKimiProviderHeaders } from "../device.ts";
